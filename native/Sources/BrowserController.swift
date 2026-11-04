@@ -674,6 +674,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let addButton = AddMenuButton(frame:.zero)
     private var addMenu: AddMenuPopover?
     private let resizeStrip = ResizeStrip()
+    private let sidebarItems = SidebarPeekContent(frame:.zero)
     private let recentPeek = RecentMediaPeek(frame:.zero)
     private var recentPeekVisible = false
     private var recentPeekTask: DispatchWorkItem?
@@ -893,7 +894,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         privateBadge.font = .systemFont(ofSize:11,weight:.semibold)
         classicHeader.addSubview(privateBadge)
         root.addSubview(sidebarHost)
-        for view in [toolbar, addressBackground, favoritesHint, favorites, rowsScroll, spacesFooter] { sidebarHost.addSubview(view) }
+        sidebarHost.addSubview(sidebarItems)
+        for view in [toolbar, addressBackground, favoritesHint, favorites, rowsScroll] { sidebarItems.addSubview(view) }
+        sidebarHost.addSubview(spacesFooter)
         // Root-level hit surface spans both sides of the seam, above Chromium.
         root.addSubview(resizeStrip)
         home.search = { [weak self] in
@@ -953,7 +956,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         root.addSubview(findField); root.addSubview(findClose)
         spaceButton = SpaceHeaderButton() { [weak self] in self?.toggleSpaceFolders() }; spaceButton.font = .systemFont(ofSize: 14, weight: .semibold); spaceButton.alignment = .left
         folderButton = ActionButton(t("newFolder"), symbol: "folder.badge.plus") { [weak self] in self?.newFolder() }; folderButton.title = ""
-        sidebarHost.addSubview(spaceButton); sidebarHost.addSubview(folderButton)
+        sidebarItems.addSubview(spaceButton); sidebarItems.addSubview(folderButton)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sidebar")); column.resizingMask = .autoresizingMask; table.addTableColumn(column)
         table.style = .plain; table.headerView = nil; table.rowHeight = 36; table.intercellSpacing = NSSize(width: 0, height: 2); table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.backgroundColor = .clear; table.selectionHighlightStyle = .none; table.focusRingType = .none
@@ -1053,7 +1056,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let navigationInSidebar = !classic || !session.sidebarHidden
         let barHost = navigationInSidebar ? toolbar : classicHeader
         for button in [backButton!,forwardButton!,reloadButton!] as [NSView] { host(button,in:barHost) }
-        host(addressBackground,in:classic ? classicHeader : sidebarHost)
+        host(addressBackground,in:classic ? classicHeader : sidebarItems)
         host(sidebarButton,in:classic && !sidebarShown ? classicHeader : toolbar)
         toolbar.frame = NSRect(x:0,y:0,width:max(230,side),height:42)
         // Permanent sidebars use the very same controls and coordinates in both layouts.
@@ -1134,6 +1137,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
         let height = root.bounds.height - (floating ? 10 : 0)
         layoutSidebarPresentation()
+        sidebarItems.frame = sidebarHost.bounds
         sidebarTint.frame = root.bounds
         layoutNavigation(side:side)
         content.frame = browsingFrame(side:side,floating:floating)
@@ -1406,7 +1410,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let inside = !sidebarHost.isHidden && sidebarHost.bounds.contains(sidebarHost.convert(location,from:nil))
         let inFooter = inside && spacesFooter.frame.contains(sidebarHost.convert(location,from:nil))
         let phase: SpaceSwipeState.Phase = event.phase.contains(.began) || event.phase.contains(.mayBegin) ? .began : event.phase.contains(.cancelled) ? .cancelled : event.phase.contains(.ended) ? .ended : event.phase.isEmpty ? .unphased : .changed
-        if inFooter || blocked || !inside || isQuitting {
+        let overDownloads = !recentPeek.isHidden && recentPeek.frame.contains(sidebarHost.convert(location,from:nil))
+        if inFooter || overDownloads || blocked || !inside || isQuitting {
             if swipeTarget != nil { finishSpaceSwitch() }
             _ = spaceSwipe.update(dx:0,dy:0,phase:phase,momentum:!event.momentumPhase.isEmpty,eligible:false,time:event.timestamp)
             return false
@@ -1460,7 +1465,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         discardSpaceSwipePreview()
         let top = spaceButton.frame.minY
         let region = NSRect(x:0,y:top,width:sidebarHost.bounds.width,height:max(1,spacesFooter.frame.minY-top))
-        let transition = SpaceSwitchTransition(host:sidebarHost,views:spaceSwitchViews,region:region,contentCopy:{ [weak self] in self?.copySpaceRows($0) })
+        let transition = SpaceSwitchTransition(host:sidebarItems,views:spaceSwitchViews,region:region,contentCopy:{ [weak self] in self?.copySpaceRows($0) })
         let original = session.activeSpaceID, scrollOrigin = rowsScroll.contentView.bounds.origin
         isRendering = true
         session.activeSpaceID = id
@@ -1511,6 +1516,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func layoutRecentPeek() {
         recentPeek.frame = NSRect(x:0,y:downloadButton.frame.minY-recentPeek.desiredHeight+3,width:sidebarHost.bounds.width,height:recentPeek.desiredHeight)
+        sidebarItems.setDownloadsEdge(recentPeek.frame.minY)
         recentPeek.layoutSubtreeIfNeeded(); recentPeek.layout()
     }
     private func updateDownloadIndicator() {
@@ -1519,7 +1525,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var peekShowsDownloads = false
     private func updateRecentPeekContents() {
         if !libraryStore.activeDownloads.isEmpty || libraryStore.unreadCount > 0 { peekShowsDownloads = true }
-        recentPeek.update(files:RecentLibraryFile.collect(media:libraryStore.media,downloads:libraryStore.downloads,excluding:libraryStore.hiddenRecents),downloads:peekShowsDownloads ? libraryStore.peekDownloads : [],theme:activeSpace?.theme ?? .solid(activeSpace?.color ?? palette[0]),dark:darkTheme,ink:sidebarInk,language:session.language,loading:libraryStore.loading)
+        recentPeek.update(files:RecentLibraryFile.collect(media:libraryStore.media,downloads:libraryStore.downloads,excluding:libraryStore.hiddenRecents),downloads:peekShowsDownloads ? libraryStore.peekDownloads : [],ink:sidebarInk,language:session.language,loading:libraryStore.loading)
         layoutRecentPeek()
     }
     private func updateRecentPeekHover() {
@@ -1537,6 +1543,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                 self.recentPeekVisible = true
                 self.libraryStore.changed = { [weak self] in if self?.recentPeekVisible == true { self?.updateRecentPeekContents() } }
                 self.updateRecentPeekContents(); self.libraryStore.startObserving()
+                self.sidebarItems.setDownloadsPresented(true)
                 self.recentPeek.setPresented(true)
                 (self.downloadButton as? FooterSpaceButton)?.animateLibraryPeek(true)
             } else { self.dismissRecentPeek() }
@@ -1547,6 +1554,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         recentPeekTask?.cancel(); recentPeekTask = nil; recentPeekPending = nil
         guard recentPeekVisible else { return }; recentPeekVisible = false
         libraryStore.changed = nil; libraryStore.stopObserving()
+        sidebarItems.setDownloadsPresented(false, animated:animated)
         recentPeek.setPresented(false,animated:animated)
         (downloadButton as? FooterSpaceButton)?.animateLibraryPeek(false)
     }
@@ -1803,7 +1811,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if animate && !sidebarHost.isHidden {
             let top = spaceButton.frame.minY
             let region = NSRect(x:0,y:top,width:sidebarHost.bounds.width,height:max(1,spacesFooter.frame.minY-top))
-            spaceSwitch = SpaceSwitchTransition(host:sidebarHost,views:spaceSwitchViews,region:region,contentCopy:{ [weak self] in self?.copySpaceRows($0) })
+            spaceSwitch = SpaceSwitchTransition(host:sidebarItems,views:spaceSwitchViews,region:region,contentCopy:{ [weak self] in self?.copySpaceRows($0) })
         }
         endFind(); session.activeSpaceID = id
         renderingSpaceSwitch = animate

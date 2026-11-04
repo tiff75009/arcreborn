@@ -94,8 +94,10 @@ final class DownloadCard: NSView {
             let animation = CABasicAnimation(keyPath:"bounds.size.width"); animation.fromValue = old; animation.toValue = fill.bounds.width; animation.duration = 0.22; fill.add(animation,forKey:"progress")
         }
     }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func mouseDown(with event:NSEvent) {}
     override func mouseUp(with event:NSEvent) {
-        guard let record, record.state == "complete", !record.path.isEmpty else { return }
+        guard bounds.contains(convert(event.locationInWindow,from:nil)), let record, record.state == "complete", !record.path.isEmpty else { return }
         seen?(record.id); open?(URL(fileURLWithPath:record.path))
     }
     override func updateTrackingAreas() {

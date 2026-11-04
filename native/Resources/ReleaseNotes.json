@@ -1,47 +1,36 @@
 {
-  "version": "0.5.1",
-  "build": 11,
+  "version": "0.5.2",
+  "build": 12,
   "showOnLaunch": false,
   "title": {
-    "fr": "Navigation et lecture vidéo",
-    "en": "Navigation and video playback"
+    "fr": "Les téléchargements dans la barre latérale",
+    "en": "Downloads in the sidebar"
   },
   "subtitle": {
-    "fr": "Une barre de chargement discrète, des extensions bien cadrées et une lecture vidéo plus complète.",
-    "en": "A subtle page loading indicator, better positioned extension popups, and wider video support."
+    "fr": "Les onglets s’estompent à l’ouverture du panneau des téléchargements et redeviennent accessibles à sa fermeture.",
+    "en": "Tabs fade as the downloads panel opens and become accessible again when it closes."
   },
   "highlights": [
     {
-      "symbol": "chart.line.flattrend.xyaxis",
+      "symbol": "cursorarrow.click",
       "title": {
-        "fr": "Le chargement en un coup d’œil",
-        "en": "Page progress at a glance"
+        "fr": "Des clics qui restent dans le panneau",
+        "en": "Clicks stay inside the panel"
       },
       "detail": {
-        "fr": "Le fond de la barre d’adresse se remplit dans la couleur de votre espace pendant le chargement. En mode Compact, quand la barre latérale est masquée, un trait fin prend le relais en haut de la page.",
-        "en": "The address field fills with your Space color as the page loads. In Compact mode with the sidebar hidden, a thin line appears along the top of the page."
+        "fr": "Un clic sur le nom d’un fichier ouvre Coup d’œil. Les espaces entre les fichiers et l’animation de fermeture ne laissent plus passer de clic vers les onglets.",
+        "en": "Click a file name to open Quick Look. Clicking between files or while the panel closes no longer activates a tab behind it."
       }
     },
     {
-      "symbol": "play.rectangle",
+      "symbol": "sidebar.left",
       "title": {
-        "fr": "Lecture des vidéos sur X",
-        "en": "Video playback on X"
+        "fr": "Un fondu dans la couleur de l’espace",
+        "en": "A fade that matches your Space"
       },
       "detail": {
-        "fr": "Les vidéos de X en H.264 avec audio AAC se lisent dans la page. Arc Reborn prend aussi en charge la lecture HEVC (H.265) via macOS.",
-        "en": "X videos with H.264 video and AAC audio now play in the page. Arc Reborn can also play HEVC (H.265) through macOS."
-      }
-    },
-    {
-      "symbol": "puzzlepiece.extension",
-      "title": {
-        "fr": "Des extensions qui restent dans l’écran",
-        "en": "Extension popups stay on screen"
-      },
-      "detail": {
-        "fr": "Depuis la barre Classique, les panneaux de Proton Pass et d’uBlock Origin Lite s’ouvrent vers l’intérieur de la fenêtre et conservent leur largeur.",
-        "en": "In the Classic toolbar, Proton Pass and uBlock Origin Lite now open toward the window and keep their full width."
+        "fr": "Les onglets disparaissent progressivement derrière les téléchargements. Les noms des fichiers et leurs commandes restent nets.",
+        "en": "Tabs fade out behind downloads while file names and controls stay sharp."
       }
     }
   ]
