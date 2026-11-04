@@ -1,0 +1,84 @@
+import Foundation
+import CryptoKit
+
+enum ArcSyncCodec {
+    struct Payload: Codable { let format: Int; let owner: String; let session: BrowserSession }
+    static let maximumPlaintextBytes = 5 * 1024 * 1024
+    static func newKey() -> Data { SymmetricKey(size:.bits256).withUnsafeBytes { Data($0) } }
+    static func recoveryCode(_ key:Data) -> String {
+        let text = key.map { String(format:"%02X",$0) }.joined()
+        return "AR1-" + stride(from:0,to:text.count,by:8).map { offset in
+            let start = text.index(text.startIndex,offsetBy:offset)
+            return String(text[start..<text.index(start,offsetBy:8)])
+        }.joined(separator:"-")
+    }
+    static func key(from code:String) throws -> Data {
+        let raw = code.uppercased().filter { !$0.isWhitespace }
+        guard raw.hasPrefix("AR1-") else { throw ArcAccount.Failure.message("Le code doit commencer par AR1-.") }
+        let hex = String(raw.dropFirst(4)).replacingOccurrences(of:"-",with:"")
+        guard hex.count == 64, hex.allSatisfy({ $0.isHexDigit && $0.isASCII }) else { throw ArcAccount.Failure.message("Le code de récupération est incomplet.") }
+        var data = Data()
+        for offset in stride(from:0,to:64,by:2) {
+            let start = hex.index(hex.startIndex,offsetBy:offset)
+            guard let byte = UInt8(hex[start..<hex.index(start,offsetBy:2)],radix:16) else { throw ArcAccount.Failure.message("Code invalide.") }
+            data.append(byte)
+        }
+        return data
+    }
+    static func canonical(_ session:BrowserSession) -> BrowserSession {
+        var result = session
+        result.cloudSyncState = nil
+        result.onboardingComplete = true
+        // Navigation selection and sidebar visibility belong to each device/window.
+        result.sidebarHidden = false
+        result.activeSpaceID = result.spaces.first?.id ?? result.activeSpaceID
+        for i in result.spaces.indices { result.spaces[i].selectedTabID = nil }
+        return result
+    }
+    static func encrypt(_ session:BrowserSession,key:Data,owner:String) throws -> String {
+        let state = canonical(session)
+        guard key.count == 32, state.validated(), !state.profiles.contains(where:{ $0.id.hasPrefix("private-") }) else { throw SessionStoreError.invalidState }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let bytes = try encoder.encode(Payload(format:1,owner:owner,session:state))
+        guard bytes.count <= maximumPlaintextBytes else { throw ArcAccount.Failure.message("Votre session est trop volumineuse pour être synchronisée. Elle reste enregistrée sur ce Mac.") }
+        let sealed = try AES.GCM.seal(bytes,using:SymmetricKey(data:key),authenticating:Data(("arc-reborn/sync/v1/"+owner).utf8))
+        return sealed.combined!.base64EncodedString()
+    }
+    static func decrypt(_ ciphertext:String,key:Data,owner:String) throws -> BrowserSession {
+        guard key.count == 32, ciphertext.utf8.count <= 8*1024*1024,
+              let bytes = Data(base64Encoded:ciphertext), bytes.count >= 28 else { throw SessionStoreError.invalidState }
+        let plaintext:Data
+        do { plaintext = try AES.GCM.open(AES.GCM.SealedBox(combined:bytes),using:SymmetricKey(data:key),authenticating:Data(("arc-reborn/sync/v1/"+owner).utf8)) }
+        catch { throw ArcAccount.Failure.message("Ce code ne permet pas de déchiffrer votre compte. Vos données locales sont conservées.") }
+        guard plaintext.count <= maximumPlaintextBytes else { throw SessionStoreError.oversizedFile }
+        let payload = try JSONDecoder().decode(Payload.self,from:plaintext)
+        guard payload.format == 1, payload.owner == owner, payload.session.validated(), payload.session.cloudSyncState == nil,
+              !payload.session.profiles.contains(where: { $0.id.hasPrefix("private-") }) else { throw SessionStoreError.invalidState }
+        return canonical(payload.session)
+    }
+    static func merge(local:BrowserSession,baseline:BrowserSession?,remote:BrowserSession) throws -> BrowserSession {
+        let local = canonical(local), remote = canonical(remote)
+        if let baseline { return canonical(try BrowserSession.merging(base:canonical(baseline),incoming:local,latest:remote)) }
+        // A fresh installation restores the existing workspace without adding an
+        // extra empty Personal space. A used installation merges by stable ID.
+        if local.profiles.count == 1 && local.spaces.count == 1 && local.folders.isEmpty && local.closedTabs.isEmpty
+            && local.tabs.allSatisfy({ $0.url == "about:blank" && !$0.pinned }) { return remote }
+        var empty = local
+        empty.profiles = []; empty.spaces = []; empty.tabs = []; empty.closedTabs = []; empty.folders = []; empty.splitGroups = nil
+        return canonical(try BrowserSession.merging(base:empty,incoming:local,latest:remote))
+    }
+    static func applying(_ merged:BrowserSession,to latest:BrowserSession,checkpointKey:String,checkpoint:NativeCloudCheckpoint) -> BrowserSession {
+        var result = merged
+        result.onboardingComplete = latest.onboardingComplete
+        result.sidebarHidden = latest.sidebarHidden
+        if result.spaces.contains(where: { $0.id == latest.activeSpaceID }) { result.activeSpaceID = latest.activeSpaceID }
+        for i in result.spaces.indices {
+            let localSelected = latest.spaces.first(where: { $0.id == result.spaces[i].id })?.selectedTabID
+            result.spaces[i].selectedTabID = result.tabs.first(where: { $0.id == localSelected && $0.spaceID == result.spaces[i].id })?.id
+                ?? result.tabs.first(where: { $0.spaceID == result.spaces[i].id })?.id
+        }
+        result.cloudSyncState = latest.cloudSyncState ?? [:]
+        result.cloudSyncState?[checkpointKey] = checkpoint
+        return result
+    }
+}

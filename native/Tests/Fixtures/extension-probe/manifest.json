@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Browser · Validation extensions",
+  "version": "1.0.0",
+  "description": "Extension locale de validation, limitée à example.com. Aucune transmission de données.",
+  "permissions": ["storage"],
+  "background": {"service_worker": "worker.js"},
+  "action": {"default_title": "Validation Browser", "default_popup": "popup.html"},
+  "content_scripts": [{"matches": ["https://example.com/*"], "js": ["content.js"]}]
+}

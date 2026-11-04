@@ -1,0 +1,58 @@
+{
+  "version": "0.4.0",
+  "build": 4,
+  "title": {
+    "fr": "Bienvenue dans Arc Reborn.",
+    "en": "Welcome to Arc Reborn."
+  },
+  "subtitle": {
+    "fr": "Un nouvel accueil pour installer votre navigateur et retrouver vos onglets.",
+    "en": "Set up your browser and bring your tabs with you."
+  },
+  "highlights": [
+    {
+      "symbol": "sparkles",
+      "title": {
+        "fr": "Un premier lancement en musique",
+        "en": "A musical welcome"
+      },
+      "detail": {
+        "fr": "Les rubans du logo se déploient au son de la musique d’accueil. Commencez quand vous voulez.",
+        "en": "The logo ribbons unfold to the welcome score. Get started whenever you are ready."
+      }
+    },
+    {
+      "symbol": "square.and.arrow.down",
+      "title": {
+        "fr": "Vos favoris et vos onglets",
+        "en": "Bring your bookmarks and tabs"
+      },
+      "detail": {
+        "fr": "Choisissez votre navigateur et son profil pour importer les données compatibles dans un nouvel espace.",
+        "en": "Choose a browser and profile to import supported data into a new space."
+      }
+    },
+    {
+      "symbol": "arrow.triangle.2.circlepath",
+      "title": {
+        "fr": "Vos espaces sur vos appareils",
+        "en": "Your spaces across devices"
+      },
+      "detail": {
+        "fr": "Un compte facultatif permet de synchroniser vos espaces, vos onglets et vos réglages.",
+        "en": "With an optional account, you can sync spaces, tabs and settings across devices."
+      }
+    },
+    {
+      "symbol": "arrow.down.circle",
+      "title": {
+        "fr": "Les mises à jour automatiques",
+        "en": "Automatic updates"
+      },
+      "detail": {
+        "fr": "Arc Reborn recherche les mises à jour signées et peut les installer à la fermeture.",
+        "en": "Arc Reborn checks for signed updates and can install them when you quit."
+      }
+    }
+  ]
+}

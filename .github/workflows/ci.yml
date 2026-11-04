@@ -1,0 +1,23 @@
+name: Native macOS
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate release metadata and source boundary
+        run: |
+          /usr/bin/python3 native/scripts/release.py check
+          /usr/bin/python3 native/scripts/public-source.py audit .
+      - name: Build with the pinned engine (no Apple account)
+        run: native/scripts/dev.sh --build-only
+      - name: State checks
+        run: native/scripts/check.sh

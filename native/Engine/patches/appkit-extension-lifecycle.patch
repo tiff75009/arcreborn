@@ -1,0 +1,186 @@
+--- a/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
++++ b/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
+@@ -6,6 +6,15 @@
+ 
+ #include <string>
+ #include <utility>
++
++// The embedder replaces only the success UI, after Chromium has validated
++// and installed the extension. A zero return preserves Chrome's default UI.
++using BrowserInstallNotice = int (*)(const char*, const char*, const char*);
++static BrowserInstallNotice browser_install_notice = nullptr;
++extern "C" __attribute__((visibility("default"))) void browser_set_extension_install_notice_v1(
++    BrowserInstallNotice callback) {
++  browser_install_notice = callback;
++}
+ 
+ #include "base/check.h"
+ #include "base/functional/bind.h"
+@@ -130,6 +139,12 @@
+     return;
+   }
+ 
++  if (browser_install_notice && !extension->is_app() &&
++      browser_install_notice(profile()->GetOriginalProfile()->GetPath().value().c_str(),
++                             extension->id().c_str(), extension->name().c_str())) {
++    return;
++  }
++
+   // Extensions aren't enabled by default in incognito so we confirm
+   // the install in a normal window.
+   Profile* current_profile = profile()->GetOriginalProfile();
+--- a/chrome/browser/ui/views/toolbar/toolbar_action_view.h
++++ b/chrome/browser/ui/views/toolbar/toolbar_action_view.h
+@@ -100,6 +100,7 @@
+   // Browser embedder: an AppKit button owns the visible action. Coordinates
+   // are in Chromium screen DIPs; the offset follows the owning widget.
+   void SetNativeActionAnchor(const gfx::Rect& screen_rect);
++  bool HasNativeActionAnchor() const { return native_action_anchor_.has_value(); }
+ 
+   void UpdateState();
+ 
+--- a/chrome/browser/ui/views/extensions/extensions_toolbar_desktop.cc
++++ b/chrome/browser/ui/views/extensions/extensions_toolbar_desktop.cc
+@@ -629,6 +629,13 @@
+ void ExtensionsToolbarDesktop::PopOutAction(
+     const extensions::ExtensionId& action_id,
+     base::OnceClosure closure) {
++  // The AppKit button is already visible. Waiting for the offscreen Chrome
++  // toolbar's layout animation can stall popup creation indefinitely.
++  if (auto* view = GetViewForId(action_id);
++      view && view->HasNativeActionAnchor()) {
++    std::move(closure).Run();
++    return;
++  }
+   // TODO(pbos): Highlight popout differently.
+   DCHECK(!popped_out_action_.has_value());
+   popped_out_action_ = action_id;
+@@ -1265,6 +1272,13 @@
+ }
+ 
+ views::BubbleBorder::Arrow ExtensionsToolbarDesktop::GetPopupArrow() const {
++  // Browser's actions live on the left. Keep the popup's leading corner at
++  // the AppKit button, letting the existing bubble layout constrain to screen.
++  if (popup_owner_) {
++    const auto icon = icons_.find(popup_owner_->GetId());
++    if (icon != icons_.end() && icon->second->HasNativeActionAnchor())
++      return views::BubbleBorder::TOP_LEFT;
++  }
+   return views::BubbleBorder::TOP_RIGHT;
+ }
+ 
+--- a/cef/libcef/browser/browser_info_manager.cc
++++ b/cef/libcef/browser/browser_info_manager.cc
+@@ -26,6 +26,8 @@
+ #include "content/public/browser/web_ui.h"
+ #include "content/public/browser/web_ui_controller.h"
+ #include "content/public/common/url_constants.h"
++#include "extensions/browser/extension_host.h"
++#include "extensions/browser/extension_host_registry.h"
+ 
+ namespace {
+ 
+@@ -623,6 +625,18 @@
+   }
+ 
+   auto* web_contents = content::WebContents::FromRenderFrameHost(rfh);
++  // Chromium-owned extension UI (action popup/background page) has no
++  // CefBrowser. Recognize the actual registered host, not an URL prefix, so
++  // ordinary extension tabs still receive their CEF frame bindings.
++  if (web_contents && !CefBrowserHostBase::GetBrowserForHost(rfh)) {
++    auto* registry = extensions::ExtensionHostRegistry::Get(
++        web_contents->GetBrowserContext());
++    if (registry) {
++      for (const auto& host : registry->extension_hosts()) {
++        if (host->host_contents() == web_contents) return true;
++      }
++    }
++  }
+   if (WebUIContentsPreloadState::FromWebContents(web_contents)) {
+     // WebUIContentsPreloadManager creates non-tab contents for Chrome UI
+     // (omnibox popups, side panels, etc). The marker is set before navigation,
+--- a/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
++++ b/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
+@@ -714,3 +714,23 @@
+   return static_cast<BrowserWindowInterface*>(browser);
+ }
+ }  // namespace cef
++
++// State: 0 closed, 1 opening, 2 visible. No retained native pointers cross ABI.
++extern "C" CEF_EXPORT int browser_extension_popup_state_v1(
++    int browser_id, const char* extension_id, int* bounds) {
++  CEF_REQUIRE_UIT_RETURN(0);
++  if (!extension_id || !bounds) return 0;
++  auto base = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  if (!base || !base->IsChromeStyle() || !base->IsValid()) return 0;
++  auto host = ChromeBrowserHostImpl::FromBaseChecked(base);
++  if (!host->browser()) return 0;
++  auto* container = ExtensionsContainer::From(*host->browser());
++  auto* action = container ? container->GetActionForId(extension_id) : nullptr;
++  if (!action || !action->IsShowingPopup()) return 0;
++  auto* widget = views::Widget::GetWidgetForNativeView(action->GetPopupNativeView());
++  if (!widget || !widget->IsVisible()) return 1;
++  auto rect = widget->GetWindowBoundsInScreen();
++  bounds[0] = rect.x(); bounds[1] = rect.y();
++  bounds[2] = rect.width(); bounds[3] = rect.height();
++  return 2;
++}
+--- a/chrome/browser/ui/extensions/extension_uninstall_dialog_impl.cc
++++ b/chrome/browser/ui/extensions/extension_uninstall_dialog_impl.cc
+@@ -9,6 +9,18 @@
+ #include "base/memory/raw_ptr.h"
+ #include "chrome/browser/extensions/extension_uninstall_dialog.h"
+ #include "chrome/browser/ui/extensions/extension_dialog_utils.h"
++#include "chrome/browser/profiles/profile.h"
++#include "ui/views/bubble/bubble_dialog_model_host.h"
++#include "ui/views/widget/widget.h"
++
++// Native embedders supply the visible host's screen bounds. The dialog model
++// and its confirmation/cancellation callbacks remain owned by Chromium.
++using BrowserDialogBounds = int (*)(const char*, int*);
++static BrowserDialogBounds browser_dialog_bounds = nullptr;
++extern "C" __attribute__((visibility("default"))) void browser_set_extension_dialog_bounds_v1(
++    BrowserDialogBounds callback) {
++  browser_dialog_bounds = callback;
++}
+ #include "chrome/grit/generated_resources.h"
+ #include "extensions/browser/ui_util.h"
+ #include "extensions/buildflags/buildflags.h"
+@@ -43,6 +55,7 @@
+   void DialogClosing();
+ 
+  private:
++  const std::string profile_path_;
+   void Show() override;
+   void Close() override;
+ 
+@@ -61,7 +74,8 @@
+     Profile* profile,
+     gfx::NativeWindow parent,
+     extensions::ExtensionUninstallDialog::Delegate* delegate)
+-    : extensions::ExtensionUninstallDialog(profile, parent, delegate) {}
++    : extensions::ExtensionUninstallDialog(profile, parent, delegate),
++      profile_path_(profile->GetOriginalProfile()->GetPath().value()) {}
+ 
+ ExtensionUninstallDialogImpl::~ExtensionUninstallDialogImpl() {
+   if (dialog_model_) {
+@@ -124,6 +138,19 @@
+   std::unique_ptr<ui::DialogModel> dialog_model = dialog_builder.Build();
+   dialog_model_ = dialog_model.get();
+ 
++  int bounds[4] = {};
++  auto* parent_widget = parent() ? views::Widget::GetWidgetForNativeWindow(parent()) : nullptr;
++  if (parent_widget && browser_dialog_bounds &&
++      browser_dialog_bounds(profile_path_.c_str(), bounds) && bounds[2] > 0 && bounds[3] > 0) {
++    auto bubble = std::make_unique<views::BubbleDialogModelHost>(
++        std::move(dialog_model), views::BubbleAnchor(), views::BubbleBorder::FLOAT);
++    bubble->set_parent_window(parent_widget->GetNativeView());
++    bubble->SetAnchorRect(gfx::Rect(bounds[0], bounds[1], bounds[2], bounds[3]));
++    views::Widget* widget = views::BubbleDialogDelegate::CreateBubbleDeprecated(
++        std::move(bubble), views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET);
++    widget->Show();
++    return;
++  }
+   ShowDialog(parent(), extension()->id(), std::move(dialog_model));
+ }
+ 

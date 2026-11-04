@@ -1,0 +1,33 @@
+node_modules/
+dist/
+release/
+test-results/
+playwright-report/
+.DS_Store
+*.log
+native/vendor/
+native/build/
+**/__pycache__/
+*.pyc
+
+# API privée : dépôt Git indépendant, exclu du futur dépôt public du navigateur.
+/server/
+.env*
+!.env.example
+
+# Apple signing credentials remain in the user's private configuration/keychain.
+*.p8
+*.p12
+*.pfx
+*.key.pem
+*.certSigningRequest
+
+# Release signing secrets, local profiles and unpublished export trees.
+*.key
+*.mobileprovision
+*.provisionprofile
+*.pem
+*.dmg
+*.app/
+*.dSYM/
+*.sparsebundle/

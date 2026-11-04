@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1280 1280">
+  <defs><linearGradient id="ribbon" x1="0%" y1="100%" x2="100%" y2="0%"><stop stop-color="#10DFEE"/><stop offset="1" stop-color="#1463F5"/></linearGradient></defs>
+  <path fill="url(#ribbon)" d="M 219,811 L 464,358 C 509,276 558,233 622,232 C 696,230 744,266 779,333 L 834,454 C 793,408 748,373 711,375 C 672,376 638,402 614,439 L 475,718 L 332,809 C 282,837 238,840 219,811 Z"/>
+</svg>

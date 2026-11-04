@@ -1,0 +1,20 @@
+name: Bug report
+description: Report a reproducible browser issue
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps and expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Arc Reborn version and macOS version
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevant logs or screenshots
+      description: Remove personal URLs, account data and credentials before attaching logs.

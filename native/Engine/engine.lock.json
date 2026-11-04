@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "version": "156.0.8078.80-arcreborn.1",
+  "platform": "macos-arm64",
+  "cefCommit": "cf671c072925b27823a61181152f4f288e8e4306",
+  "chromiumCommit": "fb096c0011f9d50f0a264a9376420cdea9c421e3",
+  "depotToolsCommit": "a20039648c0de69d8156906b18052bd47e9bf230",
+  "branch": "8078",
+  "patches": [
+    {
+      "file": "patches/appkit-extension-actions.patch",
+      "sha256": "1d2a4d96cf99908520322b1267cd29d670a23eb556d6acff19b758d4446d9e4d"
+    },
+    {
+      "file": "patches/appkit-extension-tabs.patch",
+      "sha256": "c9146e92eb30bb43db67bab380d689c28fe8260d74ccdb5ce532b4b78fa95509"
+    },
+    {
+      "file": "patches/appkit-extension-lifecycle.patch",
+      "sha256": "74711dc9150a036365f1444560ee12d63e675a4f5580c99651ddbda7473a33ed"
+    },
+    {
+      "file": "patches/appkit-native-host.patch",
+      "sha256": "c5ee60b677cea5324d2c0f4634c69aac7ecc983ae02c5528d2ab752f88a2b72f"
+    },
+    {
+      "file": "patches/devtools-mobile-scrollbars.patch",
+      "sha256": "964827cb1453c127b82a5ea8172b5f793f2ff5dcf350d770704e0ae5fe72fe29"
+    }
+  ],
+  "gnDefines": "use_system_xcode=true is_official_build=false is_component_build=false symbol_level=0 use_remoteexec=false",
+  "buildTarget": "cef_framework",
+  "archive": {
+    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.1-macos-arm64.tar.gz",
+    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.1/ArcReborn-Engine-156.0.8078.80-arcreborn.1-macos-arm64.tar.gz",
+    "sha256": "c0ce03c234c030e33dcc66d889bb2495edda6f251c9001bc19f93d5340278ba1"
+  }
+}

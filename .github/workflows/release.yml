@@ -1,0 +1,52 @@
+name: Signed macOS release
+on:
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
+permissions:
+  contents: read
+concurrency:
+  group: macos-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.repository == 'tiff75009/arcreborn' && vars.RELEASE_SIGNING_ENABLED == 'true'
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate before accessing signing keys
+        run: |
+          /usr/bin/python3 native/scripts/public-source.py audit .
+          /usr/bin/python3 native/scripts/release.py check
+          /usr/bin/python3 -c 'import json,os; n=json.load(open("native/Resources/ReleaseNotes.json")); assert os.environ["GITHUB_REF"] == "refs/tags/v"+n["version"]'
+      - name: Prepare ephemeral signing keychain
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: /usr/bin/python3 native/scripts/ci-signing.py setup
+      - name: Compile native application
+        env:
+          BROWSER_RELEASE_BUILD: '1'
+          BROWSER_REBUILD_ICON: '0'
+          BROWSER_BUILD_JOBS: '3'
+        run: native/scripts/build.sh
+      - name: Sign, notarize, build DMG and sign feed
+        env:
+          BROWSER_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          BROWSER_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+        run: /usr/bin/python3 native/scripts/release.py prepare
+      - name: Create reviewable GitHub draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: /usr/bin/python3 native/scripts/release.py draft
+      - name: Remove ephemeral credentials
+        if: always()
+        run: /usr/bin/python3 native/scripts/ci-signing.py cleanup

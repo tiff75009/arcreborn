@@ -1,0 +1,19 @@
+diff --git a/third_party/blink/renderer/core/scroll/scrollable_area.cc b/third_party/blink/renderer/core/scroll/scrollable_area.cc
+index 93e27fb079..933ac3f724 100644
+--- a/third_party/blink/renderer/core/scroll/scrollable_area.cc
++++ b/third_party/blink/renderer/core/scroll/scrollable_area.cc
+@@ -964,6 +964,14 @@ bool ScrollableArea::UsesCompositedOverlayScrollbars() const {
+ }
+ 
+ void ScrollableArea::FadeOverlayScrollbarsTimerFired(TimerBase*) {
++  // Disabling device emulation on macOS can restore the native scrollbar
++  // theme while a timer from the emulated overlay theme is still pending.
++  // Native scrollbars have their own animator; this callback no longer owns
++  // their visibility.
++  if (HasBeenDisposed() ||
++      !GetPageScrollbarTheme().BlinkControlsOverlayVisibility()) {
++    return;
++  }
+   // Scrollbars can become composited in the time it takes the timer set in
+   // ShowNonMacOverlayScrollbars to be fired.
+   if (UsesCompositedOverlayScrollbars()) {

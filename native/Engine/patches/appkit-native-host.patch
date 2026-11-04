@@ -1,0 +1,263 @@
+diff --git a/ui/views/controls/webview/webview.cc b/ui/views/controls/webview/webview.cc
+--- a/ui/views/controls/webview/webview.cc
++++ b/ui/views/controls/webview/webview.cc
+@@ -29,6 +29,8 @@
+ #include "ui/views/accessibility/view_accessibility.h"
+ #include "ui/views/controls/webview/web_contents_set_background_color.h"
+ #include "ui/views/focus/focus_manager.h"
++#include "ui/views/view_utils.h"
++#include "ui/base/class_property.h"
+ #include "ui/views/views_delegate.h"
+ #include "ui/views/views_features.h"
+ #include "ui/views/widget/widget.h"
+@@ -36,6 +38,8 @@
+ namespace views {
+ 
+ namespace {
++
++DEFINE_UI_CLASS_PROPERTY_KEY(bool, kBrowserExternalNativeHost, false)
+ 
+ // This key indicates that a WebContents is used by a WebView.
+ const void* const kIsWebViewContentsKey = &kIsWebViewContentsKey;
+@@ -47,6 +51,19 @@
+ }
+ 
+ }  // namespace
++
++// Browser-private integration: keep the Chrome WebView and its observers, but
++// relinquish its NativeViewHost. AppKit owns geometry, visibility and focus.
++WEBVIEW_EXPORT bool BrowserHasExternalNativeHost(WebView* view) {
++  return view && view->GetProperty(kBrowserExternalNativeHost);
++}
++WEBVIEW_EXPORT void BrowserSetExternalNativeHost(WebView* view) {
++  if (BrowserHasExternalNativeHost(view)) return;
++  view->SetProperty(kBrowserExternalNativeHost, true);
++  for (const auto& child : view->children()) {
++    if (auto* holder = AsViewClass<NativeViewHost>(child.get())) holder->Detach();
++  }
++}
+ 
+ WebView::ScopedWebContentsCreatorForTesting::ScopedWebContentsCreatorForTesting(
+     WebContentsCreator creator) {
+@@ -494,7 +511,7 @@
+ }
+ 
+ void WebView::OnAXModeAdded(ui::AXMode mode) {
+-  if (!GetWidget() || !web_contents()) {
++  if (BrowserHasExternalNativeHost(this) || !GetWidget() || !web_contents()) {
+     return;
+   }
+ 
+@@ -603,7 +620,7 @@
+   TRACE_EVENT0("views", "WebView::AttachWebContentsNativeView");
+   // Prevents attachment if the WebView isn't already in a Widget, or it's
+   // already attached.
+-  if (!GetWidget() || !web_contents()) {
++  if (BrowserHasExternalNativeHost(this) || !GetWidget() || !web_contents()) {
+     return;
+   }
+ 
+diff --git a/cef/libcef/browser/views/browser_view_impl.cc b/cef/libcef/browser/views/browser_view_impl.cc
+--- a/cef/libcef/browser/views/browser_view_impl.cc
++++ b/cef/libcef/browser/views/browser_view_impl.cc
+@@ -198,7 +198,12 @@
+   DCHECK(!cef_widget_);
+ }
+ 
++namespace views { WEBVIEW_EXPORT bool BrowserHasExternalNativeHost(WebView*); }
+ void CefBrowserViewImpl::RequestFocusSync() {
++  if (views::BrowserHasExternalNativeHost(web_view())) {
++    if (auto* contents = web_view()->GetWebContents()) contents->Focus();
++    return;
++  }
+   // With Chrome style the root_view() type (ChromeBrowserView) does not accept
+   // focus, so always give focus to the WebView directly.
+   if (web_view()) {
+@@ -508,3 +513,15 @@
+   cef_widget_ = nullptr;
+   profile_ = nullptr;
+ }
++
++namespace views { WEBVIEW_EXPORT void BrowserSetExternalNativeHost(WebView*); }
++content::WebContents* BrowserContentsForNativeHost(int browser_id, bool attach) {
++  auto host = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  if (!host || !host->IsValid() || !host->IsChromeStyle()) return nullptr;
++  auto cef_view = CefBrowserView::GetForBrowser(host);
++  if (!cef_view) return nullptr;
++  auto* view = static_cast<CefBrowserViewImpl*>(cef_view.get())->web_view();
++  if (!view) return nullptr;
++  if (attach) views::BrowserSetExternalNativeHost(view);
++  return views::BrowserHasExternalNativeHost(view) ? host->GetWebContents() : nullptr;
++}
+diff --git a/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm b/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm
+--- a/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm
++++ b/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm
+@@ -15,6 +15,7 @@
+ #include "cef/include/internal/cef_types_mac.h"
+ #include "cef/libcef/browser/alloy/alloy_browser_host_impl.h"
+ #include "cef/libcef/browser/context.h"
++#include "cef/include/internal/cef_export.h"
+ #include "cef/libcef/browser/native/javascript_dialog_runner_mac.h"
+ #include "cef/libcef/browser/native/menu_runner_mac.h"
+ #include "cef/libcef/browser/thread_util.h"
+@@ -664,3 +665,31 @@
+   return static_cast<content::RenderWidgetHostViewMac*>(
+       web_contents_->GetRenderWidgetHostView());
+ }
++
++
++// Private ABI for the native AppKit embedder. The Chrome Browser/WebContents
++// remain intact; only their native surface changes host, via NativeViewHost's
++// detach lifecycle (including remote-cocoa and accessibility cleanup).
++content::WebContents* BrowserContentsForNativeHost(int browser_id, bool attach);
++extern "C" CEF_EXPORT void* browser_attach_native_view_v1(int browser_id, void* parent) {
++  CEF_REQUIRE_UIT_RETURN(nullptr);
++  NSView* container = (__bridge NSView*)parent;
++  if (!container) return nullptr;
++  auto* contents = BrowserContentsForNativeHost(browser_id, true);
++  if (!contents) return nullptr;
++  NSView* view = contents->GetNativeView().GetNativeNSView();
++  if (view.superview != container) [container addSubview:view];
++  view.frame = container.bounds;
++  view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++  view.hidden = container.hiddenOrHasHiddenAncestor;
++  return (__bridge void*)view;
++}
++extern "C" CEF_EXPORT int browser_native_view_visibility_v1(int browser_id, int visible) {
++  CEF_REQUIRE_UIT_RETURN(0);
++  auto* contents = BrowserContentsForNativeHost(browser_id, false);
++  if (!contents) return 0;
++  NSView* view = contents->GetNativeView().GetNativeNSView();
++  view.hidden = !visible;
++  if (visible) contents->WasShown(); else contents->WasHidden();
++  return 1;
++}
+diff --git a/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm b/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm
+--- a/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm
++++ b/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm
+@@ -309,6 +309,11 @@
+ }
+ 
+ - (void)addChildWindow:(NSWindow*)childWin ordered:(NSWindowOrderingMode)place {
++  // The actual document is the AppKit window hosting our WebContents NSView.
++  if ([self.identifier isEqualToString:@"local.browser.backend"] && self.parentWindow) {
++    [self.parentWindow addChildWindow:childWin ordered:place];
++    return;
++  }
+   // Attaching a window to be a child window resets the window level, so
+   // restore the window level afterwards.
+   NSInteger level = childWin.level;
+@@ -320,6 +325,10 @@
+ }
+ 
+ - (void)removeChildWindow:(NSWindow*)childWin {
++  if ([self.identifier isEqualToString:@"local.browser.backend"] && self.parentWindow && childWin.parentWindow == self.parentWindow) {
++    [self.parentWindow removeChildWindow:childWin];
++    return;
++  }
+   if (self != childWin.parentWindow) {
+     return;
+   }
+@@ -655,6 +664,7 @@
+ // Note these can be called via -[NSWindow close] while the widget is being torn
+ // down, so check for a delegate.
+ - (BOOL)canBecomeKeyWindow {
++  if ([self.identifier isEqualToString:@"local.browser.backend"]) return NO;
+   if (_preventKeyWindow)
+     return NO;
+   bool canBecomeKey = NO;
+@@ -664,6 +674,7 @@
+ }
+ 
+ - (BOOL)canBecomeMainWindow {
++  if ([self.identifier isEqualToString:@"local.browser.backend"]) return NO;
+   if (!_bridge)
+     return NO;
+ 
+@@ -804,6 +815,7 @@
+ 
+ - (void)orderWindowByShuffling:(NSWindowOrderingMode)orderingMode
+                     relativeTo:(NSInteger)otherWindowNumber {
++  if ([self.identifier isEqualToString:@"local.browser.backend"] && orderingMode != NSWindowOut) return;
+   NativeWidgetMacNSWindow* parent =
+       static_cast<NativeWidgetMacNSWindow*>([self parentWindow]);
+ 
+@@ -843,6 +855,7 @@
+ // -orderWindowByShuffling:relativeTo: instead.
+ - (void)orderWindow:(NSWindowOrderingMode)orderingMode
+          relativeTo:(NSInteger)otherWindowNumber {
++  if ([self.identifier isEqualToString:@"local.browser.backend"] && orderingMode != NSWindowOut) return;
+   // Prevent a window that should never be visible from being ordered in.
+   // External frameworks (e.g., AuthenticationServicesCore presenting
+   // passkey/WebAuthn dialogs) can trigger window ordering on the invisible
+diff --git a/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.h b/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.h
+--- a/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.h
++++ b/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.h
+@@ -63,6 +63,8 @@
+                    uint64_t popup_parent_ns_view_id) override;
+   void SetParentWebContentsNSView(uint64_t parent_ns_view_id) override;
+   void DisableDisplay() override;
++  // Resume native composition when a WebContents leaves its Views host.
++  void EnableNativeDisplay();
+   void MakeFirstResponder() override;
+   void SetBounds(const gfx::Rect& rect) override;
+   void SetCALayerParams(gfx::CALayerParams ca_layer_params) override;
+diff --git a/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.mm b/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.mm
+--- a/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.mm
++++ b/content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.mm
+@@ -112,6 +112,15 @@
+   [cocoa_view_.window makeFirstResponder:cocoa_view_];
+ }
+ 
++void RenderWidgetHostNSViewBridge::EnableNativeDisplay() {
++  if (!display_disabled_) return;
++  display_ca_layer_tree_ = std::make_unique<ui::DisplayCALayerTree>(background_layer_);
++  // Unlike initial construction, the native view already has its final size.
++  // Seed the new flipped layer; an autoresizing mask only handles later deltas.
++  background_layer_.sublayers.lastObject.frame = background_layer_.bounds;
++  display_disabled_ = false;
++}
++
+ void RenderWidgetHostNSViewBridge::DisableDisplay() {
+   if (display_disabled_)
+     return;
+diff --git a/content/browser/renderer_host/render_widget_host_view_mac.mm b/content/browser/renderer_host/render_widget_host_view_mac.mm
+--- a/content/browser/renderer_host/render_widget_host_view_mac.mm
++++ b/content/browser/renderer_host/render_widget_host_view_mac.mm
+@@ -415,6 +415,8 @@
+     // https://crbug.com/1222976#c49.
+     ns_view_->DisableDisplay();
+   }
++  if (!parent_ui_layer && ns_view_ == in_process_ns_view_bridge_.get())
++    in_process_ns_view_bridge_->EnableNativeDisplay();
+   if (browser_compositor_)
+     browser_compositor_->SetParentUiLayer(parent_ui_layer);
+ }
+diff --git a/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm b/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm
+--- a/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm
++++ b/components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm
+@@ -1053,8 +1053,14 @@
+   // If the parent (or an ancestor) is hidden, return and wait for it to become
+   // visible.
+   for (auto* ancestor = parent_.get(); ancestor; ancestor = ancestor->parent_) {
+-    if (!ancestor->window_visible_)
++    NSWindow* ancestor_window = ancestor->window_;
++    if ([ancestor_window.identifier isEqualToString:@"local.browser.backend"]) {
++      // Browser's document lives in AppKit; the Views owner stays hidden.
++      if (![(NSWindow*)[(NSHashTable*)objc_getAssociatedObject(ancestor_window, sel_registerName("browserDocumentWindow")) anyObject] isVisible])
++        return;
++    } else if (!ancestor->window_visible_) {
+       return;
++    }
+   }
+ 
+   // Don't activate a window during session restore, to avoid switching spaces
+@@ -2227,6 +2233,8 @@
+   // Bail here (and call OrderChildren() in a few places) to defer adding
+   // children until the window is visible.
+   NSWindow* window = window_;
++  if ([window.identifier isEqualToString:@"local.browser.backend"])
++    window = [(NSHashTable*)objc_getAssociatedObject(window, sel_registerName("browserDocumentWindow")) anyObject];
+   if (!window.visible || !window.onActiveSpace) {
+     return;
+   }

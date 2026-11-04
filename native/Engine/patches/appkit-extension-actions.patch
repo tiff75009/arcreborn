@@ -1,0 +1,150 @@
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_action_view.h b/chrome/browser/ui/views/toolbar/toolbar_action_view.h
+--- a/chrome/browser/ui/views/toolbar/toolbar_action_view.h
++++ b/chrome/browser/ui/views/toolbar/toolbar_action_view.h
+@@ -4,6 +4,8 @@
+ 
+ #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_ACTION_VIEW_H_
+ #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_ACTION_VIEW_H_
++
++#include <optional>
+ 
+ #include "base/callback_list.h"
+ #include "base/memory/raw_ptr.h"
+@@ -95,6 +97,10 @@
+   // to be deprecated.
+   views::BubbleAnchor GetReferenceButtonForPopup();
+ 
++  // Browser embedder: an AppKit button owns the visible action. Coordinates
++  // are in Chromium screen DIPs; the offset follows the owning widget.
++  void SetNativeActionAnchor(const gfx::Rect& screen_rect);
++
+   void UpdateState();
+ 
+   // views::MenuButton:
+@@ -117,6 +123,8 @@
+   int GetDragOperationsForTest(const gfx::Point& point);
+ 
+  private:
++  std::optional<gfx::Rect> native_action_anchor_;
++
+   friend class ToolbarActionHoverCardBubbleViewUITest;
+ 
+   // views::MenuButton:
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_action_view.cc b/chrome/browser/ui/views/toolbar/toolbar_action_view.cc
+--- a/chrome/browser/ui/views/toolbar/toolbar_action_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_action_view.cc
+@@ -38,6 +38,7 @@
+ #include "ui/gfx/image/image_skia.h"
+ #include "ui/native_theme/native_theme.h"
+ #include "ui/views/accessibility/view_accessibility.h"
++#include "ui/views/widget/widget.h"
+ #include "ui/views/animation/ink_drop.h"
+ #include "ui/views/animation/ink_drop_impl.h"
+ #include "ui/views/controls/button/button.h"
+@@ -107,7 +108,22 @@
+   view_model_->HidePopup();
+ }
+ 
++void ToolbarActionView::SetNativeActionAnchor(const gfx::Rect& screen_rect) {
++  if (!GetWidget()) {
++    native_action_anchor_.reset();
++    return;
++  }
++  gfx::Rect rect = screen_rect;
++  rect.Offset(-GetWidget()->GetWindowBoundsInScreen().origin().OffsetFromOrigin());
++  native_action_anchor_ = rect;
++}
++
+ gfx::Rect ToolbarActionView::GetAnchorBoundsInScreen() const {
++  if (native_action_anchor_ && GetWidget()) {
++    gfx::Rect rect = *native_action_anchor_;
++    rect.Offset(GetWidget()->GetWindowBoundsInScreen().origin().OffsetFromOrigin());
++    return rect;
++  }
+   gfx::Rect bounds = GetBoundsInScreen();
+   bounds.Inset(GetToolbarInkDropInsets(this));
+   return bounds;
+@@ -312,7 +328,8 @@
+   // Browser actions in the overflow menu can still show popups, so we may need
+   // a reference view other than this button's parent. If so, use the overflow
+   // view which is a BrowserAppMenuButton.
+-  return GetVisible() ? this : delegate_->GetOverflowReferenceView();
++  return (native_action_anchor_ || GetVisible())
++             ? this : delegate_->GetOverflowReferenceView();
+ }
+ 
+ views::BubbleAnchor ToolbarActionView::GetReferenceButtonForPopup() {
+diff --git a/cef/libcef/browser/chrome/chrome_browser_host_impl.cc b/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
+--- a/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
++++ b/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
+@@ -5,6 +5,11 @@
+ #include "cef/libcef/browser/chrome/chrome_browser_host_impl.h"
+ 
+ #include "base/logging.h"
++#include "cef/include/internal/cef_export.h"
++#include "chrome/browser/ui/extensions/extensions_container.h"
++#include "chrome/browser/ui/toolbar/toolbar_action_view_model.h"
++#include "chrome/browser/ui/views/extensions/extensions_toolbar_desktop.h"
++#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ #include "base/notimplemented.h"
+ #include "cef/libcef/browser/browser_platform_delegate.h"
+ #include "cef/libcef/browser/chrome/browser_platform_delegate_chrome.h"
+@@ -607,3 +612,58 @@
+   }
+   return TabStripModel::kNoTab;
+ }
++
++// Browser's private, versioned ABI. Called only from its AppKit event handlers
++// on the UI thread. No renderer binding, JS injection, or debugging socket.
++extern "C" CEF_EXPORT int browser_execute_extension_action_v1(
++    int browser_id, const char* extension_id, int x, int y, int width, int height) {
++  CEF_REQUIRE_UIT_RETURN(-1);
++  if (!extension_id || width < 1 || height < 1 || width > 512 || height > 512 ||
++      x < -1048576 || x > 1048576 || y < -1048576 || y > 1048576) {
++    return -2;
++  }
++  // Bound the scan; extension IDs are exactly 32 lowercase a-p characters.
++  for (int i = 0; i < 32; ++i) {
++    if (extension_id[i] < 'a' || extension_id[i] > 'p') return -2;
++  }
++  if (extension_id[32] != '\0') return -2;
++
++  auto base = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  if (!base || !base->IsChromeStyle() || !base->IsValid()) return -3;
++  auto host = ChromeBrowserHostImpl::FromBaseChecked(base);
++  Browser* browser = host->browser();
++  if (!browser || !host->GetWebContents() ||
++      browser->tab_strip_model()->GetActiveWebContents() != host->GetWebContents()) {
++    return -4;
++  }
++  auto* chrome_view = host->chrome_browser_view();
++  auto* toolbar = chrome_view ? chrome_view->toolbar() : nullptr;
++  auto* desktop = toolbar ? toolbar->extensions_container() : nullptr;
++  auto* container = ExtensionsContainer::From(*browser);
++  if (!container || !desktop) return -5;
++  auto* action = container->GetActionForId(extension_id);
++  auto* view = desktop->GetViewForId(extension_id);
++  if (!action || !view || !view->GetWidget()) return -6;
++
++  // Keep Chromium's popup, tab permission grant, click event, and side-panel
++  // dispatch. Opening an action must not change the user's pin preferences.
++  view->SetNativeActionAnchor(gfx::Rect(x, y, width, height));
++  if (action->IsShowingPopup()) {
++    action->HidePopup();
++  } else {
++    action->ExecuteUserAction(ToolbarActionViewModel::InvocationSource::kToolbarButton);
++  }
++  return 0;
++}
++
++extern "C" CEF_EXPORT int browser_close_extension_popup_v1(int browser_id) {
++  CEF_REQUIRE_UIT_RETURN(-1);
++  auto base = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  if (!base || !base->IsChromeStyle() || !base->IsValid()) return -3;
++  auto host = ChromeBrowserHostImpl::FromBaseChecked(base);
++  if (!host->browser()) return -4;
++  auto* container = ExtensionsContainer::From(*host->browser());
++  if (!container) return -5;
++  container->HideActivePopup();
++  return 0;
++}
