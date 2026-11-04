@@ -1,25 +1,25 @@
 {
-  "version": "0.4.2",
-  "build": 6,
+  "version": "0.4.3",
+  "build": 7,
   "showOnLaunch": false,
   "title": {
-    "fr": "L’accueil d’Arc Reborn",
-    "en": "Welcome to Arc Reborn"
+    "fr": "Barre latérale en mode masqué",
+    "en": "Auto-hiding sidebar"
   },
   "subtitle": {
-    "fr": "Le logo s’affiche à nouveau pendant l’animation de bienvenue.",
-    "en": "The logo is visible again during the welcome animation."
+    "fr": "La barre latérale se referme après la sélection d’un onglet.",
+    "en": "The sidebar hides again after you select a tab."
   },
   "highlights": [
     {
-      "symbol": "sparkles",
+      "symbol": "sidebar.left",
       "title": {
-        "fr": "Logo de bienvenue",
-        "en": "Welcome logo"
+        "fr": "Après un changement d’onglet",
+        "en": "After switching tabs"
       },
       "detail": {
-        "fr": "Le « A » bleu et violet apparaît au centre des rubans dès le premier lancement et quand vous rejouez l’accueil.",
-        "en": "The blue and purple A appears between the ribbons on first launch and when you replay the welcome screen."
+        "fr": "Lorsque la barre latérale est masquée, survolez-la pour choisir un onglet. Elle se referme dès que le pointeur revient sur la page, sans clic supplémentaire.",
+        "en": "When the sidebar is hidden, hover over it to choose a tab. It closes when you move the pointer back over the page, without an extra click."
       }
     }
   ]

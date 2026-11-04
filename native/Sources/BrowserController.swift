@@ -229,7 +229,7 @@ private final class SidebarTable: NSTableView {
     var context: ((Int) -> NSMenu?)?
     var clicked: ((Int) -> Void)?
     var dragExited: (() -> Void)?
-    var backgroundDragFinished: (() -> Void)?
+    var mouseTrackingEnded: (() -> Void)?
     var didDrag = false
     var handlingMouseDown = false
     private(set) var clickedTitle = false
@@ -245,17 +245,19 @@ private final class SidebarTable: NSTableView {
     }
     override func mouseDown(with event: NSEvent) {
         didDrag = false; handlingMouseDown = true
+        defer {
+            handlingMouseDown = false
+            // NSTableView can consume mouseUp inside its own tracking loop.
+            mouseTrackingEnded?()
+        }
         let point = convert(event.locationInWindow, from: nil)
         let hitRow = row(at: point)
         if hitRow < 0 {
-            handlingMouseDown = false
             window?.performDrag(with:event)
-            backgroundDragFinished?()
             return
         }
         let cell = hitRow >= 0 ? view(atColumn: 0, row: hitRow, makeIfNecessary: false) as? TabCell : nil
         clickedTitle = cell.map { $0.titleLabel.frame.contains($0.convert(event.locationInWindow, from: nil)) } ?? false
-        defer { handlingMouseDown = false }
         if clickedTitle, let cell, cell.isEditingTitle {
             cell.titleLabel.mouseDown(with: event)
             return
@@ -927,15 +929,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         table.dragExited = { [weak self] in self?.clearDropProposal() }
         table.draggingDestinationFeedbackStyle = .none
         table.registerForDraggedTypes([dragType,folderDragType]); table.setDraggingSourceOperationMask(.move, forLocal: true)
-        let dragFinished:() -> Void = { [weak self] in
-            self?.sidebarMousePressed = false
-            self?.updateSidebarHover()
+        let finishSidebarTracking: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.sidebarMousePressed = NSEvent.pressedMouseButtons & 1 != 0
+            let point = self.root.convert(self.window.mouseLocationOutsideOfEventStream, from: nil)
+            self.sidebarPointer = self.root.bounds.contains(point) ? point : nil
+            self.updateSidebarHover()
         }
-        sidebarHost.dragFinished = dragFinished
-        table.backgroundDragFinished = dragFinished
+        sidebarHost.dragFinished = finishSidebarTracking
+        table.mouseTrackingEnded = finishSidebarTracking
         let sidebarClip = SidebarClipView()
         sidebarClip.drawsBackground = false
-        sidebarClip.dragFinished = dragFinished
+        sidebarClip.dragFinished = finishSidebarTracking
         rowsScroll.contentView = sidebarClip
         rowsScroll.scrollerStyle = .overlay; rowsScroll.automaticallyAdjustsContentInsets = false; rowsScroll.contentInsets = .init(); rowsScroll.documentView = table; rowsScroll.drawsBackground = false; rowsScroll.hasVerticalScroller = true; rowsScroll.autohidesScrollers = true; rowsScroll.borderType = .noBorder
         resizeStrip.width = { [weak self] in self?.session.sidebarWidth ?? SidebarSizing.standard }
