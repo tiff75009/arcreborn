@@ -1,47 +1,25 @@
 {
-  "version": "0.4.4",
-  "build": 8,
+  "version": "0.4.5",
+  "build": 9,
   "showOnLaunch": true,
   "title": {
-    "fr": "Le partage d’écran est là",
-    "en": "Screen sharing is here"
+    "fr": "Les boutons de fenêtre restent alignés",
+    "en": "Window controls stay aligned"
   },
   "subtitle": {
-    "fr": "Choisissez ce que les autres voient pendant vos appels.",
-    "en": "Choose what others see during a call."
+    "fr": "Un correctif pour la barre latérale masquée.",
+    "en": "A fix for the auto-hiding sidebar."
   },
   "highlights": [
     {
-      "symbol": "rectangle.on.rectangle",
-      "title": {
-        "fr": "Partagez un onglet, une fenêtre ou un écran",
-        "en": "Share a tab, a window, or a screen"
-      },
-      "detail": {
-        "fr": "Lancez le partage depuis le site, puis choisissez ce que vous voulez montrer. Si vous annulez, rien n’est partagé.",
-        "en": "Start sharing from the website, then pick what to show. If you cancel, nothing is shared."
-      }
-    },
-    {
-      "symbol": "mic",
-      "title": {
-        "fr": "Le micro et la caméra en appel",
-        "en": "Microphone and camera access"
-      },
-      "detail": {
-        "fr": "Les demandes d’accès apparaissent dans la fenêtre du site. Vous pouvez autoriser ou refuser le micro, la caméra et d’autres permissions, comme la localisation.",
-        "en": "Access requests now appear in the website’s window. You can allow or deny the microphone, camera, and other permissions, such as location."
-      }
-    },
-    {
       "symbol": "sidebar.left",
       "title": {
-        "fr": "La barre latérale se fait discrète",
-        "en": "The sidebar gets out of the way"
+        "fr": "À l’ouverture de la barre latérale",
+        "en": "When the sidebar opens"
       },
       "detail": {
-        "fr": "En mode masqué, la barre se déploie toujours au survol du bord. Elle se referme sans clic quand le pointeur passe sur une autre application.",
-        "en": "When the sidebar is hidden, hover over the edge to reveal it. Move the pointer onto another app and it slides away without a click."
+        "fr": "Au survol du bord de la fenêtre, les boutons rouge, jaune et vert apparaissent ensemble à leur place, même si le pointeur ressort et revient rapidement.",
+        "en": "Hover over the window edge and all three window controls appear together in place, even when you quickly move the pointer away and back."
       }
     }
   ]

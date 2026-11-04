@@ -1063,7 +1063,6 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         layoutWindowButtons()
         if windowKind == .compact {
             sidebarHost.isHidden = true; resizeStrip.isHidden = true
-            for kind in [NSWindow.ButtonType.closeButton,.miniaturizeButton,.zoomButton] { window.standardWindowButton(kind)?.isHidden = false }
         }
         undoToast.layout(in:window)
         layoutHome()
@@ -1095,15 +1094,29 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             sidebarHost.isHidden = floating && !sidebarRevealed
         }
     }
-    private func layoutWindowButtons(animated: Bool = false) {
-        guard !sidebarAnimating || animated else { return }
-        let frame = spaceCreation == nil && library == nil ? sidebarFrame : NSRect(x:0,y:0,width:session.sidebarWidth,height:root.bounds.height)
-        for (i,type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
-            guard let button = window.standardWindowButton(type), let parent = button.superview else { continue }
-            button.isHidden = spaceCreation == nil && library == nil && !animated && session.sidebarHidden && !sidebarRevealed
-            let center = parent.convert(NSPoint(x: frame.minX+17+CGFloat(i)*23, y: frame.minY+21), from: root)
-            let origin = NSPoint(x: center.x-button.frame.width/2, y: center.y-button.frame.height/2)
-            if animated { button.animator().setFrameOrigin(origin) } else { button.setFrameOrigin(origin) }
+    private func layoutWindowButtons() {
+        let floating = windowKind != .compact && spaceCreation == nil && library == nil && session.sidebarHidden
+        let hidden = floating && (sidebarAnimating || !sidebarRevealed)
+        let kinds: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        let buttons = kinds.map { window.standardWindowButton($0) }
+        // AppKit owns these controls in the title bar, outside the sliding view.
+        // Change visibility as a group, then position them after title-bar layout.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            let changingVisibility = buttons.contains { $0.map { $0.isHidden != hidden } ?? false }
+            if changingVisibility {
+                for case let button? in buttons { button.isHidden = hidden }
+            }
+            guard !hidden else { return }
+            if changingVisibility { window.contentView?.superview?.layoutSubtreeIfNeeded() }
+            let anchor = floating ? sidebarFrame.origin : .zero
+            for (index, candidate) in buttons.enumerated() {
+                guard let button = candidate, let parent = button.superview else { continue }
+                let center = parent.convert(NSPoint(x: anchor.x+17+CGFloat(index)*23, y: anchor.y+21), from: root)
+                let origin = NSPoint(x: center.x-button.frame.width/2, y: center.y-button.frame.height/2)
+                if button.frame.origin != origin { button.setFrameOrigin(origin) }
+            }
         }
     }
     private func setSidebarRevealed(_ revealed: Bool) {
@@ -1114,12 +1127,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarTransition += 1
         let transition = sidebarTransition
         sidebarAnimating = true
+        layoutWindowButtons()
         sidebarHost.isHidden = false
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : (revealed ? 0.24 : 0.20)
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.75, 0.25, 1)
             sidebarHost.animator().setFrameOrigin(sidebarFrame.origin)
-            layoutWindowButtons(animated: true)
         } completionHandler: { [weak self] in
             guard let self, self.sidebarTransition == transition else { return }
             self.sidebarAnimating = false
