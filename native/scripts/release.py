@@ -110,12 +110,15 @@ def prepare(args,notes,info):
         with_stage = out/'disk-image'; with_stage.mkdir(exist_ok=True)
         if not (with_stage/'Arc Reborn.app').exists(): run('ditto',app,with_stage/'Arc Reborn.app')
         if not (with_stage/'Applications').is_symlink(): (with_stage/'Applications').symlink_to('/Applications')
-        run('hdiutil','create','-volname','Arc Reborn','-srcfolder',with_stage,'-ov','-format','UDZO',dmg)
+        pending_dmg = out/(name+'.pending.dmg')
+        run('hdiutil','create','-volname','Arc Reborn','-srcfolder',with_stage,'-ov','-format','UDZO',pending_dmg)
         identity = os.environ.get('BROWSER_SIGN_IDENTITY')
         if not identity:
-            value = run('codesign','-d','--extract-certificates',str(out/'signer'),app,capture=True,stderr=subprocess.DEVNULL)
+            run('codesign','-d','--extract-certificates='+str(out/'signer'),app)
             identity = hashlib.sha1((out/'signer0').read_bytes()).hexdigest().upper()
-        run('codesign','--force','--timestamp','--sign',identity,dmg)
+        run('codesign','--force','--timestamp','--sign',identity,pending_dmg)
+        pending_dmg.replace(dmg)
+    run('codesign','--verify','--strict',dmg)
     # Stapling mutates the DMG. Once validated, retain the exact notarized asset.
     valid = subprocess.run(['xcrun','stapler','validate',str(dmg)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode == 0
     if not valid:
