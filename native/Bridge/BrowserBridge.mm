@@ -218,6 +218,30 @@ static bool ApplyCredentialPreferences(CefRefPtr<CefRequestContext> context) {
   }
   return true;
 }
+// Use the same default-search preference watched by Chromium's
+// DefaultSearchManager, so its own menus and chrome.search use this choice too.
+struct ProfileSearchProvider { int id; std::string name, keyword, url; };
+static std::map<std::string, ProfileSearchProvider> searchProviders;
+static bool ApplySearchProvider(CefRefPtr<CefRequestContext> context, const ProfileSearchProvider& provider) {
+  constexpr char pref[] = "default_search_provider_data.template_url_data";
+  auto current = context->GetPreference(pref);
+  if (current && current->GetType() == VTYPE_DICTIONARY &&
+      current->GetDictionary()->GetInt("prepopulate_id") == provider.id) return true;
+  if (!context->CanSetPreference(pref)) return false;
+  auto data = CefDictionaryValue::Create();
+  data->SetInt("prepopulate_id", provider.id);
+  data->SetString("short_name", provider.name);
+  data->SetString("keyword", provider.keyword);
+  data->SetString("url", provider.url);
+  // Chromium's TemplateURLData::GenerateSyncGUID for its built-in providers.
+  char guid[64];
+  snprintf(guid, sizeof(guid), "485bf7d3-0215-45af-87dc-538868%06d", provider.id);
+  data->SetString("synced_guid", guid);
+  data->SetBool("safe_for_autoreplace", true);
+  auto value = CefValue::Create(); value->SetDictionary(data);
+  CefString error;
+  return context->SetPreference(pref, value, error);
+}
 class ThemeContextHandler : public CefRequestContextHandler {
  public:
   explicit ThemeContextHandler(std::string profile) : profile_(std::move(profile)) {}
@@ -225,6 +249,9 @@ class ThemeContextHandler : public CefRequestContextHandler {
     CEF_REQUIRE_UI_THREAD();
     ApplyWebLanguage(context);
     ApplyCredentialPreferences(context);
+    auto search = searchProviders.find(profile_);
+    if (search != searchProviders.end() && !ApplySearchProvider(context, search->second))
+      NSLog(@"Arc Reborn: Chromium could not apply the profile search provider");
     context->SetChromeColorScheme(appearanceMode, 0);
     readyProfiles.insert(profile_);
     if (!privateProfiles.count(profile_)) {
@@ -282,6 +309,7 @@ static void RegisterNativeExtensionTabs(bool enabled);
 static void Notify(NSString *name) { [[NSNotificationCenter defaultCenter] postNotificationName:name object:nil]; }
 #include "DeveloperTools.inc"
 #include "PictureInPicture.inc"
+#include "ArchiveProbe.inc"
 
 @interface BrowserNativeApplication : NSApplication <CefAppProtocol>
 @property(nonatomic) BOOL handlingSendEvent;
@@ -420,6 +448,17 @@ static NSArray<NSString *> *SitePermissionNames(uint32_t permissions) {
   return permissions == 0 && names.count > 0 ? names : nil;
 }
 
+// CEF's human-readable error text is optional. Use the error list from the
+// linked SDK so the native view receives a stable diagnostic on every failure.
+static NSString *NetworkErrorName(cef_errorcode_t code) {
+  switch (code) {
+#define NET_ERROR(label, value) case value: return @"ERR_" #label;
+#include "include/base/internal/cef_net_error_list.h"
+#undef NET_ERROR
+    default: return [NSString stringWithFormat:@"CEF %d", static_cast<int>(code)];
+  }
+}
+
 class NativeClient : public CefClient,
                      public CefCommandHandler,
                      public CefContextMenuHandler,
@@ -494,6 +533,22 @@ class NativeClient : public CefClient,
   }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+  void OnMediaAccessChange(CefRefPtr<CefBrowser>, bool video, bool audio) override {
+    const std::string tab = tabID_.UTF8String;
+    if (video || audio) { capturingTabs.insert(tab); FinishArchiveProbe(tab,false); }
+    else capturingTabs.erase(tab);
+  }
+  bool OnProcessMessageReceived(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+      CefProcessId source, CefRefPtr<CefProcessMessage> message) override {
+    if (source != PID_RENDERER || message->GetName() != "ArcReborn.IdleFrameResult") return false;
+    const std::string tab = tabID_.UTF8String;
+    auto it = archiveProbes.find(tab); auto args = message->GetArgumentList();
+    if (it == archiveProbes.end() || !args || args->GetString(0).ToString() != it->second.nonce ||
+        !frame || !it->second.frames.erase(frame->GetIdentifier().ToString())) return true;
+    if (args->GetType(1) != VTYPE_BOOL || !args->GetBool(1) || capturingTabs.count(tab)) FinishArchiveProbe(tab,false);
+    else if (it->second.frames.empty()) FinishArchiveProbe(tab,true);
+    return true;
+  }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
@@ -544,6 +599,8 @@ class NativeClient : public CefClient,
     ++favicon_->generation;
     CloseTabDeveloperTools(tabID_.UTF8String);
     ForgetPictureInPicture(tabID_);
+    FinishArchiveProbe(tabID_.UTF8String,false); capturingTabs.erase(tabID_.UTF8String);
+    automaticallyClosing.erase(tabID_.UTF8String);
     browsers.erase(tabID_.UTF8String);
     nativeTabOwners.erase(tabID_.UTF8String);
     discardedBrowsers.erase(tabID_.UTF8String);
@@ -558,6 +615,7 @@ class NativeClient : public CefClient,
   }
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType transition) override {
     CEF_REQUIRE_UI_THREAD();
+    FinishArchiveProbe(tabID_.UTF8String,false);
     if (!embedded_ || !frame->IsMain()) return;
     CancelNativeInspection(tabID_.UTF8String);
     ++favicon_->generation;
@@ -602,7 +660,9 @@ class NativeClient : public CefClient,
     [engine_.delegate browserLoadingChanged:tabID_ loading:loading back:back forward:forward];
   }
   void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedURL) override {
-    if (frame->IsMain() && errorCode != ERR_ABORTED) [engine_.delegate browserFailed:tabID_ message:Str(errorText)];
+    if (!embedded_ || !frame->IsMain() || errorCode == ERR_ABORTED) return;
+    NSString *host = [NSURLComponents componentsWithString:Str(failedURL)].host;
+    [engine_.delegate browserFailed:tabID_ code:NetworkErrorName(errorCode) host:host];
   }
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool gesture, bool redirect) override {
     NSString *url = Str(request->GetURL());
@@ -688,9 +748,14 @@ class NativeClient : public CefClient,
   }
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser, TerminationStatus status, int code, const CefString& message) override {
     BrowserTrace(@"tab.renderer-terminated",@{@"tab":tabID_,@"browser":@(browser->GetIdentifier()),@"status":@(status),@"code":@(code)});
-    [engine_.delegate browserFailed:tabID_ message:L(@"Cet onglet s’est arrêté. Rechargez la page.", @"This tab stopped. Reload the page.")];
+    if (embedded_) [engine_.delegate browserFailed:tabID_ code:@"TAB_RENDERER_STOPPED" host:nil];
   }
   bool OnBeforeUnloadDialog(CefRefPtr<CefBrowser> browser, const CefString& message, bool reload, CefRefPtr<CefJSDialogCallback> callback) override {
+    if (!reload && automaticallyClosing.erase(tabID_.UTF8String)) {
+      callback->Continue(false,CefString());
+      [engine_.delegate browserCloseCancelled:tabID_];
+      return true;
+    }
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = L(@"Quitter cette page ?", @"Leave this page?");
     alert.informativeText = L(@"Les modifications non enregistrées risquent d’être perdues.", @"Unsaved changes may be lost.");
@@ -884,7 +949,7 @@ static void QuitNext() {
   const std::string key = profileID.UTF8String;
   if (!privateProfiles.count(key)) return;
   extensionPreferenceRegistrations.erase(key); readyProfiles.erase(key);
-  profileReadyCallbacks.erase(key); profiles.erase(key); privateProfiles.erase(key);
+  profileReadyCallbacks.erase(key); profiles.erase(key); searchProviders.erase(key); privateProfiles.erase(key);
 }
 - (void)controlDownload:(NSUInteger)identifier action:(NSString *)action {
   CEF_REQUIRE_UI_THREAD();
@@ -972,7 +1037,7 @@ static void QuitNext() {
   RegisterNativeExtensionTabs(false);
   profileReadyCallbacks.clear();
   extensionPreferenceRegistrations.clear();
-  readyProfiles.clear();
+  readyProfiles.clear(); searchProviders.clear();
   profiles.clear();
   CefShutdown();
   running = false;
@@ -990,6 +1055,16 @@ static void QuitNext() {
   for (auto &entry : profiles)
     if (readyProfiles.count(entry.first)) success = ApplyCredentialPreferences(entry.second) && success;
   return success;
+}
+- (BOOL)setSearchProvider:(NSInteger)identifier name:(NSString *)name keyword:(NSString *)keyword templateURL:(NSString *)url forProfile:(NSString *)profile {
+  CEF_REQUIRE_UI_THREAD();
+  if (quitting || !profile.length || !name.length || !keyword.length || !url.length) return NO;
+  const std::string key = profile.UTF8String;
+  ProfileSearchProvider choice{static_cast<int>(identifier), name.UTF8String, keyword.UTF8String, url.UTF8String};
+  auto context = profiles.find(key);
+  if (context != profiles.end() && readyProfiles.count(key) && !ApplySearchProvider(context->second, choice)) return NO;
+  searchProviders[key] = std::move(choice);
+  return YES;
 }
 - (void)updateLanguages {
   if (!running || quitting) return;
@@ -1064,6 +1139,7 @@ static void QuitNext() {
 }
 - (void)closePictureInPicture:(NSString *)tabID { if (nativePiP && [nativePiP->tab() isEqual:tabID]) nativePiP->Close(); }
 - (BOOL)hasPictureInPicture:(NSString *)tabID { return nativePiP && nativePiP->active() && [nativePiP->tab() isEqual:tabID]; }
+- (void)checkArchiveIdle:(NSString *)tabID completion:(void (^)(BOOL))completion { CheckArchiveMedia(tabID,completion); }
 - (void)goBack:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end() && i->second->CanGoBack()) i->second->GoBack(); }
 - (void)goForward:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end() && i->second->CanGoForward()) i->second->GoForward(); }
 - (void)reload:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->Reload(); }
@@ -1085,6 +1161,16 @@ static void QuitNext() {
 - (void)printPage:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetHost()->Print(); }
 - (void)stop:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->StopLoad(); }
 - (void)closeTab:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetHost()->CloseBrowser(false); else if (pendingBrowsers.count(tabID.UTF8String)) pendingBrowsers[tabID.UTF8String] = true; else [self.delegate browserClosed:tabID]; }
+- (void)tryAutoArchiveTab:(NSString *)tabID {
+  const std::string key = tabID.UTF8String;
+  auto it = browsers.find(key);
+  if (quitting || it == browsers.end() || !it->second->IsValid() || it->second->IsLoading()
+      || capturingTabs.count(key) || [self hasPictureInPicture:tabID] || [self hasDeveloperTools:tabID]) {
+    [self.delegate browserCloseCancelled:tabID]; return;
+  }
+  automaticallyClosing.insert(key);
+  it->second->GetHost()->CloseBrowser(false);
+}
 - (void)discardTab:(NSString *)tabID {
   const std::string key = tabID.UTF8String;
   auto i = browsers.find(key);

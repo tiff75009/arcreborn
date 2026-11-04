@@ -40,7 +40,7 @@ extension BrowserSession {
         spaces[index].selectedTabID = local; return local
     }
     mutating func detachFavoriteReferences(to id: String) {
-        for i in tabs.indices where tabs[i].favoriteSourceID == id { tabs[i].favoriteSourceID = nil; tabs[i].pinned = false }
+        for i in tabs.indices where tabs[i].favoriteSourceID == id { tabs[i].favoriteSourceID = nil; tabs[i].pinned = false; tabs[i].lastViewedAt = Date() }
         for i in closedTabs.indices where closedTabs[i].favoriteSourceID == id { closedTabs[i].favoriteSourceID = nil; closedTabs[i].pinned = false }
     }
     @discardableResult mutating func moveToFavorites(_ id: String, spaceID: String, at position: Int) -> Bool {

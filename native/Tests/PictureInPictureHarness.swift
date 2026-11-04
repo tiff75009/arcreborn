@@ -6,7 +6,7 @@ private final class PiPDelegate:NSObject,BrowserEngineDelegate {
     func browserTitleChanged(_ tabID:String,title:String) {}
     func browserURLChanged(_ tabID:String,url:String) {}
     func browserLoadingChanged(_ tabID:String,loading:Bool,back:Bool,forward:Bool) {}
-    func browserFailed(_ tabID:String,message:String) {}
+    func browserFailed(_ tabID:String,code:String,host:String?) {}
     func browserRequestedNewTab(_ url:String,sourceTab:String) {}
     func browserClosed(_ tabID:String) {}
     func browserPictureInPictureReturn(_ tabID:String) { returned = true; onReturn?() }

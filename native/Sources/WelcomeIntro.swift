@@ -15,7 +15,7 @@ private enum ArrivalMotion {
     static let glide = CAMediaTimingFunction(controlPoints: 0.32, 0.02, 0.12, 1)
 }
 
-private class WelcomeDrawing: NSView {
+class WelcomeDrawing: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     var dark: Bool { effectiveAppearance.bestMatch(from: [.darkAqua,.aqua]) == .darkAqua }
@@ -24,7 +24,7 @@ private class WelcomeDrawing: NSView {
 
 /// Intaglio-like bands. Each line is a section through the same folded ribbon.
 /// Drawn once per appearance/size; only the backing layer moves during the intro.
-private final class WelcomeEngraving: WelcomeDrawing {
+final class WelcomeEngraving: WelcomeDrawing {
     let right: Bool
     init(right: Bool) { self.right = right; super.init(frame:.zero); wantsLayer = true }
     required init?(coder: NSCoder) { fatalError() }
@@ -67,7 +67,7 @@ private final class WelcomeEngraving: WelcomeDrawing {
     }
 }
 
-private final class WelcomePaper: WelcomeDrawing {
+final class WelcomePaper: WelcomeDrawing {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let w = bounds.width, h = bounds.height
@@ -85,7 +85,7 @@ private final class WelcomePaper: WelcomeDrawing {
 }
 
 /// Keep one source of truth for the mark: the same three vectors as Icon Composer.
-private final class WelcomeRibbonMark: WelcomeDrawing {
+final class WelcomeRibbonMark: WelcomeDrawing {
     private static let pieces = ["01-ribbon-right","02-ribbon-arch","03-ribbon-sweep"].compactMap {
         Bundle.main.url(forResource:$0, withExtension:"png", subdirectory:"Welcome").flatMap(NSImage.init(contentsOf:))
     }

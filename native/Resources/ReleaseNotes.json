@@ -1,25 +1,69 @@
 {
-  "version": "0.4.5",
-  "build": 9,
+  "version": "0.5.0",
+  "build": 10,
   "showOnLaunch": true,
   "title": {
-    "fr": "Les boutons de fenêtre restent alignés",
-    "en": "Window controls stay aligned"
+    "fr": "La barre d’adresse passe en haut",
+    "en": "Move the address bar to the top"
   },
   "subtitle": {
-    "fr": "Un correctif pour la barre latérale masquée.",
-    "en": "A fix for the auto-hiding sidebar."
+    "fr": "Découvrez la disposition Classique, choisissez votre moteur de recherche et décidez quand archiver vos onglets.",
+    "en": "Try the Classic layout, choose your search engine and decide when to archive idle tabs."
   },
   "highlights": [
     {
-      "symbol": "sidebar.left",
+      "symbol": "macwindow",
       "title": {
-        "fr": "À l’ouverture de la barre latérale",
-        "en": "When the sidebar opens"
+        "fr": "Compacte ou Classique",
+        "en": "Compact or Classic"
       },
       "detail": {
-        "fr": "Au survol du bord de la fenêtre, les boutons rouge, jaune et vert apparaissent ensemble à leur place, même si le pointeur ressort et revient rapidement.",
-        "en": "Hover over the window edge and all three window controls appear together in place, even when you quickly move the pointer away and back."
+        "fr": "Dans Réglages → Interface, comparez les deux aperçus. Classique place l’adresse au-dessus de la page, aux couleurs de votre espace. Votre barre latérale reste affichée ou masquée quand vous changez de disposition.",
+        "en": "Compare both previews in Settings → Interface. Classic puts the address above the page in your Space’s colors. Switching layouts keeps your sidebar shown or hidden."
+      }
+    },
+    {
+      "symbol": "magnifyingglass",
+      "title": {
+        "fr": "Votre moteur et votre page d’accueil",
+        "en": "Your search engine and start page"
+      },
+      "detail": {
+        "fr": "Dans Réglages → Profils, choisissez parmi huit moteurs pour la barre d’adresse et la recherche par clic droit. Ouvrez vos nouveaux onglets sur le site de votre choix ou sur l’accueil Arc Reborn.",
+        "en": "In Settings → Profiles, choose from eight engines for address bar and right-click searches. New tabs can open your own website or the Arc Reborn start page."
+      }
+    },
+    {
+      "symbol": "archivebox",
+      "title": {
+        "fr": "L’archivage, à votre rythme",
+        "en": "Archive tabs on your schedule"
+      },
+      "detail": {
+        "fr": "Désactivé par défaut, l’archivage se règle par profil après 12 h, 24 h, 7 jours ou 30 jours d’inactivité. Les favoris et les onglets épinglés restent en place. Retrouvez les autres dans Bibliothèque → Onglets archivés.",
+        "en": "Auto archive is off by default. Enable it per profile after 12 hours, 24 hours, 7 days or 30 days of inactivity. Favorites and pinned tabs stay put. Restore archived tabs from Library → Archived Tabs."
+      }
+    },
+    {
+      "symbol": "rectangle.and.text.magnifyingglass",
+      "title": {
+        "fr": "Un nouvel accueil et des erreurs plus claires",
+        "en": "A new start page and clearer errors"
+      },
+      "detail": {
+        "fr": "Le nouvel onglet donne un accès direct à la recherche. Si une page ne s’ouvre pas, Arc Reborn distingue une coupure de connexion, une adresse introuvable ou un problème de sécurité et propose la prochaine action.",
+        "en": "The redesigned new tab page puts search front and center. When a page fails to load, Arc Reborn distinguishes an offline connection, an unknown address or a security issue and offers a next step."
+      }
+    },
+    {
+      "symbol": "person.crop.circle",
+      "title": {
+        "fr": "Des réglages et une inscription repensés",
+        "en": "Redesigned settings and sign-up"
+      },
+      "detail": {
+        "fr": "Les préférences reprennent le style de l’accueil. À l’inscription, passez au champ suivant avec Tab et suivez la validation du nom d’utilisateur et du mot de passe pendant la saisie.",
+        "en": "Preferences now match the welcome screen. During sign-up, Tab moves between fields, and username and password feedback updates as you type."
       }
     }
   ]

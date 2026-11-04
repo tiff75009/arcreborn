@@ -129,7 +129,7 @@ extension BrowserSession {
         if case .tab(let id) = item, let tab = tabs.first(where: { $0.id == id }), tab.favorite && tab.spaceID != spaceID {
             var candidate = self
             guard let local = candidate.localFavoriteTab(id,spaceID:spaceID), let index = candidate.tabs.firstIndex(where: { $0.id == id }) else { return false }
-            candidate.tabs[index].favorite = false; candidate.tabs[index].pinned = false
+            candidate.tabs[index].favorite = false; candidate.tabs[index].pinned = false; candidate.tabs[index].lastViewedAt = Date()
             candidate.detachFavoriteReferences(to:id)
             guard candidate.moveSidebarItem(.tab(local),spaceID:spaceID,to:destination) else { return false }
             self = candidate; return true
@@ -144,7 +144,7 @@ extension BrowserSession {
         case .tab(let id):
             guard let i = tabs.firstIndex(where: { $0.id == id }) else { return false }
             if tabs[i].favorite { detachFavoriteReferences(to:id) }
-            tabs[i].favoriteSourceID = nil
+            tabs[i].lastViewedAt = Date(); tabs[i].favoriteSourceID = nil
             tabs[i].folderID = destination.parentID; tabs[i].pinned = !destination.temporary; tabs[i].favorite = false
         }
         orderSidebarItems(peers)

@@ -19,6 +19,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     override func requestPictureInPicture(_ id:String,automatic:Bool,completion:@escaping (String)->Void) { bridge.requestPictureInPicture(rendererID(id),automatic:automatic,completion:completion) }
     override func closePictureInPicture(_ id:String) { bridge.closePictureInPicture(rendererID(id)) }
     override func hasPictureInPicture(_ id:String) -> Bool { bridge.hasPictureInPicture(rendererID(id)) }
+    override func checkArchiveIdle(_ id:String,completion:@escaping (Bool)->Void) { bridge.checkArchiveIdle(rendererID(id),completion:completion) }
     override func goBack(_ id:String) { bridge.goBack(rendererID(id)) }
     override func goForward(_ id:String) { bridge.goForward(rendererID(id)) }
     override func reload(_ id:String) { bridge.reload(rendererID(id)) }
@@ -30,6 +31,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     override func printPage(_ id:String) { bridge.printPage(rendererID(id)) }
     override func stop(_ id:String) { bridge.stop(rendererID(id)) }
     override func closeTab(_ id:String) { bridge.closeTab(rendererID(id)) }
+    override func tryAutoArchiveTab(_ id:String) { bridge.tryAutoArchiveTab(rendererID(id)) }
     override func discardTab(_ id:String) { bridge.discardTab(rendererID(id)) }
     override func find(inTab id:String,text:String,forward:Bool,next:Bool) { bridge.find(inTab:rendererID(id),text:text,forward:forward,next:next) }
     override func stopFinding(_ id:String) { bridge.stopFinding(rendererID(id)) }
@@ -51,7 +53,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     func browserTitleChanged(_ id:String,title:String) { receiver?.browserTitleChanged(logical(id),title:title) }
     func browserURLChanged(_ id:String,url:String) { receiver?.browserURLChanged(logical(id),url:url) }
     func browserLoadingChanged(_ id:String,loading:Bool,back:Bool,forward:Bool) { receiver?.browserLoadingChanged(logical(id),loading:loading,back:back,forward:forward) }
-    func browserFailed(_ id:String,message:String) { receiver?.browserFailed(logical(id),message:message) }
+    func browserFailed(_ id:String,code:String,host:String?) { receiver?.browserFailed(logical(id),code:code,host:host) }
     func browserRequestedNewTab(_ url:String,sourceTab:String) { receiver?.browserRequestedNewTab(url,sourceTab:logical(sourceTab)) }
     func browserRequestedPrivateWindow(_ url:String,sourceTab:String) { receiver?.browserRequestedPrivateWindow?(url,sourceTab:logical(sourceTab)) }
     func browserRequestedNewWindow(_ url:String,sourceTab:String) { receiver?.browserRequestedNewWindow?(url,sourceTab:logical(sourceTab)) }

@@ -1,6 +1,63 @@
 import Foundation
 
-struct NativeProfile: Codable, Equatable { var id: String; var name: String }
+/// Built-in providers in the bundled Chromium search catalog. Keep these IDs
+/// stable: Chromium also uses them for selections, extensions and image search.
+enum SearchEngine: String, CaseIterable {
+    case google, bing, duckduckgo, brave, yahoo, ecosia, qwant, startpage
+
+    var spec: (name: String, keyword: String, endpoint: String, parameter: String, chromiumID: Int) {
+        switch self {
+        case .google: return ("Google", "google.com", "https://www.google.com/search", "q", 1)
+        case .bing: return ("Bing", "bing.com", "https://www.bing.com/search", "q", 3)
+        case .duckduckgo: return ("DuckDuckGo", "duckduckgo.com", "https://duckduckgo.com/", "q", 92)
+        case .brave: return ("Brave Search", "search.brave.com", "https://search.brave.com/search", "q", 109)
+        case .yahoo: return ("Yahoo", "yahoo.com", "https://search.yahoo.com/search", "p", 2)
+        case .ecosia: return ("Ecosia", "ecosia.org", "https://www.ecosia.org/search", "q", 101)
+        case .qwant: return ("Qwant", "qwant.com", "https://www.qwant.com/", "q", 94)
+        case .startpage: return ("Startpage", "startpage.com", "https://www.startpage.com/sp/search", "q", 113)
+        }
+    }
+    var chromiumTemplate: String { spec.endpoint + "?" + spec.parameter + "={searchTerms}" }
+    func results(for query: String) -> URL? {
+        var parts = URLComponents(string: spec.endpoint)!
+        parts.queryItems = [URLQueryItem(name: spec.parameter, value: query)]
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        guard let url = parts.url, isAllowedBrowserURL(url.absoluteString) else { return nil }
+        return url
+    }
+}
+
+enum BrowserInterface: String, Codable, CaseIterable {
+    case compact, classic
+}
+
+enum ArchiveDelay: Int, Codable, CaseIterable {
+    case twelveHours = 12, oneDay = 24, oneWeek = 168, oneMonth = 720
+    var interval: TimeInterval { Double(rawValue) * 3600 }
+    func label(english:Bool) -> String {
+        switch self {
+        case .twelveHours: return english ? "12 hours (default)" : "12 heures (par défaut)"
+        case .oneDay: return english ? "24 hours" : "24 heures"
+        case .oneWeek: return english ? "7 days" : "7 jours"
+        case .oneMonth: return english ? "30 days" : "30 jours"
+        }
+    }
+}
+
+struct NativeProfile: Codable, Equatable {
+    var id: String; var name: String
+    // Optional fields keep older sessions and encrypted backups readable.
+    var searchEngineID: String? = nil
+    var newTabAddress: String? = nil
+    var archiveAfterHours: Int? = nil
+    // No opt-in date (including existing profiles) means never auto-archive.
+    // Starting a new interval on reactivation prevents retroactive closures.
+    var autoArchiveEnabledSince: Date? = nil
+    var autoArchiveEnabled: Bool { autoArchiveEnabledSince != nil }
+    var archiveDelay: ArchiveDelay { archiveAfterHours.flatMap(ArchiveDelay.init(rawValue:)) ?? .twelveHours }
+    var engine: SearchEngine { searchEngineID.flatMap(SearchEngine.init(rawValue:)) ?? .google }
+    var homepage: String? { newTabAddress.flatMap(normalizedNewTabAddress) }
+}
 struct NativeCloudCheckpoint: Codable, Equatable {
     var enabled: Bool
     var revision: Int
@@ -40,6 +97,8 @@ struct NativeTab: Codable, Equatable {
     var customTitle: String? = nil
     var developerMode: Bool? = nil
     var developerCaptureColor: String? = nil
+    var lastViewedAt: Date? = nil
+    var autoArchivedAt: Date? = nil
     var displayTitle: String { customTitle ?? title }
 }
 struct NativeFolder: Codable, Equatable {
@@ -53,6 +112,15 @@ struct NativeFolder: Codable, Equatable {
 }
 struct BrowserSession: Codable, Equatable {
     static let maximumSpaces = 100
+    static let automaticArchiveCapacity = 5000
+    /// Manual Undo Close keeps its original 50 entries independently of idle tabs.
+    static func boundedArchive(_ tabs:[NativeTab]) -> [NativeTab] {
+        var manual = 0, automatic = 0
+        return tabs.reversed().filter {
+            if $0.autoArchivedAt != nil { automatic += 1; return automatic <= automaticArchiveCapacity }
+            manual += 1; return manual <= 50
+        }.reversed()
+    }
     @discardableResult mutating func renameProfile(id: String, name: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard validLabel(name), let index = profiles.firstIndex(where: { $0.id == id }) else { return false }
@@ -77,6 +145,11 @@ struct BrowserSession: Codable, Equatable {
     var closedTabs: [NativeTab]
     var activeSpaceID: String
     var themeAppearance: ThemeAppearance? = nil
+    var interfaceStyle: BrowserInterface? = nil
+    // Read once when migrating early development builds with layout-specific visibility.
+    var classicSidebarHidden: Bool? = nil
+
+    var currentInterface: BrowserInterface { interfaceStyle ?? .compact }
     var savePasswords: Bool? = nil
     var automaticSignIn: Bool? = nil
     var formSuggestions: Bool? = nil
@@ -87,6 +160,36 @@ struct BrowserSession: Codable, Equatable {
     var automaticPictureInPicture: [String: Bool]? = nil
     // Encrypted baseline, committed atomically with the local session. No key/token.
     var cloudSyncState: [String: NativeCloudCheckpoint]? = nil
+
+    /// Old sessions have no activity clock: grant a full interval starting now.
+    mutating func seedArchiveClock(at now: Date) -> Bool {
+        let enabled = Set(profiles.filter(\.autoArchiveEnabled).map(\.id))
+        guard !enabled.isEmpty else { return false }
+        let spacesWithArchive = Set(spaces.filter { enabled.contains($0.profileID) }.map(\.id))
+        var changed = false
+        for i in tabs.indices where spacesWithArchive.contains(tabs[i].spaceID) && (tabs[i].lastViewedAt.map({ $0 > now }) ?? true) {
+            tabs[i].lastViewedAt = now; changed = true
+        }
+        return changed
+    }
+
+    func idleArchiveIDs(at now: Date, protecting protected: Set<String>) -> [String] {
+        let cutoffs = Dictionary(uniqueKeysWithValues:profiles.compactMap { profile -> (String,Date)? in
+            let cutoff = now.addingTimeInterval(-profile.archiveDelay.interval)
+            guard let enabledSince = profile.autoArchiveEnabledSince, enabledSince <= cutoff else { return nil }
+            return (profile.id,cutoff)
+        })
+        guard !cutoffs.isEmpty else { return [] }
+        let remaining = Self.automaticArchiveCapacity - closedTabs.lazy.filter { $0.autoArchivedAt != nil }.count
+        guard remaining > 0 else { return [] }
+        let perSpace = Dictionary(uniqueKeysWithValues: spaces.compactMap { space in cutoffs[space.profileID].map { (space.id,$0) } })
+        let excluded = protected.union((splitGroups ?? []).flatMap(\.tabIDs))
+        return tabs.filter { tab in
+            guard !tab.pinned, !tab.favorite, tab.folderID == nil, tab.favoriteSourceID == nil,
+                  !excluded.contains(tab.id), let last = tab.lastViewedAt, let cutoff = perSpace[tab.spaceID] else { return false }
+            return last <= cutoff
+        }.sorted { ($0.lastViewedAt ?? now) < ($1.lastViewedAt ?? now) }.prefix(remaining).map(\.id)
+    }
 
     func pictureInPictureSiteKey(for tab: NativeTab) -> String? {
         guard let url = URLComponents(string: tab.url), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
@@ -119,7 +222,7 @@ struct BrowserSession: Codable, Equatable {
     func validated() -> Bool {
         guard ["fr", "en"].contains(language), sidebarWidth.isFinite, (180...440).contains(sidebarWidth),
             !profiles.isEmpty, profiles.count <= 50, !spaces.isEmpty, spaces.count <= Self.maximumSpaces,
-            tabs.count <= 5000, folders.count <= 1000, closedTabs.count <= 50,
+            tabs.count <= 5000, folders.count <= 1000, closedTabs.count <= Self.automaticArchiveCapacity + 50,
             uniqueIDs(profiles.map(\.id)), uniqueIDs(spaces.map(\.id)), uniqueIDs(tabs.map(\.id)),
             uniqueIDs(folders.map(\.id)), uniqueIDs(closedTabs.map(\.id)),
             profiles.allSatisfy({ validLabel($0.name) }) else { return false }
@@ -179,20 +282,28 @@ struct BrowserSession: Codable, Equatable {
         return id
     }
 
+    func profile(forSpace spaceID: String) -> NativeProfile? {
+        guard let space = spaces.first(where: { $0.id == spaceID }) else { return nil }
+        return profiles.first { $0.id == space.profileID }
+    }
+
     @discardableResult
-    mutating func createTab(url: String = "about:blank", spaceID: String? = nil) -> String {
+    mutating func createTab(url explicitURL: String? = nil, spaceID: String? = nil) -> String {
         let spaceID = spaceID ?? activeSpaceID
-        guard let spaceIndex = spaces.firstIndex(where: { $0.id == spaceID }), tabs.count < 5000, isAllowedBrowserURL(url) else { return "" }
+        guard let spaceIndex = spaces.firstIndex(where: { $0.id == spaceID }), tabs.count < 5000 else { return "" }
+        let url = explicitURL ?? profile(forSpace: spaceID)?.homepage ?? "about:blank"
+        guard isAllowedBrowserURL(url) else { return "" }
         let id = UUID().uuidString
-        tabs.append(NativeTab(id: id, spaceID: spaceID, url: url, title: "", pinned: false, favorite: false, folderID: nil))
+        tabs.append(NativeTab(id: id, spaceID: spaceID, url: url, title: "", pinned: false, favorite: false, folderID: nil,lastViewedAt:Date()))
         spaces[spaceIndex].selectedTabID = id
         activeSpaceID = spaceID
         return id
     }
 
-    mutating func closeTab(id: String) {
+    mutating func closeTab(id: String, automaticallyAt date:Date? = nil) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         var tab = tabs[index]
+        tab.autoArchivedAt = date
         if tab.favorite { detachFavoriteReferences(to:id) }
         tab.favoriteSourceID = nil
         let oldPeers = tabs.filter { $0.spaceID == tab.spaceID }
@@ -201,7 +312,7 @@ struct BrowserSession: Codable, Equatable {
         tabs.remove(at: index)
         closedTabs.removeAll { $0.id == id }
         closedTabs.append(tab)
-        if closedTabs.count > 50 { closedTabs.removeFirst(closedTabs.count - 50) }
+        if closedTabs.count > 50 { closedTabs = Self.boundedArchive(closedTabs) }
         if let spaceIndex = spaces.firstIndex(where: { $0.id == tab.spaceID }), spaces[spaceIndex].selectedTabID == id {
             let peers = tabs.filter { $0.spaceID == tab.spaceID }
             spaces[spaceIndex].selectedTabID = peers.isEmpty ? nil : peers[min(position, peers.count - 1)].id
@@ -213,6 +324,7 @@ struct BrowserSession: Codable, Equatable {
             let spaceIndex = spaces.firstIndex(where: { $0.id == tab.spaceID }), !tabs.contains(where: { $0.id == tab.id }) else { return }
         closedTabs.removeLast()
         var restored = tab
+        restored.lastViewedAt = Date(); restored.autoArchivedAt = nil
         if let folderID = restored.folderID, !folders.contains(where: { $0.id == folderID && $0.spaceID == restored.spaceID }) {
             restored.folderID = nil
         }
@@ -308,24 +420,45 @@ func isAllowedBrowserURL(_ input: String) -> Bool {
 }
 
 /// Resolve an address or a search query. Unsupported schemes return nil rather than execute.
-func browserURL(_ input: String) -> URL? {
+enum BrowserInput {
+    case address(URL)
+    case search(String)
+
+    func url(using engine: SearchEngine) -> URL? {
+        switch self { case .address(let url): return url; case .search(let query): return engine.results(for: query) }
+    }
+}
+
+func parseBrowserInput(_ input: String) -> BrowserInput? {
     guard input.utf8.count <= 32768 else { return nil }
     let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-    if text.isEmpty || text == "about:blank" { return URL(string: "about:blank") }
+    if text.isEmpty || text == "about:blank" { return .address(URL(string: "about:blank")!) }
     guard text.rangeOfCharacter(from: .controlCharacters) == nil, !text.contains("\\") else { return nil }
-    if let settings = settingsPageURL(text) { return settings }
+    if let settings = settingsPageURL(text) { return .address(settings) }
     let local = text.range(of: "^(?:localhost|\\[[0-9a-fA-F:]+\\]|[0-9]{1,3}(?:\\.[0-9]{1,3}){3})(?::[0-9]+)?(?:[/?#]|$)", options: .regularExpression) != nil
     let hostPort = text.range(of: "^[^\\s/:?#]+:[0-9]+(?:[/?#]|$)", options: .regularExpression) != nil
     let scheme = text.range(of: "^[a-zA-Z][a-zA-Z0-9+.-]*:", options: .regularExpression) != nil
-    if scheme && !local && !hostPort { return isAllowedBrowserURL(text) ? URL(string: text) : nil }
+    if scheme && !local && !hostPort { return isAllowedBrowserURL(text) ? URL(string: text).map(BrowserInput.address) : nil }
     let domain = text.range(of: "^[^/?#]+\\.[^/?#]+(?:[/?#]|$)", options: .regularExpression) != nil
     if text.rangeOfCharacter(from: .whitespacesAndNewlines) == nil && (local || hostPort || domain) {
         let address = "\(local ? "http" : "https")://\(text)"
-        return isAllowedBrowserURL(address) ? URL(string: address) : nil
+        return isAllowedBrowserURL(address) ? URL(string: address).map(BrowserInput.address) : nil
     }
-    var search = URLComponents(string: "https://www.google.com/search")!
-    search.queryItems = [URLQueryItem(name: "q", value: text)]
-    return search.url
+    return .search(text)
+}
+
+func browserURL(_ input: String, engine: SearchEngine = .google) -> URL? {
+    parseBrowserInput(input)?.url(using: engine)
+}
+
+func normalizedNewTabAddress(_ input: String) -> String? {
+    guard case .address(let url) = parseBrowserInput(input),
+          ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+          let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          let host = parts.host, !host.isEmpty,
+          host.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
+          parts.port.map({ (1...65535).contains($0) }) ?? true else { return nil }
+    return url.absoluteString
 }
 
 enum SessionStoreError: LocalizedError {
@@ -405,7 +538,9 @@ final class SessionStore {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
     }
     private func decode(_ data: Data) -> BrowserSession? {
-        guard let state = try? JSONDecoder().decode(BrowserSession.self, from: data), state.validated() else { return nil }
+        guard var state = try? JSONDecoder().decode(BrowserSession.self, from: data), state.validated() else { return nil }
+        if state.currentInterface == .classic, let legacy = state.classicSidebarHidden { state.sidebarHidden = legacy }
+        state.classicSidebarHidden = nil
         return state
     }
     private func atomicWrite(_ data: Data, to destination: URL) throws {

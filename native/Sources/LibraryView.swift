@@ -654,7 +654,11 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
             configureTransfer(tile,record:records[indexPath.item])
         } else if section == .archived {
             let tab = archives[indexPath.item]; tile.name.stringValue = tab.displayTitle.isEmpty ? tab.url : tab.displayTitle; tile.detail.stringValue = URL(string:tab.url)?.host ?? tab.url
-            tile.picture.image = NSImage(systemSymbolName:"globe",accessibilityDescription:nil); tile.open = { [weak self] in self?.restoreTab?(tab.id) }
+            if tab.autoArchivedAt != nil {
+                tile.detail.stringValue = (language == "en" ? "Auto-archived" : "Archivé automatiquement") + " · " + tile.detail.stringValue
+            }
+            tile.picture.image = NSImage(systemSymbolName:tab.autoArchivedAt != nil ? "clock.arrow.circlepath" : "globe",accessibilityDescription:nil)
+            tile.open = { [weak self] in self?.restoreTab?(tab.id) }
         }
         if !tile.mediaMode { tile.view.setAccessibilityLabel(tile.name.stringValue + " — " + tile.detail.stringValue) }
         tile.view.needsLayout = true; return tile

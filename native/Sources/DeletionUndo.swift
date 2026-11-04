@@ -53,7 +53,7 @@ struct DeletionUndo {
         for (index,tab) in history where !result.closedTabs.contains(where: { $0.id == tab.id }) && !result.tabs.contains(where: { $0.id == tab.id }) {
             result.closedTabs.insert(tab,at:min(index,result.closedTabs.count))
         }
-        if result.closedTabs.count > 50 { result.closedTabs = Array(result.closedTabs.suffix(50)) }
+        result.closedTabs = BrowserSession.boundedArchive(result.closedTabs)
         for (id,old,new) in selections {
             if let index = result.spaces.firstIndex(where: { $0.id == id && $0.selectedTabID == new }),
                old == nil || result.tabs.contains(where: { $0.id == old && $0.spaceID == id }) {

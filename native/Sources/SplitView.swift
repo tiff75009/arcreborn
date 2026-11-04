@@ -16,25 +16,26 @@ final class SplitPaneView: SplitFlippedView {
     private let options = NavigationButton("",symbol:"rectangle.split.2x1",action:{})
     let site = NavigationButton("",symbol:"slider.horizontal.3",action:{})
     private let close = NavigationButton("",symbol:"xmark",action:{})
-    private let blank = ActionButton("",symbol:"plus",action:{})
+    private let landing = BrowserLandingView(frame:.zero)
     var command: ((String,String) -> Void)?
     init(id: String) {
         tabID = id; super.init(frame:.zero)
         wantsLayer = true; layer?.cornerRadius = 8; layer?.masksToBounds = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         header.wantsLayer = true; header.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
-        addSubview(body); addSubview(header); body.addSubview(blank)
+        addSubview(body); addSubview(header); body.addSubview(landing)
         for button in [back,forward,reload,address,site,options,close] { header.addSubview(button) }
-        for (button,kind) in [(back,"back"),(forward,"forward"),(reload,"reload"),(address,"address"),(options,"options"),(site,"site"),(close,"close"),(blank,"address")] {
+        for (button,kind) in [(back,"back"),(forward,"forward"),(reload,"reload"),(address,"address"),(options,"options"),(site,"site"),(close,"close")] {
             button.invoke = { [weak self] in guard let self else { return }; self.command?(self.tabID,kind) }
         }
         address.font = .systemFont(ofSize:12,weight:.medium); address.cell?.lineBreakMode = .byTruncatingTail
         address.imagePosition = .imageLeading
         address.image = NSImage(systemSymbolName:"link",accessibilityDescription:nil)
-        blank.font = .systemFont(ofSize:15,weight:.medium)
+        landing.search = { [weak self] in guard let self else { return }; self.command?(self.tabID,"address") }
+        landing.retry = { [weak self] in guard let self else { return }; self.command?(self.tabID,"reload") }
     }
     required init?(coder:NSCoder) { fatalError() }
-    func update(title:String, url:String, focused:Bool, canBack:Bool, canForward:Bool, language:String, hasContent:Bool) {
+    func update(title:String, url:String, focused:Bool, canBack:Bool, canForward:Bool, language:String, landingPage:BrowserLandingView.Page?) {
         address.title = settingsPageURL(url) != nil ? browserDisplayAddress(url) : (URL(string:url)?.host ?? title)
         address.toolTip = browserDisplayAddress(url)
         back.isEnabled = canBack; forward.isEnabled = canForward
@@ -44,8 +45,8 @@ final class SplitPaneView: SplitFlippedView {
         close.toolTip = language == "fr" ? "Retirer de la vue partagée" : "Remove from Split View"
         site.toolTip = language == "fr" ? "Réglages du site et extensions" : "Site settings and extensions"
         options.toolTip = language == "fr" ? "Options de la vue partagée" : "Split View options"
-        blank.title = language == "fr" ? "Rechercher ou saisir une adresse" : "Search or enter URL"
-        blank.isHidden = hasContent
+        landing.isHidden = landingPage == nil
+        if let landingPage { landing.show(landingPage) }
         layer?.borderWidth = focused ? 2 : 0.5
         layer?.borderColor = (focused ? NSColor.systemIndigo : NSColor.white.withAlphaComponent(0.10)).cgColor
         header.alphaValue = focused ? 1 : 0.72
@@ -64,7 +65,7 @@ final class SplitPaneView: SplitFlippedView {
         back.isHidden = compact; forward.isHidden = compact; reload.isHidden = compact
         let leading:CGFloat = compact ? 6 : 92
         address.frame = NSRect(x:leading,y:2,width:max(0,header.bounds.width-leading-94),height:27)
-        blank.frame = NSRect(x:12,y:max(0,body.bounds.height/2-20),width:max(0,body.bounds.width-24),height:40)
+        landing.frame = body.bounds
     }
     func optionsMenu(_ menu:NSMenu) { menu.popUp(positioning:nil,at:NSPoint(x:0,y:options.bounds.height),in:options) }
 }

@@ -30,6 +30,7 @@ enum ArcSyncCodec {
         result.cloudSyncState = nil
         result.onboardingComplete = true
         // Navigation selection and sidebar visibility belong to each device/window.
+        result.classicSidebarHidden = nil
         result.sidebarHidden = false
         result.activeSpaceID = result.spaces.first?.id ?? result.activeSpaceID
         for i in result.spaces.indices { result.spaces[i].selectedTabID = nil }
@@ -70,6 +71,7 @@ enum ArcSyncCodec {
     static func applying(_ merged:BrowserSession,to latest:BrowserSession,checkpointKey:String,checkpoint:NativeCloudCheckpoint) -> BrowserSession {
         var result = merged
         result.onboardingComplete = latest.onboardingComplete
+        result.classicSidebarHidden = nil
         result.sidebarHidden = latest.sidebarHidden
         if result.spaces.contains(where: { $0.id == latest.activeSpaceID }) { result.activeSpaceID = latest.activeSpaceID }
         for i in result.spaces.indices {

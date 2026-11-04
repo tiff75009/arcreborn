@@ -24,7 +24,7 @@ final class ArcSyncSettingsView:NSView {
     required init?(coder:NSCoder) { fatalError() }
     deinit { task?.cancel(); if let observer { NotificationCenter.default.removeObserver(observer) } }
     private func button(_ title:String,rect:NSRect,action:@escaping()->Void)->ActionButton {
-        let button = ActionButton(title,action:action); button.frame = rect; button.isBordered = true; button.bezelStyle = .rounded; addSubview(button); return button
+        let button = ChapterButton(title,style:.soft,action:action); button.frame = rect; addSubview(button); return button
     }
     private func refresh() {
         let sync = ArcSync.shared

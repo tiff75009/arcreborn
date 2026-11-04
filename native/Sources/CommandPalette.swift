@@ -81,6 +81,7 @@ private final class CommandRow: NSButton {
 final class CommandPalette: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     let isNewTab: Bool
     private let isCentered: Bool
+    private weak var addressAnchor: NSView?
     private let parent: NSWindow
     private let panel: CommandWindow
     private let surface = CommandSurface()
@@ -100,7 +101,8 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private var closed = false
     private var helpVisible = false
 
-    init(parent: NSWindow, newTab: Bool, centered: Bool = false, initial: String, icon: NSImage?, tint: NSColor, language: String, suggestions: @escaping (String) -> [CommandSuggestion], onDismiss: @escaping () -> Void) {
+    init(parent: NSWindow, newTab: Bool, centered: Bool = false, addressAnchor: NSView? = nil, initial: String, icon: NSImage?, tint: NSColor, language: String, suggestions: @escaping (String) -> [CommandSuggestion], onDismiss: @escaping () -> Void) {
+        self.addressAnchor = addressAnchor
         self.parent = parent; isNewTab = newTab; self.suggestions = suggestions; self.onDismiss = onDismiss
         isCentered = newTab || centered
         panel = CommandWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -190,11 +192,13 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
     private func position() {
         guard !closed, let parentView = parent.contentView else { return }
-        let width = min(isCentered ? 765.0 : 420.0, max(260,parentView.bounds.width-24))
+        let anchor = isCentered ? nil : addressAnchor.flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : parentView.convert($0.bounds,from:$0) }
+        let preferredWidth = anchor.map { min(700,max(340,$0.width)) } ?? (isCentered ? 765 : 420)
+        let width = min(preferredWidth,max(260,parentView.bounds.width-24))
         let header: CGFloat = isCentered ? 70 : 51
         let height = header+CGFloat(max(1,rows.count))*50+10+(helpVisible ? 42 : 0)
-        let localX: CGFloat = isCentered ? (parentView.bounds.width-width)/2 : 12
-        let top: CGFloat = isCentered ? max(12,(parentView.bounds.height-height)/2) : 9
+        let localX: CGFloat = isCentered ? (parentView.bounds.width-width)/2 : min(anchor?.minX ?? 12,parentView.bounds.width-width-8)
+        let top: CGFloat = isCentered ? max(12,(parentView.bounds.height-height)/2) : anchor?.minY ?? 9
         let point = parentView.convert(NSPoint(x:localX,y:top),to:nil)
         let screen = parent.convertPoint(toScreen:point)
         panel.setFrame(NSRect(x:screen.x,y:screen.y-height,width:width,height:height),display:true)

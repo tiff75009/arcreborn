@@ -39,7 +39,7 @@ extension BrowserSession {
         result.spaces = try records(base.spaces,incoming.spaces,latest.spaces,\.id)
         result.tabs = try records(base.tabs,incoming.tabs,latest.tabs,\.id)
         result.folders = try records(base.folders,incoming.folders,latest.folders,\.id)
-        result.closedTabs = Array(try records(base.closedTabs,incoming.closedTabs,latest.closedTabs,\.id).suffix(50))
+        result.closedTabs = Self.boundedArchive(try records(base.closedTabs,incoming.closedTabs,latest.closedTabs,\.id))
         result.splitGroups = try records(base.splitGroups ?? [],incoming.splitGroups ?? [],latest.splitGroups ?? [],\.id)
         let spaces = Set(result.spaces.map(\.id)), tabs = Set(result.tabs.map(\.id))
         result.tabs.removeAll { !spaces.contains($0.spaceID) }
@@ -65,11 +65,12 @@ extension BrowserSession {
         return result
     }
 
-    func standaloneWindow(privateProfile:String? = nil, compact:Bool = false) -> Self {
+    func standaloneWindow(privateProfile:String? = nil, compact:Bool = false, initialAddress:String? = nil) -> Self {
         var next = Self.fresh(language:language); next.onboardingComplete = true
         let source = spaces.first { $0.id == activeSpaceID }
         if let privateProfile {
-            next.profiles = [.init(id:privateProfile,name:language == "fr" ? "Privé" : "Private")]
+            let origin = profile(forSpace:activeSpaceID)
+            next.profiles = [.init(id:privateProfile,name:language == "fr" ? "Privé" : "Private",searchEngineID:origin?.searchEngineID,newTabAddress:origin?.homepage,archiveAfterHours:origin?.archiveAfterHours,autoArchiveEnabledSince:origin?.autoArchiveEnabledSince)]
             next.spaces[0].profileID = privateProfile
             next.spaces[0].name = language == "fr" ? "Navigation privée" : "Private Browsing"
             next.spaces[0].icon = "🔒"; next.spaces[0].color = "#403355"
@@ -78,12 +79,13 @@ extension BrowserSession {
             next.spaces[0].name = language == "fr" ? "Fenêtre vide" : "Blank Window"
             next.spaces[0].color = source?.color ?? "#5747D8"; next.spaces[0].theme = source?.theme
         }
-        next.themeAppearance = themeAppearance; next.sidebarWidth = sidebarWidth; next.sidebarHidden = compact
+        next.interfaceStyle = interfaceStyle
+        next.themeAppearance = themeAppearance; next.sidebarWidth = sidebarWidth; next.sidebarHidden = compact || sidebarHidden
         next.commandShortcuts = commandShortcuts; next.splitShortcuts = splitShortcuts
         next.savePasswords = privateProfile == nil ? savePasswords : false
         next.automaticSignIn = privateProfile == nil ? automaticSignIn : false
         next.formSuggestions = privateProfile == nil ? formSuggestions : false
-        _ = next.createTab()
+        _ = next.createTab(url:initialAddress)
         return next
     }
 }

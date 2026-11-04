@@ -6,8 +6,9 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private var menus: BrowserMenus?
     private var pendingAddresses: [String] = []
     private var baselines: [String:BrowserSession] = [:]
-    private var privateProfile: String?
+    private var privateOrigins: [String:String] = [:] // ephemeral CEF context ID → originating regular profile
     private var publishTask: DispatchWorkItem?
+    private var archiveTimer: Timer?
     let store: SessionStore
     var initial: BrowserSession
     private(set) var sharedSession: BrowserSession
@@ -49,6 +50,15 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         if controllers.isEmpty { _ = openWindow(.normal) }
         pendingAddresses.forEach { controller?.openExternalAddress($0) }; pendingAddresses.removeAll()
         controller?.show(); NSApp.activate(ignoringOtherApps:true); buildMenu(); startNativeHostDiagnostics()
+        let profilePreview = CommandLine.arguments.contains("--preview-profiles")
+        let interfacePreview = CommandLine.arguments.contains("--preview-interface")
+        if (interfacePreview || profilePreview || CommandLine.arguments.contains("--preview-account")), ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil {
+            DispatchQueue.main.async { [weak self] in self?.controller?.showPreferencesPreview(profiles:profilePreview,interface:interfacePreview) }
+        }
+        let timer = Timer(timeInterval:60,repeats:true) { [weak self] _ in self?.sweepArchives() }
+        timer.tolerance = 10; RunLoop.main.add(timer,forMode:.common); archiveTimer = timer
+        NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(sweepArchives),name:NSWorkspace.didWakeNotification,object:nil)
+        DispatchQueue.main.async { [weak self] in self?.sweepArchives() }
         BrowserUpdates.shared.start()
         BrowserUpdates.shared.presentNewsAfterUpgrade { [weak self] in self?.sharedSession.onboardingComplete == true && self?.quitting == false }
         if ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil,
@@ -67,32 +77,42 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         next.newWindowRequested = { [weak self,weak next] kind in _ = self?.openWindow(kind,from:next) }
         next.privateAddressRequested = { [weak self,weak next] address in
             guard let self else { return }
-            self.openWindow(.privateWindow,from:next).openExternalAddress(address)
+            self.openWindow(.privateWindow,from:next,initialAddress:address)
         }
         next.windowAddressRequested = { [weak self,weak next] address in
             guard let self else { return }
-            self.openWindow(.blank,from:next).openExternalAddress(address)
+            self.openWindow(.blank,from:next,initialAddress:address)
         }
         next.promoteWindowRequested = { [weak self,weak next] in
             guard let self, let next else { return }
-            let target = self.openWindow(next.isPrivateWindow ? .privateWindow : .normal,from:next)
-            if let url = next.selectedWindowURL, url != "about:blank" { target.openExternalAddress(url) }
+            let url = next.selectedWindowURL.flatMap { $0 == "about:blank" ? nil : $0 }
+            if next.isPrivateWindow { self.openWindow(.privateWindow,from:next,initialAddress:url) }
+            else {
+                let target = self.openWindow(.normal,from:next)
+                if let url { target.openExternalAddress(url) }
+            }
             next.requestWindowClose()
         }
         controller = next
         return next
     }
-    @discardableResult func openWindow(_ kind:BrowserWindowKind,from source:BrowserController? = nil) -> BrowserController {
+    @discardableResult func openWindow(_ kind:BrowserWindowKind,from source:BrowserController? = nil,initialAddress:String? = nil) -> BrowserController {
         publishTask?.cancel(); publish()
         let source = source ?? controller
         let ephemeral = kind == .privateWindow || ((kind == .compact || kind == .blank) && source?.isPrivateWindow == true)
-        if ephemeral, privateProfile == nil {
-            let id = "private-"+UUID().uuidString
-            precondition(BrowserEngine().registerPrivateProfile(id),"Cannot register an isolated private context")
-            privateProfile = id
-        }
         let seed = source?.windowSession ?? sharedSession
-        var state = kind == .normal ? sharedSession : seed.standaloneWindow(privateProfile:ephemeral ? privateProfile : nil,compact:kind == .compact)
+        let origin = seed.profile(forSpace:seed.activeSpaceID)?.id ?? sharedSession.profiles[0].id
+        var privateID: String?
+        if ephemeral {
+            let regular = privateOrigins[origin] ?? origin
+            if let existing = privateOrigins.first(where:{ $0.value == regular })?.key { privateID = existing }
+            else {
+                let id = "private-"+UUID().uuidString
+                precondition(BrowserEngine().registerPrivateProfile(id),"Cannot register an isolated private context")
+                privateOrigins[id] = regular; privateID = id
+            }
+        }
+        var state = kind == .normal ? sharedSession : seed.standaloneWindow(privateProfile:privateID,compact:kind == .compact,initialAddress:initialAddress)
         // Every window opens a usable command surface, even when there are no tabs.
         if state.tabs.isEmpty { _ = state.createTab(); if kind == .normal { sharedSession = state } }
         let result = makeController(state:state,kind:kind,privateWindow:ephemeral)
@@ -105,7 +125,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         result.show(); buildMenu(); persistWindows()
-        if kind != .normal || result.selectedWindowURL == "about:blank" { result.openLocationAction(nil) }
+        if result.selectedWindowURL == "about:blank" { result.openLocationAction(nil) }
         return result
     }
     private func save(_ state:BrowserSession,from id:String) throws {
@@ -121,10 +141,21 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             if state.commandShortcuts != base.commandShortcuts { updated.commandShortcuts = state.commandShortcuts }
             if state.splitShortcuts != base.splitShortcuts { updated.splitShortcuts = state.splitShortcuts }
             if state.language != base.language { updated.language = state.language }
+            if state.interfaceStyle != base.interfaceStyle { updated.interfaceStyle = state.interfaceStyle }
             if state.themeAppearance != base.themeAppearance { updated.themeAppearance = state.themeAppearance }
             if state.savePasswords != base.savePasswords { updated.savePasswords = state.savePasswords }
             if state.automaticSignIn != base.automaticSignIn { updated.automaticSignIn = state.automaticSignIn }
             if state.formSuggestions != base.formSuggestions { updated.formSuggestions = state.formSuggestions }
+            if !source.isPrivateWindow {
+                for profile in state.profiles {
+                    guard let previous = base.profiles.first(where:{ $0.id == profile.id }),
+                          let i = updated.profiles.firstIndex(where:{ $0.id == profile.id }) else { continue }
+                    if previous.searchEngineID != profile.searchEngineID { updated.profiles[i].searchEngineID = profile.searchEngineID }
+                    if previous.newTabAddress != profile.newTabAddress { updated.profiles[i].newTabAddress = profile.newTabAddress }
+                    if previous.autoArchiveEnabledSince != profile.autoArchiveEnabledSince { updated.profiles[i].autoArchiveEnabledSince = profile.autoArchiveEnabledSince }
+                    if previous.archiveAfterHours != profile.archiveAfterHours { updated.profiles[i].archiveAfterHours = profile.archiveAfterHours }
+                }
+            }
             if updated != sharedSession { try store.save(updated); sharedSession = updated }
         }
         baselines[id] = state
@@ -144,8 +175,25 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         for item in controllers where item.windowKind == .normal && !item.isPrivateWindow && !item.isClosingWindow {
             item.receiveSharedSession(sharedSession); baselines[item.windowID] = item.windowSession
         }
+        publishStandaloneNavigation()
         if sharedSession != before { do { try store.save(sharedSession); Task { @MainActor in ArcSync.shared.localChanged() } } catch { NSLog("Browser shared session save failed: %@",error.localizedDescription) } }
         persistWindows()
+    }
+    private func publishStandaloneNavigation() {
+        for item in controllers where (item.windowKind != .normal || item.isPrivateWindow) && !item.isClosingWindow {
+            item.receiveInterfaceStyle(sharedSession.interfaceStyle)
+            baselines[item.windowID]?.interfaceStyle = sharedSession.interfaceStyle
+            for local in item.windowSession.profiles {
+                let regular = privateOrigins[local.id] ?? local.id
+                guard let source = sharedSession.profiles.first(where:{ $0.id == regular }),
+                      let i = baselines[item.windowID]?.profiles.firstIndex(where:{ $0.id == local.id }) else { continue }
+                item.receiveNavigationPreferences(source,as:local.id)
+                baselines[item.windowID]?.profiles[i].searchEngineID = source.searchEngineID
+                baselines[item.windowID]?.profiles[i].newTabAddress = source.newTabAddress
+                baselines[item.windowID]?.profiles[i].autoArchiveEnabledSince = source.autoArchiveEnabledSince
+                baselines[item.windowID]?.profiles[i].archiveAfterHours = source.archiveAfterHours
+            }
+        }
     }
     private func applyCloudSession(_ state:BrowserSession) throws {
         guard !quitting, state.validated() else { throw SessionStoreError.invalidState }
@@ -155,6 +203,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         for item in controllers where item.windowKind == .normal && !item.isPrivateWindow && !item.isClosingWindow {
             item.receiveSharedSession(state); baselines[item.windowID] = item.windowSession
         }
+        publishStandaloneNavigation()
         let defaults = UserDefaults.standard
         defaults.set(state.language,forKey:"BrowserLanguage")
         defaults.set(state.savePasswords ?? true,forKey:"BrowserSavePasswords")
@@ -169,8 +218,51 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private func closed(_ value:BrowserController) {
         controllers.removeAll { $0 === value }; baselines.removeValue(forKey:value.windowID)
         if controller === value { controller = controllers.first(where: { $0.window.isKeyWindow }) ?? controllers.last }
-        if !controllers.contains(where: \.isPrivateWindow), let profile = privateProfile { BrowserEngine().releasePrivateProfile(profile); privateProfile = nil }
+        if value.isPrivateWindow, let id = value.windowSession.profiles.first?.id,
+           !controllers.contains(where:{ $0.isPrivateWindow && $0.windowSession.profiles.first?.id == id }) {
+            BrowserEngine().releasePrivateProfile(id); privateOrigins.removeValue(forKey:id)
+        }
         buildMenu(); persistWindows()
+    }
+    // A regular sidebar is shared but each window can have its own renderer and
+    // selection. Never close an ID based on a single window's view of it.
+    @objc private func sweepArchives() {
+        guard booted, !quitting else { return }
+        let regular = controllers.filter { $0.windowKind == .normal && !$0.isPrivateWindow }
+        sweepArchiveGroup(regular)
+        for window in controllers where window.windowKind != .normal && window.windowKind != .compact {
+            sweepArchiveGroup([window])
+        }
+    }
+    private func archiveCandidates(_ group:[BrowserController],at now:Date) -> [String] {
+        guard let first = group.first, group.allSatisfy({ !$0.isClosingWindow && $0.windowSession.onboardingComplete }) else { return [] }
+        let protected = group.reduce(into:Set<String>()) { $0.formUnion($1.archiveProtectedIDs) }
+        var candidates = first.windowSession.idleArchiveIDs(at:now,protecting:protected)
+        for other in group.dropFirst() where !candidates.isEmpty {
+            let eligible = Set(other.windowSession.idleArchiveIDs(at:now,protecting:protected))
+            candidates.removeAll { !eligible.contains($0) }
+        }
+        return candidates
+    }
+    private func sweepArchiveGroup(_ group:[BrowserController]) {
+        guard let first = group.first, group.allSatisfy({ !$0.isClosingWindow && $0.windowSession.onboardingComplete }) else { return }
+        guard first.windowSession.profiles.contains(where: \.autoArchiveEnabled) else { return }
+        let now = Date(); first.seedArchiveDates(at:now)
+        let candidates = archiveCandidates(group,at:now)
+        var dormant = [String](), live = [(BrowserController,String)]()
+        for id in candidates {
+            let owners = group.filter { $0.hasArchiveRenderer(id) }
+            if owners.isEmpty, dormant.count < 100 { dormant.append(id) }
+            else if owners.count == 1 { live.append((owners[0],id)) }
+        }
+        first.archiveDormantTabs(dormant,at:now)
+        for (owner,id) in live {
+            owner.probeForAutoArchive(id) { [weak self, weak owner] in
+                guard let self, let owner, !self.quitting, self.controllers.contains(where:{ $0 === owner }) else { return false }
+                let peers = owner.windowKind == .normal ? self.controllers.filter { $0.windowKind == .normal && !$0.isPrivateWindow } : [owner]
+                return peers.filter { $0.hasArchiveRenderer(id) }.count == 1 && self.archiveCandidates(peers,at:Date()).contains(id)
+            }
+        }
     }
     private func persistWindows() {
         guard booted else { return }

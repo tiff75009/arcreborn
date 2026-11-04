@@ -25,6 +25,7 @@ final class FadingTextViewport: NSView {
 }
 
 final class FadingAddressButton: ActionButton {
+    var textInset: CGFloat = 0 { didSet { if oldValue != textInset { needsDisplay = true } } }
     private let fade = CAGradientLayer()
     override func draw(_ dirtyRect: NSRect) {
         let textFont = font ?? .systemFont(ofSize: 14)
@@ -42,11 +43,11 @@ final class FadingAddressButton: ActionButton {
         fade.startPoint = CGPoint(x: 0, y: 0.5); fade.endPoint = CGPoint(x: 1, y: 0.5)
         fade.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
         fade.locations = [0, NSNumber(value: Double(max(0, 1 - 20 / max(1, bounds.width)))), 1]
-        layer?.mask = size.width > bounds.width ? fade : nil
+        layer?.mask = size.width > bounds.width-textInset ? fade : nil
         CATransaction.commit()
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: bounds).addClip()
-        text.draw(in: NSRect(x: 0, y: (bounds.height-size.height)/2, width: max(bounds.width,size.width), height: size.height), withAttributes: attributes)
+        text.draw(in: NSRect(x: textInset, y: (bounds.height-size.height)/2, width: max(bounds.width-textInset,size.width), height: size.height), withAttributes: attributes)
         NSGraphicsContext.restoreGraphicsState()
     }
 }

@@ -572,7 +572,7 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
         layer?.shadowColor = NSColor.black.cgColor; layer?.shadowOpacity = active ? 0.12 : 0; layer?.shadowRadius = 1; layer?.shadowOffset = NSSize(width: 0, height: -1)
     }
 }
-private struct TabStatus { var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: String? }
+private struct TabStatus { var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
 private enum SidebarRow { case tab(String), folder(String), heading(String), newTab }
 private final class MenuAction: NSObject { let kind: String; let id: String; let value: String; init(_ kind: String, _ id: String, _ value: String = "") { self.kind = kind; self.id = id; self.value = value } }
 
@@ -616,6 +616,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let sidebar = NSVisualEffectView()
     private let sidebarTint = ThemeBackdropView()
     private let toolbar = FlippedView()
+    // Transparent so the space gradient and grain continue seamlessly across the window.
+    private let classicHeader = FlippedView()
+    private let addressMark = NSImageView()
+    private let privateBadge = NSTextField(labelWithString:"")
+    private var classicPresentation = false
+    private var usesClassicInterface: Bool { windowKind != .compact && session.currentInterface == .classic }
+
     private let content = NSView()
     private let splitHost = SplitHostView()
     private var developerBars: [String:DeveloperToolbar] = [:]
@@ -626,7 +633,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var splitLimitTarget: String?
     private var splitActionsMenu: NSMenu?
     private let pageShadow = NSView()
-    private let home = FlippedView()
+    private let home = BrowserLandingView(frame:.zero)
     private let rowsScroll = NSScrollView()
     private let table = SidebarTable()
     private weak var sidebarTitleEditor: TabCell?
@@ -728,6 +735,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         window = BrowserWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         super.init()
         engine.delegate = self; window.delegate = self
+        for profile in session.profiles { _ = configureEngine(profile.engine,profileID:profile.id) }
         (window as? BrowserWindow)?.undoDeletion = { [weak self] in self?.undoLastDeletion() ?? false }
         (window as? BrowserWindow)?.canUndoDeletion = { [weak self] in self?.deletionUndo.isEmpty == false }
         undoToast.undo = { [weak self] in _ = self?.undoLastDeletion() }
@@ -783,6 +791,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func t(_ key: String) -> String { L10n.text(key, language: session.language) }
     private var activeSpace: NativeSpace? { session.spaces.first { $0.id == session.activeSpaceID } }
+    private var currentEngine: SearchEngine { session.profile(forSpace:session.activeSpaceID)?.engine ?? .google }
+    @discardableResult private func configureEngine(_ value:SearchEngine,profileID:String) -> Bool {
+        let spec = value.spec
+        return engine.setSearchProvider(spec.chromiumID,name:spec.name,keyword:spec.keyword,templateURL:value.chromiumTemplate,profile:profileID)
+    }
     private var activeTab: NativeTab? { session.tabs.first { $0.id == activeSpace?.selectedTabID } }
     private var sidebarInk: NSColor {
         if darkTheme { return NSColor(white:0.95,alpha:1) }
@@ -823,6 +836,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         if !session.onboardingComplete { DispatchQueue.main.async { [weak self] in self?.showOnboarding() } }
         else { showSelectedTab() }
+    }
+    func showPreferencesPreview(profiles:Bool,interface:Bool = false) {
+        guard ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil, session.onboardingComplete else { return }
+        settingsAction(nil)
+        if interface { preferencesWindow?.showInterface() }
+        else if profiles { preferencesWindow?.showProfiles() } else { preferencesWindow?.showAccount() }
     }
     func prepareToQuit() -> Bool {
         pageCapture?.close()
@@ -868,10 +887,19 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         root.addSubview(sidebar); root.addSubview(sidebarTint); root.addSubview(pageShadow); root.addSubview(content)
         sidebarHost.wantsLayer = true
         sidebarHost.contextMenu = { [weak self] in guard let self, let space = self.activeSpace else { return nil }; return self.spaceMenu(space) }
+        root.addSubview(classicHeader)
+        classicHeader.isHidden = true
+        privateBadge.font = .systemFont(ofSize:11,weight:.semibold)
+        classicHeader.addSubview(privateBadge)
         root.addSubview(sidebarHost)
         for view in [toolbar, addressBackground, favoritesHint, favorites, rowsScroll, spacesFooter] { sidebarHost.addSubview(view) }
         // Root-level hit surface spans both sides of the seam, above Chromium.
         root.addSubview(resizeStrip)
+        home.search = { [weak self] in
+            guard let self else { return }
+            self.showCommand(newTab:self.activeTab == nil)
+        }
+        home.retry = { [weak self] in self?.reloadAction(nil) }
         content.addSubview(home)
         sidebarButton = ActionButton(t("sidebar"), symbol: "sidebar.left") { [weak self] in self?.toggleSidebarAction(nil) }; sidebarButton.title = ""
         backButton = NavigationButton(t("back"), symbol: "arrow.left") { [weak self] in self?.backAction(nil) }; backButton.title = ""
@@ -913,6 +941,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         favorites.heightChanged = { [weak self] in self?.layoutFavorites(animated:true) }
         for view in [sidebarButton, backButton, forwardButton, reloadButton] { toolbar.addSubview(view!) }
         for view in [addressButton, copyLinkButton, siteMenuButton] { addressBackground.addSubview(view!) }
+        addressMark.image = NSImage(systemSymbolName:"magnifyingglass",accessibilityDescription:nil)
+        addressMark.imageScaling = .scaleProportionallyDown
+        addressMark.setAccessibilityElement(false)
+        addressBackground.addSubview(addressMark,positioned:.below,relativeTo:addressButton)
+        addressMark.isHidden = true
         sidebarHost.addSubview(downloadButton)
         findField = NSSearchField(); findField.placeholderString = t("find"); findField.delegate = self; findField.target = self; findField.action = #selector(findNextAction(_:)); findField.isHidden = true
         findClose = ActionButton(t("close"), symbol: "xmark") { [weak self] in self?.endFind() }; findClose.title = ""; findClose.isHidden = true
@@ -1000,37 +1033,115 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             for (i,view) in views.enumerated() { view.animator().frame = target[i] }
         }
     }
+    private func browsingFrame(side:CGFloat, floating:Bool) -> NSRect {
+        let x:CGFloat = floating ? 8 : side+2
+        let y:CGFloat = usesClassicInterface ? 48 : floating ? 9 : 7
+        return NSRect(x:x,y:y,width:max(52,root.bounds.width-x-8),
+                      height:max(100,root.bounds.height-y-(floating ? 9 : 10)))
+    }
+
+    private func host(_ view:NSView, in parent:NSView) {
+        if view.superview !== parent { parent.addSubview(view) }
+    }
+
+    /// Only native controls change parents. The web view and its first responder
+    /// stay in place, including when a floating sidebar appears over a live page.
+    private func layoutNavigation(side:CGFloat) {
+        let classic = usesClassicInterface
+        let sidebarShown = !session.sidebarHidden || sidebarRevealed
+        let navigationInSidebar = !classic || !session.sidebarHidden
+        let barHost = navigationInSidebar ? toolbar : classicHeader
+        for button in [backButton!,forwardButton!,reloadButton!] as [NSView] { host(button,in:barHost) }
+        host(addressBackground,in:classic ? classicHeader : sidebarHost)
+        host(sidebarButton,in:classic && !sidebarShown ? classicHeader : toolbar)
+        toolbar.frame = NSRect(x:0,y:0,width:max(230,side),height:42)
+        // Permanent sidebars use the very same controls and coordinates in both layouts.
+        if navigationInSidebar {
+            sidebarButton.frame = NSRect(x:74,y:5,width:32,height:32)
+            let start = max(111,side-104)
+            backButton.frame = NSRect(x:start-2.5,y:6,width:32,height:32)
+            forwardButton.frame = NSRect(x:start+31.5,y:6,width:32,height:32)
+            reloadButton.frame = NSRect(x:start+64,y:6,width:35,height:32)
+        }
+        classicHeader.isHidden = !classic || library != nil || spaceCreation != nil
+        privateBadge.isHidden = !classic || !isPrivateWindow
+        addressMark.isHidden = !classic
+        let ink = sidebarInk
+        if classic {
+            let left = sidebarShown ? (session.sidebarHidden ? sidebarFrame.maxX+5 : side+2) : 5
+            classicHeader.frame = NSRect(x:left,y:0,width:max(100,root.bounds.width-left-7),height:47)
+            var x:CGFloat = 5
+            if !navigationInSidebar {
+                if sidebarShown {
+                    sidebarButton.frame = NSRect(x:74,y:5,width:32,height:32)
+                } else {
+                    sidebarButton.frame = NSRect(x:x,y:7,width:32,height:32)
+                    x += 38
+                }
+                for button in [backButton!,forwardButton!,reloadButton!] as [NSView] {
+                    button.frame = NSRect(x:x,y:7,width:29,height:32); x += 30
+                }
+            }
+            if isPrivateWindow {
+                privateBadge.stringValue = splitText("Privé","Private")
+                privateBadge.textColor = ink
+                privateBadge.frame = NSRect(x:x+5,y:15,width:50,height:18); x += 48
+            }
+            x += 8
+            addressBackground.frame = NSRect(x:x,y:7,width:max(80,classicHeader.bounds.width-x-5),height:32)
+        } else {
+            addressBackground.frame = NSRect(x:5,y:43,width:max(170,side-11),height:36)
+        }
+
+        let w = addressBackground.bounds.width
+        let slots = extensionButtons.count + (overflowExtensions.isEmpty ? 0 : 1)
+        let actionsWidth = CGFloat(61+slots*28)
+        let buttonY:CGFloat = classic ? 3 : 6
+        for (index,button) in extensionButtons.enumerated() {
+            button.frame = NSRect(x:w-61-CGFloat((slots-index)*28),y:buttonY,width:26,height:25)
+            button.ink = ink
+        }
+        extensionOverflowButton.frame = NSRect(x:w-89,y:buttonY,width:26,height:25)
+        extensionOverflowButton.ink = ink
+        copyLinkButton.frame = NSRect(x:w-59,y:buttonY,width:26,height:25)
+        siteMenuButton.frame = NSRect(x:w-31,y:buttonY,width:25,height:25)
+        if let address = addressButton as? FadingAddressButton {
+            address.textInset = classic ? 32 : 0
+            address.frame = classic ? NSRect(x:0,y:0,width:max(50,w-actionsWidth-12),height:32)
+                                    : NSRect(x:13,y:4,width:max(30,side-100-CGFloat(slots*28)),height:28)
+            address.wantsLayer = true
+            address.layer?.cornerRadius = 9
+            address.layer?.borderWidth = classic ? 0.7 : 0
+            address.layer?.borderColor = ink.withAlphaComponent(0.16).cgColor
+            address.layer?.backgroundColor = classic ? ink.withAlphaComponent(0.065).cgColor : nil
+        }
+        addressBackground.layer?.backgroundColor = classic ? nil : ink.withAlphaComponent(0.055).cgColor
+        addressMark.contentTintColor = ink.withAlphaComponent(0.7)
+        addressMark.frame = NSRect(x:10,y:9,width:14,height:14)
+    }
+
     private func layout() {
         guard root.bounds.width > 0 else { return }
         let width = root.bounds.width
         let side = CGFloat(SidebarSizing.clamp(session.sidebarWidth))
         let floating = session.sidebarHidden
+        if classicPresentation != usesClassicInterface {
+            classicPresentation = usesClassicInterface
+            cancelSidebarHover(); sidebarTransition += 1; sidebarAnimating = false
+            sidebarHost.layer?.removeAllAnimations()
+            updateBackgroundSidebarTracking()
+        }
         let height = root.bounds.height - (floating ? 10 : 0)
         layoutSidebarPresentation()
         sidebarTint.frame = root.bounds
-        toolbar.frame = NSRect(x: 0, y: 0, width: max(230, side), height: 42)
-        sidebarButton.frame = NSRect(x: 74, y: 5, width: 32, height: 32)
-        let navigationStart = max(111, side-104)
-        backButton.frame = NSRect(x: navigationStart-2.5, y: 6, width: 32, height: 32)
-        forwardButton.frame = NSRect(x: navigationStart+31.5, y: 6, width: 32, height: 32)
-        reloadButton.frame = NSRect(x: navigationStart+64, y: 6, width: 35, height: 32)
-        addressBackground.frame = NSRect(x: 5, y: 43, width: max(170,side-11), height: 36)
-        let extensionSlots = extensionButtons.count + (overflowExtensions.isEmpty ? 0 : 1)
-        addressButton.frame = NSRect(x: 13, y: 4, width: max(30,side-100-CGFloat(extensionSlots*28)), height: 28)
-        for (index,button) in extensionButtons.enumerated() {
-            button.frame = NSRect(x:addressBackground.bounds.width-61-CGFloat((extensionSlots-index)*28),y:6,width:26,height:25)
-        }
-        extensionOverflowButton.frame = NSRect(x:addressBackground.bounds.width-89,y:6,width:26,height:25)
-        copyLinkButton.frame = NSRect(x: addressBackground.bounds.width-59, y: 6, width: 26, height: 25)
-        siteMenuButton.frame = NSRect(x: addressBackground.bounds.width-31, y: 6, width: 25, height: 25)
-        content.frame = NSRect(x: side+2, y: 7, width: max(100,width-side-10), height: max(100,root.bounds.height-17))
-        if floating { content.frame = NSRect(x: 8, y: 9, width: width-16, height: root.bounds.height-18) }
+        layoutNavigation(side:side)
+        content.frame = browsingFrame(side:side,floating:floating)
         if let library {
             library.frame = NSRect(x:0,y:0,width:library.expanded ? max(400,width-64) : min(414,width-180),height:root.bounds.height)
             content.frame = NSRect(x:library.frame.maxX+2,y:7,width:max(52,width-library.frame.maxX-10),height:root.bounds.height-17)
             sidebarHost.isHidden = true
         }
-        if let windowChrome, library == nil, spaceCreation == nil {
+        if let windowChrome, !usesClassicInterface, library == nil, spaceCreation == nil {
             let compact = windowKind == .compact
             windowChrome.isHidden = false
             windowChrome.frame = NSRect(x:compact ? 6 : side+2,y:compact ? 4 : 7,width:compact ? width-12 : width-side-10,height:40)
@@ -1041,9 +1152,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         home.frame = content.bounds
         let favoriteCount = session.tabs.filter { $0.favorite }.count
         let favoriteHeight: CGFloat = showFavoritesHint ? 94 : max(favorites.preferredHeight, sidebarDragActive ? max(favoriteDragBaseline,favoriteCount == 0 ? 46 : 0) : 0)
-        favoritesHint.frame = NSRect(x: 5, y: 87, width: max(170,side-11), height: 94)
-        favorites.frame = NSRect(x: 5, y: 87, width: max(170,side-11), height: favoriteHeight)
-        let spaceY = 87+favoriteHeight+15
+        let favoritesTop:CGFloat = usesClassicInterface ? 47 : 87
+        favoritesHint.frame = NSRect(x: 5, y: favoritesTop, width: max(170,side-11), height: 94)
+        favorites.frame = NSRect(x: 5, y: favoritesTop, width: max(170,side-11), height: favoriteHeight)
+        let spaceY = favoritesTop+favoriteHeight+15
         spaceButton.frame = NSRect(x: 5, y: spaceY, width: max(170,side-11), height: 36)
         folderButton.frame = NSRect(x: side-37, y: spaceY+3, width: 25, height: 24)
         let rowsY = spaceY+42
@@ -1058,14 +1170,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         favoritesHint.isHidden = !showFavoritesHint
         favorites.isHidden = showFavoritesHint
         folderButton.isHidden = true // Folder creation remains in the space context menu and + menu.
-        findField.frame = NSRect(x: max(side+18,width-340), y: 17, width: 270, height: 28)
-        findClose.frame = NSRect(x: width-48, y: 18, width: 25, height: 25)
+        findField.frame = NSRect(x: max(side+18,width-340), y: usesClassicInterface ? content.frame.minY+8 : 17, width: 270, height: 28)
+        findClose.frame = NSRect(x: width-48, y: usesClassicInterface ? content.frame.minY+9 : 18, width: 25, height: 25)
         layoutWindowButtons()
         if windowKind == .compact {
             sidebarHost.isHidden = true; resizeStrip.isHidden = true
         }
         undoToast.layout(in:window)
-        layoutHome()
         spaceCreation?.frame = root.bounds
         spaceCreation?.sidebarWidth = side
         if spaceCreation != nil { sidebarHost.isHidden = true; content.isHidden = true; pageShadow.isHidden = true }
@@ -1127,6 +1238,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarTransition += 1
         let transition = sidebarTransition
         sidebarAnimating = true
+        if usesClassicInterface { layoutNavigation(side:CGFloat(SidebarSizing.clamp(session.sidebarWidth))) }
         layoutWindowButtons()
         sidebarHost.isHidden = false
         NSAnimationContext.runAnimationGroup { context in
@@ -1224,7 +1336,6 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if !renderingSpaceSwitch { finishSpaceSwitch() }
         isRendering = true; defer { isRendering = false }
         applyTheme()
-        addressBackground.layer?.backgroundColor = sidebarInk.withAlphaComponent(0.055).cgColor
         sidebarButton.wantsLayer = true; sidebarButton.layer?.cornerRadius = 8; sidebarButton.layer?.backgroundColor = sidebarInk.withAlphaComponent(0.07).cgColor
         favoritesHint.ink = sidebarInk; favoritesHint.accent = NSColor(srgbRed: 0.70, green: 0, blue: 0.53, alpha: 1)
         favoritesHint.heading.stringValue = t("favoritesHintTitle"); favoritesHint.detail.stringValue = t("favoritesHintDetail"); favoritesHint.dismiss.setAccessibilityLabel(t("dismissHint")); favoritesHint.needsDisplay = true; favoritesHint.needsLayout = true
@@ -1497,7 +1608,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             context.timingFunction = CAMediaTimingFunction(name:.easeInEaseOut)
             view.animator().alphaValue = 0; view.animator().setFrameOrigin(NSPoint(x:-40,y:0))
             let side = CGFloat(SidebarSizing.clamp(session.sidebarWidth))
-            let target = session.sidebarHidden ? NSRect(x:8,y:9,width:root.bounds.width-16,height:root.bounds.height-18) : NSRect(x:side+2,y:7,width:root.bounds.width-side-10,height:root.bounds.height-17)
+            let target = browsingFrame(side:side,floating:session.sidebarHidden)
             content.animator().frame = target; pageShadow.animator().frame = target
         },completionHandler:{ [weak self] in
             guard let self, self.libraryTransition == token else { return }
@@ -1564,24 +1675,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         siteMenuButton.toolTip = t("siteControls"); siteMenuButton.setAccessibilityLabel(t("siteControls"))
         for button in [sidebarButton!, backButton!, forwardButton!, reloadButton!, addressButton!, copyLinkButton!, siteMenuButton!] { style(button, opacity: button.isEnabled ? 0.8 : 0.35) }
     }
-    private func buildHome() {
-        home.subviews.forEach { $0.removeFromSuperview() }
-        let error = activeTab.flatMap { status[$0.id]?.error }
-        let title = NSTextField(labelWithString: error == nil ? t("home") : t("errorTitle")); title.font = .systemFont(ofSize: 28, weight: .medium); title.alignment = .center
-        let subtitle = NSTextField(wrappingLabelWithString: error ?? t("homeInfo")); subtitle.font = .systemFont(ofSize: 13); subtitle.textColor = .secondaryLabelColor; subtitle.alignment = .center
-        let symbol = NSImageView(); symbol.image = NSImage(systemSymbolName: error == nil ? "circle.hexagongrid" : "exclamationmark.arrow.triangle.2.circlepath", accessibilityDescription: nil); symbol.contentTintColor = tint(); symbol.symbolConfiguration = .init(pointSize: 43, weight: .ultraLight)
-        let action = ActionButton(error == nil ? t("address") : t("retry"), symbol: error == nil ? "magnifyingglass" : "arrow.clockwise") { [weak self] in if error == nil { self?.newTabAction(nil) } else { self?.reloadAction(nil) } }
-        action.isBordered = true; action.bezelStyle = .rounded; action.font = .systemFont(ofSize: 13)
-        for v in [symbol, title, subtitle, action] { home.addSubview(v) }
-        home.isHidden = activeSplit != nil || activeTab.map { !$0.url.isEmpty && $0.url != "about:blank" && error == nil } ?? false
+    private func landingPage(for tab: NativeTab?) -> BrowserLandingView.Page? {
+        let failure = tab.flatMap { status[$0.id]?.error }
+        if let tab, failure == nil, !tab.url.isEmpty, tab.url != "about:blank" { return nil }
+        let command = BrowserCommands.displayedBindings(commandOverrides)[tab == nil ? "newTab" : "commandBar"]
+        let shortcut = command.flatMap { $0.key.isEmpty ? nil : $0.caption } ?? ""
+        return .init(language:session.language, space:activeSpace?.name ?? "", isPrivate:isPrivateWindow,
+                     shortcut:shortcut, failure:failure)
     }
-    private func layoutHome() {
-        guard home.subviews.count == 4 else { return }
-        let center = home.bounds.height / 2 - 40, width = home.bounds.width
-        home.subviews[0].frame = NSRect(x: width / 2 - 30, y: center - 95, width: 60, height: 60)
-        home.subviews[1].frame = NSRect(x: 25, y: center - 8, width: width - 50, height: 42)
-        home.subviews[2].frame = NSRect(x: 40, y: center + 40, width: width - 80, height: 55)
-        home.subviews[3].frame = NSRect(x: max(25, width / 2 - 200), y: center + 112, width: min(400, width - 50), height: 40)
+    private func buildHome() {
+        guard activeSplit == nil, let page = landingPage(for:activeTab) else { home.isHidden = true; return }
+        home.show(page); home.isHidden = false
     }
     private func showSelectedTab() {
         // Commit the old/new Chromium surfaces together, without AppKit's
@@ -1595,6 +1699,16 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard profileReloads[session.activeSpaceID] == nil, pendingSpaceClosures[session.activeSpaceID] == nil else { return }
         session.normalizeSplits()
         let ids = activeSplit?.tabIDs ?? activeTab.map { [$0.id] } ?? []
+        let visible = Set(ids)
+        if visible != archiveVisible {
+            let changed = visible.symmetricDifference(archiveVisible), now = Date()
+            archiveVisible = visible
+            var recorded = false
+            for i in session.tabs.indices where changed.contains(session.tabs[i].id) && session.profile(forSpace:session.tabs[i].spaceID)?.autoArchiveEnabled == true {
+                session.tabs[i].lastViewedAt = now; recorded = true
+            }
+            if recorded { persist() }
+        }
         pictureInPicture.update(visible:ids,eligible:Set(session.tabs.filter { session.automaticPictureInPictureEnabled(for:$0) }.map(\.id)))
         if let capture = pageCapture, activeTab?.id != capture.tabID { capture.close() }
         if let capture = portraitCapture, !ids.contains(capture.tabID) { capture.close() }
@@ -1617,9 +1731,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             resizeSplitPages(); updateSplitHeaders()
         } else {
             splitHost.isHidden = true
-            guard session.onboardingComplete, let tab = activeTab, tab.url != "about:blank", !tab.url.isEmpty else { home.isHidden = false; return }
+            guard session.onboardingComplete, let tab = activeTab else { buildHome(); return }
             ensurePage(tab.id,in:content)
-            home.isHidden = status[tab.id]?.error == nil
+            buildHome()
             layoutSplitContent()
         }
     }
@@ -1676,7 +1790,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func navigate(_ input: String, newTab: Bool) {
         guard !isQuitting else { return }
         if isExtensionsAddress(input) { manageExtensionsAction(nil); return }
-        guard let url = browserURL(input) else { showError(t("invalidURL"), detail: input); return }
+        guard let url = browserURL(input,engine:currentEngine) else { showError(t("invalidURL"), detail: input); return }
         if url.scheme?.lowercased() == "https", url.host?.lowercased() == "chromewebstore.google.com", url.user == nil, url.password == nil {
             openExtensions(store:true, address:url.absoluteString); return
         }
@@ -1997,7 +2111,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         case "spaceProfile": changeProfile(command.id, to:command.value); return
         case "spaceNewProfile": guard !isPrivateWindow else { return }; promptName(t("newProfile")) { [weak self] name in
             guard let self, self.session.profiles.count < 50 else { return }
-            let profile = NativeProfile(id:UUID().uuidString,name:name); self.session.profiles.append(profile); self.persist(); self.changeProfile(command.id,to:profile.id)
+            let profile = NativeProfile(id:UUID().uuidString,name:name); self.session.profiles.append(profile); self.configureEngine(profile.engine,profileID:profile.id); self.persist(); self.changeProfile(command.id,to:profile.id)
         }; return
         case "liveFolder": editLiveFolder(spaceID:command.id); return
         case "liveFolderHost": editLiveFolder(spaceID:command.id,initial:command.value); return
@@ -2013,7 +2127,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             self.render(); self.showSelectedTab(); self.persist()
         }; return
         case "manageSpaces": manageSpaces(); return
-        case "pin": if let i = index { session.tabs[i].pinned.toggle(); if !session.tabs[i].pinned { if session.tabs[i].favorite { session.detachFavoriteReferences(to:command.id) }; session.tabs[i].favorite = false; session.tabs[i].folderID = nil } }
+        case "pin": if let i = index { session.tabs[i].pinned.toggle(); if !session.tabs[i].pinned { session.tabs[i].lastViewedAt = Date(); if session.tabs[i].favorite { session.detachFavoriteReferences(to:command.id) }; session.tabs[i].favorite = false; session.tabs[i].folderID = nil } }
         case "favorite": if let i = index {
             let spaceID = session.activeSpaceID
             if session.tabs[i].favorite { _ = session.moveSidebarItem(.tab(command.id),spaceID:spaceID,to:SidebarDestination(parentID:nil,before:nil,temporary:true)) }
@@ -2046,21 +2160,78 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         render(); showSelectedTab(); persist()
     }
     private var pendingClose = Set<String>()
+    private var archiveVisible = Set<String>()
+    private var archiveProbing = Set<String>()
+    private var automaticClose = [String: () -> Bool]()
+
+    var archiveProtectedIDs: Set<String> {
+        var ids = Set(activeSplit?.tabIDs ?? activeTab.map { [$0.id] } ?? [])
+        ids.formUnion(pendingClose.subtracting(automaticClose.keys)); ids.formUnion(destructiveClosing); ids.formUnion(pendingCaptures)
+        for operation in profileReloads.values { ids.formUnion(operation.waiting) }
+        for closing in pendingSpaceClosures.values { ids.formUnion(closing) }
+        if let id = pageCapture?.tabID { ids.insert(id) }
+        if let id = portraitCapture?.tabID { ids.insert(id) }
+        return ids
+    }
+    func seedArchiveDates(at now:Date) {
+        if session.seedArchiveClock(at:now) { persist() }
+    }
+    func hasArchiveRenderer(_ id:String) -> Bool { containers[id] != nil }
+
+    func archiveDormantTabs(_ ids:[String],at now:Date) {
+        guard !ids.isEmpty, !isQuitting, !closingWindow else { return }
+        var candidate = session
+        for id in ids { candidate.closeTab(id:id,automaticallyAt:now) }
+        do { try store.save(candidate) }
+        catch { NSLog("Auto archive: %@",error.localizedDescription); return }
+        session = candidate; render(); library?.update(session:session)
+    }
+
+    func probeForAutoArchive(_ id:String,stillEligible:@escaping ()->Bool) {
+        guard !isQuitting, !closingWindow, !pendingClose.contains(id), !archiveProbing.contains(id),
+              !engine.hasPictureInPicture(id), !engine.hasDeveloperTools(id) else { return }
+        archiveProbing.insert(id)
+        engine.checkArchiveIdle(id) { [weak self] idle in
+            guard let self else { return }
+            self.archiveProbing.remove(id)
+            guard !self.isQuitting, !self.closingWindow, stillEligible() else { return }
+            guard idle else { self.resetArchiveClock(id); return }
+            self.automaticClose[id] = stillEligible; self.pendingClose.insert(id)
+            self.engine.tryAutoArchiveTab(id)
+        }
+    }
+    private func resetArchiveClock(_ id:String) {
+        if let i = session.tabs.firstIndex(where:{ $0.id == id }) {
+            session.tabs[i].lastViewedAt = Date(); persist()
+        }
+    }
+
     private func requestCloseTab(_ id: String) {
         guard !isQuitting else { return }
         if containers[id] != nil { pendingClose.insert(id); engine.closeTab(id) }
         else { session.closeTab(id: id); render(); showSelectedTab(); persist() }
     }
-    @objc func newTabAction(_ sender: Any?) { guard spaceCreation == nil else { return }; showCommand(newTab: windowKind != .compact) }
+    @objc func newTabAction(_ sender: Any?) {
+        guard !isQuitting, spaceCreation == nil else { return }
+        if let home = session.profile(forSpace:session.activeSpaceID)?.homepage {
+            commandPalette?.close()
+            if windowKind == .compact { navigate(home,newTab:false) }
+            else if !session.createTab(url:home).isEmpty { render(); showSelectedTab(); persist() }
+        } else { showCommand(newTab:windowKind != .compact) }
+    }
     @objc func openLocationAction(_ sender: Any?) { guard spaceCreation == nil else { return }; showCommand(newTab: false) }
     @objc func closeTabAction(_ sender: Any?) { if windowKind == .compact { requestWindowClose() } else if let tab = activeTab { requestCloseTab(tab.id) } }
     @objc func restoreTabAction(_ sender: Any?) { guard !isQuitting else { return }; session.restoreTab(); render(); showSelectedTab(); persist() }
     @objc func toggleSidebarAction(_ sender: Any?) {
-        guard windowKind != .compact else { return }
+        setSidebarHidden(!session.sidebarHidden)
+    }
+    private func setSidebarHidden(_ hidden:Bool) {
+        guard windowKind != .compact, session.sidebarHidden != hidden else { return }
         cancelSidebarHover()
         sidebarTransition += 1; sidebarAnimating = false
-        session.sidebarHidden.toggle()
-        sidebarRevealed = session.sidebarHidden
+        session.sidebarHidden = hidden
+        preferencesWindow?.refreshSidebarVisibility(hidden)
+        sidebarRevealed = hidden
         updateBackgroundSidebarTracking()
         layout()
         if session.sidebarHidden { setSidebarRevealed(false) }
@@ -2288,7 +2459,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     @objc func reloadAction(_ sender: Any?) {
         guard spaceCreation == nil, let tab = activeTab else { return }
         if status[tab.id]?.loading == true { engine.stop(tab.id) }
-        else { reloadButton.animateReload(); status[tab.id]?.error = nil; if containers[tab.id] != nil { engine.reload(tab.id) }; buildHome(); layoutHome(); showSelectedTab() }
+        else { reloadButton.animateReload(); status[tab.id]?.error = nil; if containers[tab.id] != nil { engine.reload(tab.id) }; buildHome(); showSelectedTab() }
     }
     @objc func findAction(_ sender: Any?) { guard activeTab != nil else { return }; isFinding = true; updateToolbar(); window.makeFirstResponder(findField) }
     @objc private func findNextAction(_ sender: Any?) { if let id = activeTab?.id { engine.find(inTab: id, text: findField.stringValue, forward: true, next: true) } }
@@ -2323,7 +2494,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         // An empty split pane uses the new-tab presentation while navigation
         // still fills that existing pane (including choosing an open tab).
         let emptySplitPane = !newTab && (activeTab?.url == "about:blank" || activeTab?.url.isEmpty == true)
-        let palette = CommandPalette(parent: window, newTab: newTab, centered: emptySplitPane, initial: initial, icon: activeTab.flatMap { favicons[$0.id] }, tint: tint(), language: session.language, suggestions: { [weak self] query in
+        let palette = CommandPalette(parent: window, newTab: newTab, centered: emptySplitPane, addressAnchor:usesClassicInterface ? addressButton : nil, initial: initial, icon: activeTab.flatMap { favicons[$0.id] }, tint: tint(), language: session.language, suggestions: { [weak self] query in
             self?.commandSuggestions(query, initial: initial, newTab: newTab) ?? []
         }, onDismiss: { [weak self] in self?.commandPalette = nil; self?.render(); self?.updateSidebarHover() })
         commandPalette = palette; render(); palette.show()
@@ -2335,9 +2506,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
         let initialAddress = !newTab && query == initial
         var result: [CommandSuggestion] = []
-        if !query.isEmpty && !initialAddress, let url = browserURL(query) {
-            let searching = url.host == "www.google.com" && url.path == "/search" && !query.hasPrefix("http")
-            result.append(CommandSuggestion(title: query, detail: t(searching ? "search" : "open"), image: nil, symbol: searching ? "magnifyingglass" : "globe", perform: { [weak self] in self?.navigate(query,newTab:newTab) }))
+        if !query.isEmpty && !initialAddress, let input = parseBrowserInput(query), input.url(using:currentEngine) != nil {
+            let searching: Bool
+            if case .search = input { searching = true } else { searching = false }
+            let detail = searching ? splitText("Rechercher avec ","Search with ") + currentEngine.spec.name : t("open")
+            result.append(CommandSuggestion(title: query, detail: detail, image: nil, symbol: searching ? "magnifyingglass" : "globe", perform: { [weak self] in self?.navigate(query,newTab:newTab) }))
         }
         let ordered = session.tabs.sorted { a,b in
             if a.id == activeTab?.id { return b.id != a.id }; if b.id == activeTab?.id { return false }
@@ -2392,8 +2565,43 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
         let preferences = BrowserPreferencesWindow(language: session.language,
             profiles: session.profiles.map { profile in PreferenceProfile(id:profile.id,name:profile.name,spaces:session.spaces.filter { $0.profileID == profile.id }.count) },
-            selectedProfileID:activeSpace?.profileID ?? session.profiles[0].id,appearance:session.themeAppearance ?? .automatic,save: session.savePasswords ?? true,
+            selectedProfileID:activeSpace?.profileID ?? session.profiles[0].id,interfaceMode:session.currentInterface,sidebarHidden:session.sidebarHidden,appearance:session.themeAppearance ?? .automatic,save: session.savePasswords ?? true,
             signIn: session.automaticSignIn ?? true, suggestions: session.formSuggestions ?? true,privateWindow:isPrivateWindow)
+        if windowKind != .compact {
+            preferences.onSidebarVisibilityChange = { [weak self] hidden in self?.setSidebarHidden(hidden) }
+        }
+        preferences.previewTheme = { [weak self] in self?.activeSpace?.theme ?? .solid(self?.activeSpace?.color ?? "#5747D8") }
+        preferences.onInterfaceChange = { [weak self] mode in
+            guard let self else { return false }
+            var changed = self.session; changed.interfaceStyle = mode
+            do { try self.store.save(changed) }
+            catch { self.showError(self.t("saveError"),detail:error.localizedDescription); return false }
+            self.receiveInterfaceStyle(mode)
+            return true
+        }
+        preferences.navigationProfile = { [weak self] id in self?.session.profiles.first { $0.id == id } }
+        preferences.onNavigationEdit = { [weak self] id,edit in
+            guard let self, !self.isPrivateWindow, let i = self.session.profiles.firstIndex(where: { $0.id == id }) else { return false }
+            let previous = self.session.profiles[i]
+            var changed = self.session
+            switch edit {
+            case .engine(let engine):
+                guard self.configureEngine(engine,profileID:id) else { return false }
+                changed.profiles[i].searchEngineID = engine.rawValue
+            case .homepage(let raw):
+                if let raw, normalizedNewTabAddress(raw) != raw { return false }
+                changed.profiles[i].newTabAddress = raw
+            case .autoArchive(let enabled):
+                if enabled != previous.autoArchiveEnabled { changed.profiles[i].autoArchiveEnabledSince = enabled ? Date() : nil }
+            case .archive(let delay):
+                guard previous.autoArchiveEnabled else { return false }
+                changed.profiles[i].archiveAfterHours = delay.rawValue
+            }
+            do { try self.store.save(changed) }
+            catch { if case .engine = edit { self.configureEngine(previous.engine,profileID:id) }; return false }
+            self.session = changed; self.buildHome(); self.updateSplitHeaders()
+            return true
+        }
         preferences.onAppearance = { [weak self] mode in
             guard let self else { return }; self.session.themeAppearance = mode; self.applyTheme(); self.persist()
         }
@@ -2454,7 +2662,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func createProfile() {
         guard !isPrivateWindow else { return }
-        promptName(t("newProfile")) { [weak self] name in guard let self else { return }; let profile = NativeProfile(id:UUID().uuidString,name:name); self.session.profiles.append(profile); self.persist(); self.settingsAction(nil); self.preferencesWindow?.showProfiles(profile.id) }
+        promptName(t("newProfile")) { [weak self] name in guard let self else { return }; let profile = NativeProfile(id:UUID().uuidString,name:name); self.session.profiles.append(profile); self.configureEngine(profile.engine,profileID:profile.id); self.persist(); self.settingsAction(nil); self.preferencesWindow?.showProfiles(profile.id) }
     }
     private func newFolder(spaceID: String? = nil, parentID: String? = nil) {
         let target = parentID.flatMap { id in session.folders.first(where: { $0.id == id })?.spaceID } ?? spaceID ?? session.activeSpaceID
@@ -2794,25 +3002,35 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         else if wasLoading && state.error == nil { state.hasLoaded = true }
         status[tabID] = state; updateToolbar()
         if state.hasLoaded != previouslyLoaded { refreshTabVisual(tabID) }
-        if tabID == activeTab?.id && spaceCreation == nil {
-            buildHome(); layoutHome()
-            // Loading notifications must not focus CEF over a command palette or sheet.
-            // Creation and focus remain explicit selection/navigation operations.
-            if let container = containers[tabID], container.isHidden, state.error == nil {
-                container.isHidden = false
-                if window.attachedSheet == nil { engine.setTab(tabID, visible: true) }
-            }
+        guard spaceCreation == nil, !closingWindow else { return }
+        let visible = activeSplit.map { $0.tabIDs.contains(tabID) } ?? (tabID == activeTab?.id)
+        guard visible, let tab = session.tabs.first(where:{ $0.id == tabID }) else { return }
+        if tabID == activeTab?.id { buildHome() }
+        if state.error != nil || tab.url.isEmpty || tab.url == "about:blank" {
+            hideDocument(tabID)
+        } else if let container = containers[tabID], container.isHidden {
+            container.isHidden = false
+            if window.attachedSheet == nil { engine.setTab(tabID, visible:true) }
+            if let parent = container.superview { layoutDeveloperPage(tabID,in:parent) }
         }
     }
-    func browserFailed(_ tabID: String, message: String) {
-        guard !isQuitting else { return }
-        var state = status[tabID] ?? TabStatus(); state.error = message; state.loading = false; state.hasLoaded = false; status[tabID] = state
-        refreshTabVisual(tabID)
-        if tabID == activeTab?.id { containers[tabID]?.isHidden = true; engine.setTab(tabID, visible: false); updateToolbar(); buildHome(); layoutHome() }
+    private func hideDocument(_ id:String) {
+        developerBars[id]?.isHidden = true
+        guard let container = containers[id], !container.isHidden else { return }
+        container.isHidden = true; engine.setTab(id,visible:false)
+    }
+    func browserFailed(_ tabID:String, code:String, host:String?) {
+        guard !isQuitting, let tab = session.tabs.first(where:{ $0.id == tabID }) else { return }
+        var state = status[tabID] ?? TabStatus()
+        state.error = NavigationFailure(code:code,host:host ?? URL(string:tab.url)?.host)
+        state.loading = false; state.hasLoaded = false; status[tabID] = state
+        hideDocument(tabID); refreshTabVisual(tabID)
+        updateSplitHeaders()
+        if tabID == activeTab?.id { updateToolbar(); buildHome() }
     }
     func browserRequestedNewTab(_ url: String, sourceTab: String) {
         guard !isQuitting else { return }
-        guard let source = session.tabs.first(where: { $0.id == sourceTab }), let normalized = browserURL(url) else { return }
+        guard let source = session.tabs.first(where: { $0.id == sourceTab }), let normalized = browserURL(url,engine:session.profile(forSpace:source.spaceID)?.engine ?? .google) else { return }
         _ = session.createTab(url: normalized.absoluteString, spaceID: source.spaceID); render(); showSelectedTab(); persist()
     }
     func browserPrepareExtensionTab(_ sourceTab: String, active: Bool, pinned: Bool, index: Int) -> [String: Any]? {
@@ -2864,14 +3082,15 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         return ["id": id, "view": container]
     }
     func browserRequestedPrivateWindow(_ url: String, sourceTab: String) {
-        guard !isQuitting, session.tabs.contains(where: { $0.id == sourceTab }), browserURL(url) != nil else { return }
+        guard !isQuitting, session.tabs.contains(where: { $0.id == sourceTab }), isAllowedBrowserURL(url) else { return }
         privateAddressRequested?(url)
     }
     func browserRequestedNewWindow(_ url: String, sourceTab: String) {
-        guard !isQuitting, session.tabs.contains(where: { $0.id == sourceTab }), browserURL(url) != nil else { return }
+        guard !isQuitting, session.tabs.contains(where: { $0.id == sourceTab }), isAllowedBrowserURL(url) else { return }
         windowAddressRequested?(url)
     }
     func browserCloseCancelled(_ tabID: String) {
+        if automaticClose.removeValue(forKey:tabID) != nil { pendingClose.remove(tabID); resetArchiveClock(tabID) }
         if closeParticipants.contains(tabID), !isQuitting { windowCloseCancelled = true; closeWaiting.remove(tabID); finishWindowCloseAttempt(); return }
         if let id = profileReloads.first(where: { $0.value.waiting.contains(tabID) })?.key {
             profileReloads[id]?.cancelled = true; profileReloads[id]?.waiting.remove(tabID); finishProfileReload(id)
@@ -2880,6 +3099,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         for key in Array(pendingSpaceClosures.keys) where pendingSpaceClosures[key]?.contains(tabID) == true { pendingSpaceClosures.removeValue(forKey: key) }
     }
     func browserClosed(_ tabID: String) {
+        let archiveDecision = automaticClose[tabID]?()
+        automaticClose.removeValue(forKey:tabID)
+        let archivedAutomatically = archiveDecision == true
         developerBars.removeValue(forKey:tabID)?.removeFromSuperview()
         pendingCaptures.remove(tabID)
         if pageCapture?.tabID == tabID { pageCapture?.close() }
@@ -2900,8 +3122,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if let id = profileReloads.first(where: { $0.value.waiting.contains(tabID) })?.key {
             profileReloads[id]?.waiting.remove(tabID); finishProfileReload(id); return
         }
+        if archiveDecision == false {
+            // The user may have selected or pinned this tab while CEF was closing.
+            DispatchQueue.main.async { [weak self] in self?.showSelectedTab() }; return
+        }
         let preservingSharedFavorite = session.tabs.contains { $0.id == tabID && $0.favorite } && pendingSpaceClosures.values.contains { $0.contains(tabID) }
-        if !preservingSharedFavorite { session.closeTab(id: tabID) }
+        if !preservingSharedFavorite { session.closeTab(id:tabID,automaticallyAt:archivedAutomatically ? Date() : nil) }
         for key in Array(pendingSpaceClosures.keys) { pendingSpaceClosures[key]?.remove(tabID); if pendingSpaceClosures[key]?.isEmpty == true { session.removeSpace(id: key); pendingSpaceClosures.removeValue(forKey: key) } }
         persist()
         // Avoid creating a lazy replacement browser inside CEF OnBeforeClose.
@@ -3029,7 +3255,11 @@ extension BrowserController {
         return favicons[tab.id] ?? NSImage(systemSymbolName:"globe",accessibilityDescription:nil)
     }
     private func ensurePage(_ id:String,in parent:NSView) {
-        guard let tab = session.tabs.first(where: { $0.id == id }), tab.url != "about:blank", !tab.url.isEmpty, !destructiveClosing.contains(id) else { return }
+        guard let tab = session.tabs.first(where: { $0.id == id }), !destructiveClosing.contains(id) else { return }
+        if tab.url.isEmpty || tab.url == "about:blank" || status[id]?.error != nil {
+            hideDocument(id)
+            return
+        }
         if let container = containers[id] {
             if container.superview !== parent { container.removeFromSuperview(); parent.addSubview(container) }
             container.frame = pageBounds(for:id,in:parent); container.isHidden = false
@@ -3037,7 +3267,7 @@ extension BrowserController {
         } else {
             let container = NSView(frame:pageBounds(for:id,in:parent)); parent.addSubview(container); containers[id] = container
             guard let space = session.spaces.first(where: { $0.id == tab.spaceID }), engine.createTab(id,profile:space.profileID,url:tab.url,container:container) else {
-                container.removeFromSuperview(); containers[id] = nil; status[id] = TabStatus(error:t("engineError")); return
+                container.removeFromSuperview(); containers[id] = nil; status[id] = TabStatus(error:NavigationFailure(code:"TAB_UNAVAILABLE",host:URL(string:tab.url)?.host)); return
             }
             engine.setTab(id,visible:true)
         }
@@ -3060,7 +3290,7 @@ extension BrowserController {
         guard !splitHost.isHidden else { return }
         for pane in splitHost.panes {
             guard let tab = session.tabs.first(where: { $0.id == pane.tabID }) else { continue }
-            pane.update(title:displayTitle(tab),url:tab.url,focused:tab.id == activeTab?.id,canBack:status[tab.id]?.back == true,canForward:status[tab.id]?.forward == true,language:session.language,hasContent:containers[tab.id] != nil)
+            pane.update(title:displayTitle(tab),url:tab.url,focused:tab.id == activeTab?.id,canBack:status[tab.id]?.back == true,canForward:status[tab.id]?.forward == true,language:session.language,landingPage:landingPage(for:tab))
         }
     }
     private func trackSplitFocus(_ event:NSEvent) {
@@ -3081,7 +3311,7 @@ extension BrowserController {
         switch command {
         case "back": engine.goBack(id)
         case "forward": engine.goForward(id)
-        case "reload": engine.reload(id)
+        case "reload": reloadAction(nil)
         case "address": showCommand(newTab:false)
         case "close": removeSplitPane(id)
         case "site": showSiteMenu(anchor:splitHost.panes.first(where: { $0.tabID == id })?.site)
@@ -3124,7 +3354,8 @@ extension BrowserController {
         let new = session.createTab(spaceID:source.spaceID)
         guard !new.isEmpty else { return }
         if session.mergeSplit(new,onto:id) {
-            session.selectTab(id:new); render(); showSelectedTab(); persist(); showCommand(newTab:false)
+            session.selectTab(id:new); render(); showSelectedTab(); persist()
+            if activeTab?.url == "about:blank" { showCommand(newTab:false) }
         }
     }
     private func removeSplitPane(_ id:String) {
@@ -3597,6 +3828,24 @@ extension BrowserController {
             self.window.delegate = nil; self.window.close(); self.windowClosed?(self)
         }
     }
+    // Blank and compact windows keep their own tabs, but use the same profile preferences.
+    func receiveNavigationPreferences(_ source:NativeProfile,as localID:String) {
+        guard let i = session.profiles.firstIndex(where:{ $0.id == localID }) else { return }
+        let previous = session.profiles[i]
+        guard previous.searchEngineID != source.searchEngineID || previous.newTabAddress != source.newTabAddress || previous.archiveAfterHours != source.archiveAfterHours || previous.autoArchiveEnabledSince != source.autoArchiveEnabledSince else { return }
+        session.profiles[i].searchEngineID = source.searchEngineID; session.profiles[i].newTabAddress = source.newTabAddress
+        session.profiles[i].archiveAfterHours = source.archiveAfterHours
+        session.profiles[i].autoArchiveEnabledSince = source.autoArchiveEnabledSince
+        if previous.engine != source.engine { configureEngine(source.engine,profileID:localID) }
+        preferencesWindow?.refreshNavigationPreferences(); buildHome(); updateSplitHeaders()
+    }
+    func receiveInterfaceStyle(_ style:BrowserInterface?) {
+        guard session.interfaceStyle != style else { return }
+        session.interfaceStyle = style
+        preferencesWindow?.refreshInterface(session.currentInterface)
+        commandPalette?.close(); siteMenu?.close()
+        render()
+    }
     func receiveSharedSession(_ shared:BrowserSession) {
         guard !isQuitting, !closingWindow else { return }
         let previous = session
@@ -3609,6 +3858,14 @@ extension BrowserController {
         }
         guard next != previous else { return }
         session = next
+        for profile in next.profiles where previous.profiles.first(where: { $0.id == profile.id })?.engine != profile.engine {
+            configureEngine(profile.engine,profileID:profile.id)
+        }
+        if previous.currentInterface != next.currentInterface {
+            preferencesWindow?.refreshInterface(next.currentInterface)
+            commandPalette?.close(); siteMenu?.close()
+        }
+        if previous.profiles != next.profiles { preferencesWindow?.refreshNavigationPreferences() }
         let changedProfiles = Set(next.spaces.filter { space in previous.spaces.first(where: { $0.id == space.id })?.profileID != space.profileID }.map(\.id))
         discardDeletedBrowsers(Set(next.tabs.filter { changedProfiles.contains($0.spaceID) }.map(\.id)))
         let removed = Set(previous.tabs.map(\.id)).subtracting(next.tabs.map(\.id))

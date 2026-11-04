@@ -6,6 +6,7 @@ struct BrowserWindowRecord: Codable {
     var activeSpaceID: String
     var selections: [String:String]
     var sidebarHidden: Bool
+    var classicSidebarHidden: Bool?
     var sidebarWidth: Double
     var frame: [Double]
     init(_ controller:BrowserController) {
@@ -19,11 +20,24 @@ struct BrowserWindowRecord: Codable {
     func restoredSession(shared:BrowserSession) -> BrowserSession? {
         guard kind == .normal || kind == .blank else { return nil }
         var state = kind == .normal ? shared : standalone ?? shared
+        state.interfaceStyle = shared.interfaceStyle
+        state.classicSidebarHidden = nil
+        if kind == .blank {
+            for i in state.profiles.indices {
+                if let current = shared.profiles.first(where:{ $0.id == state.profiles[i].id }) {
+                    state.profiles[i].searchEngineID = current.searchEngineID
+                    state.profiles[i].newTabAddress = current.newTabAddress
+                    state.profiles[i].autoArchiveEnabledSince = current.autoArchiveEnabledSince
+                    state.profiles[i].archiveAfterHours = current.archiveAfterHours
+                }
+            }
+        }
         if state.spaces.contains(where: { $0.id == activeSpaceID }) { state.activeSpaceID = activeSpaceID }
         for i in state.spaces.indices {
             if let id = selections[state.spaces[i].id], state.tabs.contains(where: { $0.id == id && $0.spaceID == state.spaces[i].id }) { state.spaces[i].selectedTabID = id }
         }
-        state.sidebarHidden = sidebarHidden; state.sidebarWidth = SidebarSizing.clamp(sidebarWidth)
+        state.sidebarHidden = state.currentInterface == .classic ? classicSidebarHidden ?? sidebarHidden : sidebarHidden
+        state.sidebarWidth = SidebarSizing.clamp(sidebarWidth)
         return state.validated() ? state : nil
     }
 }

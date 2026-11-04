@@ -60,12 +60,12 @@ final class CommandShortcutsPreferencesView: SplitFlippedView, NSSearchFieldDele
         search.placeholderString = language == "fr" ? "Rechercher une commande ou une catégorie…" : "Search commands or categories…"
         search.delegate = self; search.setAccessibilityLabel(language == "fr" ? "Rechercher un raccourci" : "Search shortcuts"); addSubview(search)
         scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
-        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 10; scroll.layer?.borderWidth = 0.5
+        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 14; scroll.layer?.borderWidth = 0.5
         scroll.documentView = document; addSubview(scroll)
-        reset = ActionButton(language == "fr" ? "Réinitialiser" : "Reset",symbol:"arrow.counterclockwise") { [weak self] in
+        reset = ChapterButton(language == "fr" ? "Réinitialiser" : "Reset",style:.soft) { [weak self] in
             guard let self else { return }; self.bindings = [:]; self.feedback.stringValue = ""; self.changed?([:]); self.rebuild()
         }
-        reset.isBordered = true; reset.bezelStyle = .rounded; addSubview(reset)
+        reset.isBordered = false; addSubview(reset)
         hint.stringValue = language == "fr" ? "Échap pour annuler · Effacer pour retirer une combinaison. Les commandes à venir restent grisées." : "Escape to cancel · Delete to clear a combination. Unavailable commands remain dimmed."
         hint.font = .systemFont(ofSize:11); hint.textColor = .secondaryLabelColor; addSubview(hint)
         feedback.font = .systemFont(ofSize:11); feedback.textColor = .systemOrange; addSubview(feedback)
@@ -79,8 +79,8 @@ final class CommandShortcutsPreferencesView: SplitFlippedView, NSSearchFieldDele
         scroll.frame = NSRect(x:0,y:45,width:bounds.width,height:max(220,bounds.height-106))
         hint.frame = NSRect(x:2,y:bounds.height-49,width:bounds.width-4,height:27)
         feedback.frame = NSRect(x:2,y:bounds.height-24,width:bounds.width-4,height:26)
-        scroll.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
-        scroll.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.45).cgColor
+        scroll.layer?.borderColor = ChapterInk.line.cgColor
+        scroll.layer?.backgroundColor = ChapterInk.surface.cgColor
         let width = scroll.contentSize.width
         if abs(lastWidth-width)>0.5 { lastWidth = width; rebuild() }
     }
@@ -96,13 +96,13 @@ final class CommandShortcutsPreferencesView: SplitFlippedView, NSSearchFieldDele
         for category in BrowserCommands.categories {
             let rows = commands.filter { $0.category == category }; guard !rows.isEmpty else { continue }
             let heading = NSTextField(labelWithString:BrowserCommands.categoryTitle(category,language))
-            heading.font = .systemFont(ofSize:12,weight:.semibold); heading.textColor = .secondaryLabelColor
-            heading.frame = NSRect(x:18,y:y+15,width:width-36,height:20); document.addSubview(heading); y += 42
+            heading.stringValue = heading.stringValue.uppercased(); heading.font = .monospacedSystemFont(ofSize:10,weight:.semibold); heading.textColor = ChapterInk.accent
+            heading.frame = NSRect(x:16,y:y+12,width:width-36,height:20); document.addSubview(heading); y += 33
             for command in rows {
                 let label = NSTextField(wrappingLabelWithString:command.title(language)); label.font = .systemFont(ofSize:13)
                 label.textColor = command.available ? .labelColor : .tertiaryLabelColor
-                label.frame = NSRect(x:18,y:y+13,width:width-170,height:32); document.addSubview(label)
-                let recorder = SplitShortcutRecorder(frame:NSRect(x:width-136,y:y+8,width:116,height:30))
+                label.frame = NSRect(x:16,y:y+9,width:width-170,height:32); document.addSubview(label)
+                let recorder = SplitShortcutRecorder(frame:NSRect(x:width-136,y:y+4,width:116,height:28))
                 recorder.bezelStyle = .rounded; recorder.isBordered = true; recorder.font = .monospacedSystemFont(ofSize:12,weight:.medium)
                 recorder.binding = effective[command.id] ?? .init(key:"",modifiers:0); recorder.isEnabled = command.available
                 recorder.setAccessibilityLabel(command.title(language))
@@ -121,8 +121,8 @@ final class CommandShortcutsPreferencesView: SplitFlippedView, NSSearchFieldDele
                     self.feedback.stringValue = ""; self.bindings[command.id] = binding; self.reset.isEnabled = true; self.changed?(self.bindings); return true
                 }
                 document.addSubview(recorder)
-                let line = NSBox(frame:NSRect(x:18,y:y+47,width:width-36,height:1)); line.boxType = .separator; document.addSubview(line)
-                y += 48
+                let line = NSBox(frame:NSRect(x:18,y:y+36,width:width-36,height:1)); line.boxType = .separator; document.addSubview(line)
+                y += 37
             }
             y += 8
         }
