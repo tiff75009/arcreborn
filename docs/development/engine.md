@@ -73,3 +73,42 @@ Mouse context menus also preserve the existing DOM selection. The selection
 controller skips automatic word/link selection for mouse menus; keyboard and
 touch paths retain their existing behavior. This applies inside the engine,
 without injecting page event handlers or clearing the user's selected text.
+
+## Extension popups
+
+The app passes the actual toolbar button's screen bounds to Chromium. The
+engine chooses a corner **before** sizing the extension's web contents: opening
+toward the page keeps the Compact sidebar and Classic toolbar usable at
+opposite window edges. The available space is measured on the button's own
+display, in logical points. Leave the native dismissal and permission paths
+intact; moving the popup after it opens does not restore a clipped viewport.
+
+Blink reports the preferred content size even when the embedding window has
+not presented a compositor frame yet. The bubble applies it within the available
+screen bounds and reacts to further size changes.
+
+After building the development app, run `native/scripts/test-extension-placement.sh`.
+It opens the same fixed-width extension at both edges of the display and checks
+direction, visible bounds and equal width in an isolated profile.
+
+## Video playback
+
+The arm64 engine includes the Chromium FFmpeg H.264/AAC configuration, Media
+Source Extensions, the HLS demuxer, and HEVC/H.265 decoding through macOS VideoToolbox. The GN settings in the lock file apply
+to the runtime itself; changing a user agent or JavaScript capability check
+cannot add a decoder. This change does not add a DRM module or a WebRTC encoder.
+
+To exercise real decoding (including a VP9/Opus control) in a disposable
+profile, build the development app and run the following with Node and ffmpeg:
+
+```sh
+node native/Tests/media-playback.mjs
+# Release check: also decode VP8, AV1, HEVC Main and Main 10 with audio.
+BROWSER_MEDIA_TEST_MATRIX=1 node native/Tests/media-playback.mjs
+# Optional: use an original H.264/AAC MP4 and also test a remote HLS playlist.
+# The playlist and segments must allow cross-origin requests from localhost.
+BROWSER_MEDIA_TEST_HLS_URL=https://example.org/playlist.m3u8 node native/Tests/media-playback.mjs /path/to/sample.mp4
+```
+
+Set `BROWSER_SMOKE_APP` to test a different local app bundle. The check requires
+advancing playback, decoded audio and video frames in the real renderer.

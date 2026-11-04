@@ -52,6 +52,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     // Profile/global operations do not contain a tab ID and use the shared bridge implementation.
     func browserTitleChanged(_ id:String,title:String) { receiver?.browserTitleChanged(logical(id),title:title) }
     func browserURLChanged(_ id:String,url:String) { receiver?.browserURLChanged(logical(id),url:url) }
+    func browserLoadProgress(_ id:String,fraction:Double) { receiver?.browserLoadProgress?(logical(id),fraction:fraction) }
     func browserLoadingChanged(_ id:String,loading:Bool,back:Bool,forward:Bool) { receiver?.browserLoadingChanged(logical(id),loading:loading,back:back,forward:forward) }
     func browserFailed(_ id:String,code:String,host:String?) { receiver?.browserFailed(logical(id),code:code,host:host) }
     func browserRequestedNewTab(_ url:String,sourceTab:String) { receiver?.browserRequestedNewTab(url,sourceTab:logical(sourceTab)) }

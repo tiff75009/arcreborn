@@ -1,69 +1,47 @@
 {
-  "version": "0.5.0",
-  "build": 10,
-  "showOnLaunch": true,
+  "version": "0.5.1",
+  "build": 11,
+  "showOnLaunch": false,
   "title": {
-    "fr": "La barre d’adresse passe en haut",
-    "en": "Move the address bar to the top"
+    "fr": "Navigation et lecture vidéo",
+    "en": "Navigation and video playback"
   },
   "subtitle": {
-    "fr": "Découvrez la disposition Classique, choisissez votre moteur de recherche et décidez quand archiver vos onglets.",
-    "en": "Try the Classic layout, choose your search engine and decide when to archive idle tabs."
+    "fr": "Une barre de chargement discrète, des extensions bien cadrées et une lecture vidéo plus complète.",
+    "en": "A subtle page loading indicator, better positioned extension popups, and wider video support."
   },
   "highlights": [
     {
-      "symbol": "macwindow",
+      "symbol": "chart.line.flattrend.xyaxis",
       "title": {
-        "fr": "Compacte ou Classique",
-        "en": "Compact or Classic"
+        "fr": "Le chargement en un coup d’œil",
+        "en": "Page progress at a glance"
       },
       "detail": {
-        "fr": "Dans Réglages → Interface, comparez les deux aperçus. Classique place l’adresse au-dessus de la page, aux couleurs de votre espace. Votre barre latérale reste affichée ou masquée quand vous changez de disposition.",
-        "en": "Compare both previews in Settings → Interface. Classic puts the address above the page in your Space’s colors. Switching layouts keeps your sidebar shown or hidden."
+        "fr": "Le fond de la barre d’adresse se remplit dans la couleur de votre espace pendant le chargement. En mode Compact, quand la barre latérale est masquée, un trait fin prend le relais en haut de la page.",
+        "en": "The address field fills with your Space color as the page loads. In Compact mode with the sidebar hidden, a thin line appears along the top of the page."
       }
     },
     {
-      "symbol": "magnifyingglass",
+      "symbol": "play.rectangle",
       "title": {
-        "fr": "Votre moteur et votre page d’accueil",
-        "en": "Your search engine and start page"
+        "fr": "Lecture des vidéos sur X",
+        "en": "Video playback on X"
       },
       "detail": {
-        "fr": "Dans Réglages → Profils, choisissez parmi huit moteurs pour la barre d’adresse et la recherche par clic droit. Ouvrez vos nouveaux onglets sur le site de votre choix ou sur l’accueil Arc Reborn.",
-        "en": "In Settings → Profiles, choose from eight engines for address bar and right-click searches. New tabs can open your own website or the Arc Reborn start page."
+        "fr": "Les vidéos de X en H.264 avec audio AAC se lisent dans la page. Arc Reborn prend aussi en charge la lecture HEVC (H.265) via macOS.",
+        "en": "X videos with H.264 video and AAC audio now play in the page. Arc Reborn can also play HEVC (H.265) through macOS."
       }
     },
     {
-      "symbol": "archivebox",
+      "symbol": "puzzlepiece.extension",
       "title": {
-        "fr": "L’archivage, à votre rythme",
-        "en": "Archive tabs on your schedule"
+        "fr": "Des extensions qui restent dans l’écran",
+        "en": "Extension popups stay on screen"
       },
       "detail": {
-        "fr": "Désactivé par défaut, l’archivage se règle par profil après 12 h, 24 h, 7 jours ou 30 jours d’inactivité. Les favoris et les onglets épinglés restent en place. Retrouvez les autres dans Bibliothèque → Onglets archivés.",
-        "en": "Auto archive is off by default. Enable it per profile after 12 hours, 24 hours, 7 days or 30 days of inactivity. Favorites and pinned tabs stay put. Restore archived tabs from Library → Archived Tabs."
-      }
-    },
-    {
-      "symbol": "rectangle.and.text.magnifyingglass",
-      "title": {
-        "fr": "Un nouvel accueil et des erreurs plus claires",
-        "en": "A new start page and clearer errors"
-      },
-      "detail": {
-        "fr": "Le nouvel onglet donne un accès direct à la recherche. Si une page ne s’ouvre pas, Arc Reborn distingue une coupure de connexion, une adresse introuvable ou un problème de sécurité et propose la prochaine action.",
-        "en": "The redesigned new tab page puts search front and center. When a page fails to load, Arc Reborn distinguishes an offline connection, an unknown address or a security issue and offers a next step."
-      }
-    },
-    {
-      "symbol": "person.crop.circle",
-      "title": {
-        "fr": "Des réglages et une inscription repensés",
-        "en": "Redesigned settings and sign-up"
-      },
-      "detail": {
-        "fr": "Les préférences reprennent le style de l’accueil. À l’inscription, passez au champ suivant avec Tab et suivez la validation du nom d’utilisateur et du mot de passe pendant la saisie.",
-        "en": "Preferences now match the welcome screen. During sign-up, Tab moves between fields, and username and password feedback updates as you type."
+        "fr": "Depuis la barre Classique, les panneaux de Proton Pass et d’uBlock Origin Lite s’ouvrent vers l’intérieur de la fenêtre et conservent leur largeur.",
+        "en": "In the Classic toolbar, Proton Pass and uBlock Origin Lite now open toward the window and keep their full width."
       }
     }
   ]

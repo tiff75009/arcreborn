@@ -15,11 +15,21 @@ import Darwin
         let engine = BrowserEngine()
         let window = NSWindow(contentRect:NSRect(x:200,y:200,width:900,height:600),styleMask:[.titled,.resizable],backing:.buffered,defer:false)
         window.isReleasedWhenClosed = false
+        // The regression only appears when the real action is close to the
+        // display edge. Exercise the compact and classic positions in one window.
+        let verifyPlacement = env["BROWSER_EXTENSION_TEST_PLACEMENT"] == "1"
+        if verifyPlacement, let screen = window.screen {
+            window.setFrame(screen.visibleFrame.insetBy(dx:6,dy:6),display:false)
+        }
         let container = NSView(frame:window.contentView!.bounds)
         window.contentView!.addSubview(container)
         var observers:[NSObjectProtocol] = []
         var phase = 0, started:TimeInterval = 0, next:TimeInterval = .greatestFiniteMagnitude
         var records:[[String:Any]] = []
+        var anchor = NSRect.zero
+        var placements:[NSRect] = []
+        var settledAt:TimeInterval?
+        var lastSize = NSSize.zero
         typealias State = @convention(c) (Int32,UnsafePointer<CChar>?,UnsafeMutablePointer<Int32>?) -> Int32
         var state:State?
         var polls:Timer?
@@ -29,6 +39,7 @@ import Darwin
         }
         observers.append(NotificationCenter.default.addObserver(forName:NSNotification.Name("BrowserEngineReady"),object:nil,queue:.main) { _ in
             DispatchQueue.main.async {
+                if verifyPlacement { app.activate(ignoringOtherApps:true) }
                 window.makeKeyAndOrderFront(nil)
                 _ = engine.createTab("popup-test",profile:"profile-a",url:address,container:container)
                 engine.setTab("popup-test",visible:true)
@@ -43,14 +54,34 @@ import Darwin
                 let now = ProcessInfo.processInfo.systemUptime
                 if phase % 2 == 0 && now >= next && phase < 4 {
                     started = now
-                    let result = engine.activateExtension(identifier,tab:"popup-test",anchor:window.convertToScreen(NSRect(x:20,y:560,width:26,height:25)))
+                    let area = container.bounds
+                    let x:CGFloat = verifyPlacement && phase == 2 ? area.maxX-64 : 20
+                    anchor = window.convertToScreen(container.convert(NSRect(x:x,y:area.maxY-40,width:26,height:25),to:nil))
+                    settledAt = nil; lastSize = .zero
+                    let result = engine.activateExtension(identifier,tab:"popup-test",anchor:anchor)
                     record("dispatch",["attempt":phase/2+1,"result":result,"ms":(ProcessInfo.processInfo.systemUptime-started)*1000])
                     phase += 1
                 } else if phase % 2 == 1 {
                     var bounds = [Int32](repeating:0,count:4)
                     let visible = identifier.withCString { id in state?(1,id,&bounds) ?? 0 }
                     if visible == 2 || now-started > 8 {
-                        record(visible == 2 ? "visible" : "timeout",["attempt":(phase+1)/2,"state":visible,"ms":(now-started)*1000])
+                        if verifyPlacement && visible == 2 && now-started <= 8 {
+                            // Chromium initially shows an empty 25-point web view. Wait for the
+                            // actual extension layout before considering a measurement stable.
+                            let size = NSSize(width:Int(bounds[2]),height:Int(bounds[3]))
+                            if size.width < 100 || size.height < 100 { return }
+                            if size != lastSize { lastSize = size; settledAt = now+0.4 }
+                            if now < settledAt! { return }
+                        }
+                        if verifyPlacement, visible == 2, let screen = window.screen, let primary = NSScreen.screens.first {
+                            let popup = NSRect(x:CGFloat(bounds[0]),y:primary.frame.maxY-CGFloat(bounds[1]+bounds[3]),width:CGFloat(bounds[2]),height:CGFloat(bounds[3]))
+                            let correctSide = phase == 1 ? popup.midX > anchor.midX : popup.midX < anchor.midX
+                            if popup.width >= 100 && popup.height >= 100 && screen.visibleFrame.contains(popup) && correctSide { placements.append(popup) }
+                        }
+                        if verifyPlacement && (visible != 2 || bounds[2] < 100 || bounds[3] < 100) {
+                            record("windows",["windows":NSApp.windows.filter(\.isVisible).map { ["type":String(describing:type(of:$0)),"frame":NSStringFromRect($0.frame),"level":$0.level.rawValue] }])
+                        }
+                        record(visible == 2 ? "visible" : "timeout",["attempt":(phase+1)/2,"state":visible,"ms":(now-started)*1000,"bounds":bounds])
                         phase += 1; next = now+2
                         DispatchQueue.main.asyncAfter(deadline:.now()+1) {
                             engine.closeExtensionPopup()
@@ -64,5 +95,10 @@ import Darwin
         guard BrowserEngine.start(cachePath:root.appendingPathComponent("Chromium").path) else { fatalError("CEF failed") }
         withExtendedLifetime((engine,window,observers,polls)) { BrowserEngine.runMessageLoop() }
         polls?.invalidate(); BrowserEngine.shutdown()
+        if verifyPlacement {
+            guard placements.count == 2, abs(placements[0].width-placements[1].width) <= 2 else {
+                fputs("Extension clipped or incorrectly positioned; see latency.json\n",stderr); exit(1)
+            }
+        }
     }
 }

@@ -656,6 +656,11 @@ class NativeClient : public CefClient,
   void OnAddressChange(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& url) override {
     if (frame->IsMain() && Allowed(Str(url))) [engine_.delegate browserURLChanged:tabID_ url:Str(url)];
   }
+  void OnLoadingProgressChange(CefRefPtr<CefBrowser> browser, double progress) override {
+    CEF_REQUIRE_UI_THREAD();
+    if (embedded_ && !quitting && [engine_.delegate respondsToSelector:@selector(browserLoadProgress:fraction:)])
+      [engine_.delegate browserLoadProgress:tabID_ fraction:progress];
+  }
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool back, bool forward) override {
     [engine_.delegate browserLoadingChanged:tabID_ loading:loading back:back forward:forward];
   }

@@ -63,7 +63,7 @@ def fetch():
             run('/usr/bin/tar','-xf',package,'-C',stage)
             Path(stage).rename(target)
     metadata = json.loads((target/'engine.json').read_text())
-    if metadata['version'] != PIN['version'] or metadata['patches'] != PIN['patches']:
+    if metadata['version'] != PIN['version'] or metadata['patches'] != PIN['patches'] or metadata.get('gnDefines') != PIN['gnDefines']:
         raise SystemExit('Engine provenance mismatch')
     if not (target/FRAMEWORK/'Chromium Embedded Framework').is_file():
         raise SystemExit('Engine extraction incomplete')
@@ -95,11 +95,16 @@ def source(args):
     patches = [ENGINE/p['file'] for p in PIN['patches']]
     if args.command == 'configure':
         # Verify the entire stack in a scratch tree. Never reverse live sources.
-        applied = subprocess.run(['/usr/bin/python3',str(NATIVE/'scripts/check-engine-patches.py'),str(src),*map(str,patches)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode == 0
-        if not applied:
-            # git apply performs all checks before changing the source tree.
-            run('git','apply','--check',*patches,cwd=src)
-            run('git','apply',*patches,cwd=src)
+        stack_check = NATIVE/'scripts/check-engine-patches.py'
+        for count in range(len(patches),0,-1):
+            if subprocess.run(['/usr/bin/python3',str(stack_check),str(src),*map(str,patches[:count])],
+                              stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode == 0:
+                break
+        else:
+            count = 0
+        for patch in patches[count:]:
+            run('git','apply','--check',patch,cwd=src)
+            run('git','apply',patch,cwd=src)
         run('/usr/bin/python3','tools/gclient_hook.py',cwd=src/'cef',env=env)
     if args.command == 'build':
         run('/usr/bin/python3',NATIVE/'scripts/check-engine-patches.py',src,*patches)

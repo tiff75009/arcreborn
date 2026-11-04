@@ -3,6 +3,7 @@ import AppKit
 final class WindowChromeBar: NSView, NSTextFieldDelegate {
     override var isFlipped: Bool { true }
     private let address = NSTextField()
+    var addressSurface: NSRect { address.frame.insetBy(dx:-5,dy:-3) }
     private let badge = NSTextField(labelWithString:"")
     private let back = ActionButton("",symbol:"chevron.left") {}
     private let forward = ActionButton("",symbol:"chevron.right") {}

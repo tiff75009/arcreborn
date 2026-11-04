@@ -17,7 +17,7 @@ DIRECTORIES = ['native/Sources','native/Bridge','native/Tests','native/Resources
                '.github/workflows','.github/ISSUE_TEMPLATE','docs/development']
 FILES = ['README.md','LICENSE','NOTICE.md','CONTRIBUTING.md','SECURITY.md','.gitignore','Makefile',
          '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json']
-SCRIPTS = ['build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
+SCRIPTS = ['test-extension-placement.sh','build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
            'engine.py','engine-framework-fingerprint.py','check-engine-patches.py',
            'welcome-assets.sh','onboarding-demo.sh','sign-and-notarize.sh','sign-sparkle.sh','release.py','verify-release.swift','ci-signing.py','public-source.py']
 FILES += ['native/scripts/'+name for name in SCRIPTS]

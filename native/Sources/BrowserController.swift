@@ -572,7 +572,7 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
         layer?.shadowColor = NSColor.black.cgColor; layer?.shadowOpacity = active ? 0.12 : 0; layer?.shadowRadius = 1; layer?.shadowOffset = NSSize(width: 0, height: -1)
     }
 }
-private struct TabStatus { var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
+private struct TabStatus { var progress: Double = 0; var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
 private enum SidebarRow { case tab(String), folder(String), heading(String), newTab }
 private final class MenuAction: NSObject { let kind: String; let id: String; let value: String; init(_ kind: String, _ id: String, _ value: String = "") { self.kind = kind; self.id = id; self.value = value } }
 
@@ -640,6 +640,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let favorites = FavoritesGrid(frame:.zero)
     private let favoritesHint = FavoritesHint(frame: .zero)
     private let addressBackground = FlippedView()
+    private let pageLoad = PageLoadIndicator(frame: .zero)
     private var copyLinkButton: CopyLinkButton!
     private var siteMenuButton: NavigationButton!
     private var siteMenu: SiteMenu?
@@ -1181,6 +1182,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         spaceCreation?.sidebarWidth = side
         if spaceCreation != nil { sidebarHost.isHidden = true; content.isHidden = true; pageShadow.isHidden = true }
         layoutSplitContent()
+        updateLoadIndicator()
     }
     private var sidebarFrame: NSRect {
         let side = CGFloat(SidebarSizing.clamp(session.sidebarWidth))
@@ -1241,6 +1243,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if usesClassicInterface { layoutNavigation(side:CGFloat(SidebarSizing.clamp(session.sidebarWidth))) }
         layoutWindowButtons()
         sidebarHost.isHidden = false
+        updateLoadIndicator()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : (revealed ? 0.24 : 0.20)
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.75, 0.25, 1)
@@ -1649,7 +1652,32 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
         performDeletion(next,kind:.tabs)
     }
+    private func updateLoadIndicator() {
+        let tab = activeTab
+        let state = tab.flatMap { status[$0.id] }
+        let showingPage = library == nil && spaceCreation == nil && !closingWindow
+        if showingPage, state?.loading == true || !pageLoad.isHidden {
+            if let chrome = windowChrome, !chrome.isHidden {
+                if pageLoad.superview !== chrome { chrome.addSubview(pageLoad, positioned:.below, relativeTo:nil) }
+                chrome.layoutSubtreeIfNeeded()
+                pageLoad.follow(chrome.addressSurface, radius:7, style:.field)
+            } else if usesClassicInterface || !session.sidebarHidden || sidebarRevealed {
+                if pageLoad.superview !== addressBackground { addressBackground.addSubview(pageLoad, positioned:.below, relativeTo:nil) }
+                let field = usesClassicInterface ? (addressButton?.frame ?? addressBackground.bounds) : addressBackground.bounds
+                let radius = usesClassicInterface ? addressButton?.layer?.cornerRadius : addressBackground.layer?.cornerRadius
+                pageLoad.follow(field, radius:radius ?? 0, style:.field)
+            } else {
+                if pageLoad.superview !== root { root.addSubview(pageLoad, positioned:.above, relativeTo:content) }
+                pageLoad.follow(content.frame, radius:content.layer?.cornerRadius ?? 0, style:.rail)
+            }
+        }
+        pageLoad.display(tab:showingPage ? tab?.id : nil, loading:showingPage && state?.loading == true,
+                         progress:state?.progress ?? 0, base:tint(), accent:NSColor(browserHex:activeSpace?.color ?? palette[0]) ?? .systemPurple,
+                         ink:sidebarInk, label:splitText("Chargement de la page","Page loading"))
+    }
+
     private func updateToolbar() {
+        updateLoadIndicator()
         updateSplitHeaders()
         updateDeveloperBars()
         refreshExtensionToolbar()
@@ -2268,9 +2296,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let loaded = containers[tab.id] != nil
         let web = ["http","https"].contains(url.scheme?.lowercased() ?? "")
         let certificate = engine.certificateInfo(forTab:tab.id).flatMap { SiteCertificate(info:$0) }
+        let menuAnchor:NSView = anchor ?? siteMenuButton
         let menu = SiteMenu(language:session.language,color:tint(),secureConnection:certificate?.isSecure == true,developerOpen:tab.developerMode == true,automaticPiP:session.automaticPictureInPictureEnabled(for:tab),pipOpen:engine.hasPictureInPicture(tab.id),extensions:extensionCatalog.entries(profile:activeSpace?.profileID ?? "",force:true),
                             pinned:Set(extensionCatalog.pins(profile:activeSpace?.profileID ?? "")),
-                            activateExtension:{ [weak self] in self?.activateExtension($0) },
+                            activateExtension:{ [weak self, weak menuAnchor] item in
+                                guard let menuAnchor else { return }
+                                self?.activateExtension(item, from:menuAnchor)
+                            },
                             pinExtension:{ [weak self] in self?.toggleExtensionPin($0) },actions:.init(
             share:{ [weak self] in
                 guard let self else { return }
@@ -2312,7 +2344,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         engine.setPageInputSuppressed(true,forTab:tab.id)
         menu.pointerChanged = { [weak self] in self?.clearSidebarPointerFeedback() }
         spaceButton?.suppressHover = true
-        siteMenu = menu; siteMenuButton.menuOpen = true; menu.show(of:anchor ?? siteMenuButton)
+        siteMenu = menu; siteMenuButton.menuOpen = true; menu.show(of:menuAnchor)
         if !menu.isShown {
             engine.setPageInputSuppressed(false,forTab:tab.id)
             siteMenu = nil; spaceButton?.suppressHover = false; siteMenuButton.menuOpen = false
@@ -2386,10 +2418,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         extensionCatalog.togglePin(item.id,profile:profile)
         extensionSignature = ""; refreshExtensionToolbar(); layout()
     }
-    private func activateExtension(_ item:BrowserExtension) {
+    private func activateExtension(_ item:BrowserExtension, from source:NSView? = nil) {
         guard let tab = activeTab else { return }
         let requested = ProcessInfo.processInfo.systemUptime
-        let anchor: NSView = (extensionButtons.first(where: { $0.identifier?.rawValue == item.id }) as NSView?) ?? (overflowExtensions.contains(where:{ $0.id == item.id }) ? extensionOverflowButton : siteMenuButton)
+        let anchor: NSView = source ?? (extensionButtons.first(where: { $0.identifier?.rawValue == item.id }) as NSView?) ?? (overflowExtensions.contains(where:{ $0.id == item.id }) ? extensionOverflowButton : siteMenuButton)
         guard let anchorWindow = anchor.window else { return }
         let screenRect = anchorWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         extensionInstallNotice?.close()
@@ -2994,11 +3026,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         else { updateToolbar() }
         persist()
     }
+    func browserLoadProgress(_ tabID: String, fraction: Double) {
+        guard !isQuitting, fraction.isFinite, var state = status[tabID], state.loading else { return }
+        let next = min(1, max(0, fraction))
+        guard next != state.progress else { return }
+        state.progress = next; status[tabID] = state
+        if tabID == activeTab?.id { updateLoadIndicator() }
+    }
     func browserLoadingChanged(_ tabID: String, loading: Bool, back: Bool, forward: Bool) {
         guard !isQuitting, session.tabs.contains(where: { $0.id == tabID }) else { return }
         var state = status[tabID] ?? TabStatus(); let wasLoading = state.loading; state.loading = loading; state.back = back; state.forward = forward
         let previouslyLoaded = state.hasLoaded
-        if loading { state.error = nil }
+        if loading { state.error = nil; if !wasLoading { state.progress = 0 } }
         else if wasLoading && state.error == nil { state.hasLoaded = true }
         status[tabID] = state; updateToolbar()
         if state.hasLoaded != previouslyLoaded { refreshTabVisual(tabID) }

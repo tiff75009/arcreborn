@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "156.0.8078.80-arcreborn.2",
+  "version": "156.0.8078.80-arcreborn.4",
   "platform": "macos-arm64",
   "cefCommit": "cf671c072925b27823a61181152f4f288e8e4306",
   "chromiumCommit": "fb096c0011f9d50f0a264a9376420cdea9c421e3",
@@ -30,13 +30,17 @@
     {
       "file": "patches/appkit-native-navigation.patch",
       "sha256": "3b0af28b6eb06a5ab3b8aadd098902127d2340990cc5a0597862d18f2f199311"
+    },
+    {
+      "file": "patches/appkit-extension-popup-placement.patch",
+      "sha256": "a207e5a2ee34a31a6efb46afbd667696bbc892446cd26c33806485b0a6747408"
     }
   ],
-  "gnDefines": "use_system_xcode=true is_official_build=false is_component_build=false symbol_level=0 use_remoteexec=false",
+  "gnDefines": "use_system_xcode=true is_official_build=false is_component_build=false symbol_level=0 use_remoteexec=false proprietary_codecs=true ffmpeg_branding=\"Chrome\" media_use_openh264=false rtc_use_h264=false rtc_use_h265=false enable_hevc_parser_and_hw_decoder=true enable_platform_hevc=true",
   "buildTarget": "cef_framework",
   "archive": {
-    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.2-macos-arm64.tar.gz",
-    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.2/ArcReborn-Engine-156.0.8078.80-arcreborn.2-macos-arm64.tar.gz",
-    "sha256": "1486944f89a905b12b3605973814464605667deccc3647046f79aa6308d8f0dc"
+    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.4-macos-arm64.tar.gz",
+    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.4/ArcReborn-Engine-156.0.8078.80-arcreborn.4-macos-arm64.tar.gz",
+    "sha256": "486e4e044aae5d53490932dafb4ef3ae6c4975c44365415475e343cf0393c5bc"
   }
 }
