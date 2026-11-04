@@ -12,14 +12,19 @@ concurrency:
   group: macos-release
   cancel-in-progress: false
 jobs:
+  source:
+    if: github.repository == 'tiff75009/arcreborn'
+    uses: ./.github/workflows/ci.yml
+    with:
+      source_ref: refs/tags/${{ inputs.tag }}
   publish:
+    needs: source
     if: github.repository == 'tiff75009/arcreborn'
     runs-on: macos-26
     environment: release
     timeout-minutes: 20
     permissions:
       contents: write
-      actions: read
     env:
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
@@ -28,22 +33,17 @@ jobs:
         run: python3 -c 'import os,re; assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+",os.environ["TAG"])'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
       - name: Validate reviewed sources
         run: |
           /usr/bin/python3 native/scripts/release.py check
           /usr/bin/python3 native/scripts/public-source.py audit .
           /usr/bin/python3 -c 'import json,os; assert os.environ["TAG"] == "v"+json.load(open("native/Resources/ReleaseNotes.json"))["version"]'
-      - name: Require successful source build
-        run: |
-          export SOURCE_SHA="$(git rev-parse HEAD)"
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&per_page=50" > "$RUNNER_TEMP/source-checks.json"
-          /usr/bin/python3 - <<'PY'
-          import json,os
-          runs=json.load(open(os.environ['RUNNER_TEMP']+'/source-checks.json'))['workflow_runs']
-          assert any(r['head_sha']==os.environ['SOURCE_SHA'] and r['conclusion']=='success' for r in runs), 'Source CI must pass for this exact commit'
-          PY
+      - name: Verify the tag still points to the tested commit
+        env:
+          TESTED_SHA: ${{ needs.source.outputs.tested_commit }}
+        run: test "$(git rev-parse HEAD)" = "$TESTED_SHA"
       - name: Download prepared release
         run: |
           mkdir -p "$RUNNER_TEMP/arc-release-assets"

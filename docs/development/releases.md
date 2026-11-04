@@ -71,7 +71,8 @@ Actions without uploading Apple or Sparkle private keys:
 gh workflow run publish-prepared.yml --ref main -f tag=v0.4.1
 ```
 
-Run this after the source CI succeeds and the tagged draft assets are uploaded.
+Run this after uploading the tagged draft assets. The publication workflow runs
+the native macOS build and tests for that tag before opening the publishing job.
 The workflow checks version/engine metadata, every checksum, the signed Sparkle
 feed and DMG, the Apple signatures and stapled notarization tickets, then publishes
 the draft as Latest. A failed verification leaves the release unpublished.
