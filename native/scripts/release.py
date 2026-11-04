@@ -47,6 +47,8 @@ def metadata():
         raise ValueError('Stable version x.y.z and positive integer build required')
     if info['CFBundleShortVersionString'] != notes['version'] or info['CFBundleVersion'] != str(notes['build']):
         raise ValueError('Info.plist and ReleaseNotes.json versions differ')
+    if 'showOnLaunch' in notes and type(notes['showOnLaunch']) is not bool:
+        raise ValueError('showOnLaunch must be a boolean')
     if not 1 <= len(notes['highlights']) <= 12: raise ValueError('Provide 1–12 curated release highlights')
     for item in [notes['title'],notes['subtitle'],*[t for row in notes['highlights'] for t in [row['title'],row['detail']]]]:
         if any(not isinstance(item.get(lang),str) or not item[lang].strip() for lang in ['fr','en']):

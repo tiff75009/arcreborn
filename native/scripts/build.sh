@@ -64,9 +64,7 @@ fi
 /usr/bin/ditto "$SPARKLE_ROOT/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 "$NATIVE_ROOT/scripts/sign-sparkle.sh" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" "$SIGN_IDENTITY"
 /usr/bin/ditto "$NATIVE_ROOT/Resources" "$APP_BUNDLE/Contents/Resources"
-# Share the actual Icon Composer shapes with the native first-launch animation.
-mkdir -p "$APP_BUNDLE/Contents/Resources/Welcome"
-cp "$NATIVE_ROOT/../design/app-icon/ArcReborn.icon/Assets/"*.svg "$APP_BUNDLE/Contents/Resources/Welcome/"
+"$NATIVE_ROOT/scripts/welcome-assets.sh" "$APP_BUNDLE/Contents/Resources/Welcome"
 cp "$CEF_ROOT/LICENSE.txt" "$APP_BUNDLE/Contents/Resources/CEF-LICENSE.txt"
 cp "$NATIVE_ROOT/../LICENSE" "$APP_BUNDLE/Contents/Resources/MPL-2.0.txt"
 cp "$NATIVE_ROOT/../NOTICE.md" "$APP_BUNDLE/Contents/Resources/NOTICE.md"

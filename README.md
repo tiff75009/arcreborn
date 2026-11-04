@@ -29,7 +29,10 @@ The [pinned engine archive](https://github.com/tiff75009/arcreborn/releases/tag/
 ```sh
 make build         # compile without launching
 make check         # focused state/release checks
+make demo-onboarding # build and open the standalone welcome demo
 ```
+
+For another presentation, double-click `native/build/demo/Arc Reborn Onboarding.app` or press ⌘R in the demo to start again with music. The three screens use an in-memory session and run independently of Chromium.
 
 The runtime target is macOS 13+ / arm64. Liquid Glass icon sources are included;
 normal builds reuse compiled assets, while icon changes require Xcode 27.

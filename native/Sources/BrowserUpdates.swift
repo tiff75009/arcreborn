@@ -41,6 +41,11 @@ final class BrowserUpdates: NSObject {
         let defaults = UserDefaults.standard, key = "ArcRebornLastNewsBuild"
         if defaults.object(forKey: key) == nil { defaults.set(current, forKey: key); return }
         guard current > defaults.integer(forKey: key) else { return }
+        guard let notes = releaseNotes else { return }
+        if notes.showOnLaunch == false {
+            defaults.set(current, forKey: key)
+            return
+        }
         func attempt(_ remaining: Int) {
             guard remaining > 0 else { return } // Retry at next launch if busy.
             if ready(), NSApp.modalWindow == nil, !NSApp.windows.contains(where: { $0.attachedSheet != nil }) {
@@ -49,11 +54,15 @@ final class BrowserUpdates: NSObject {
         }
         DispatchQueue.main.asyncAfter(deadline: .now()+2) { attempt(60) }
     }
+    private lazy var releaseNotes: ReleaseNotes? = {
+        guard let url = Bundle.main.url(forResource: "ReleaseNotes", withExtension: "json"),
+              let data = try? Data(contentsOf: url), let notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data),
+              notes.version == Self.version, String(notes.build) == Self.build else { return nil }
+        return notes
+    }()
     @discardableResult func showNews() -> Bool {
         if news == nil {
-            guard let url = Bundle.main.url(forResource: "ReleaseNotes", withExtension: "json"),
-                  let data = try? Data(contentsOf: url), let notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data),
-                  notes.version == Self.version, String(notes.build) == Self.build else { return false }
+            guard let notes = releaseNotes else { return false }
             news = ReleaseNotesWindow(notes: notes)
         }
         news?.showWindow(nil); news?.window?.makeKeyAndOrderFront(nil)
@@ -70,6 +79,7 @@ struct ReleaseNotes: Decodable {
     struct Highlight: Decodable { let symbol: String; let title: Text; let detail: Text }
     let version: String
     let build: Int
+    let showOnLaunch: Bool?
     let title: Text
     let subtitle: Text
     let highlights: [Highlight]

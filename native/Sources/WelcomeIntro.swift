@@ -87,7 +87,7 @@ private final class WelcomePaper: WelcomeDrawing {
 /// Keep one source of truth for the mark: the same three vectors as Icon Composer.
 private final class WelcomeRibbonMark: WelcomeDrawing {
     private static let pieces = ["01-ribbon-right","02-ribbon-arch","03-ribbon-sweep"].compactMap {
-        Bundle.main.url(forResource:$0, withExtension:"svg", subdirectory:"Welcome").flatMap(NSImage.init(contentsOf:))
+        Bundle.main.url(forResource:$0, withExtension:"png", subdirectory:"Welcome").flatMap(NSImage.init(contentsOf:))
     }
     override func draw(_ dirtyRect: NSRect) {
         guard Self.pieces.count == 3 else {

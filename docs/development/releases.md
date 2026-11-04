@@ -34,6 +34,8 @@ Resend, Coolify and database credentials have no role in this pipeline.
    integer build, French/English title, subtitle and curated highlights.
 2. Update the same two version fields in `native/Resources/Info.plist`.
    `release.py check` rejects inconsistencies.
+   For a small fix, set `"showOnLaunch": false` in the release notes to skip
+   the startup window. The notes remain available in Preferences and on GitHub.
 3. Commit and review. Push a tag such as `v0.3.0` at that exact commit.
 4. The release workflow builds the shell against the pinned engine, signs nested
    components inside-out, notarizes the app, creates/signs/notarizes the DMG, and

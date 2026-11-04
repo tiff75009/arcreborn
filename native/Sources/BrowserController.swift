@@ -55,18 +55,6 @@ private final class PointerRootView: FlippedView {
     override func mouseExited(with event: NSEvent) { pointerChanged?(event) }
     override func mouseMoved(with event: NSEvent) { pointerChanged?(event) }
 }
-class ActionButton: NSButton {
-    var invoke: (() -> Void)?
-    init(_ title: String = "", symbol: String? = nil, action: @escaping () -> Void) {
-        super.init(frame: .zero)
-        self.title = title; self.invoke = action; target = self; self.action = #selector(invokeAction)
-        bezelStyle = .inline; isBordered = false; font = .systemFont(ofSize: 12)
-        if let symbol { image = NSImage(systemSymbolName: symbol, accessibilityDescription: title); imagePosition = title.isEmpty ? .imageOnly : .imageLeading }
-        setAccessibilityLabel(title)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    @objc private func invokeAction() { invoke?() }
-}
 final class FooterSpaceButton: ActionButton {
     var hoverChanged: (() -> Void)?
     private let progressRing = CAShapeLayer(), progressTrack = CAShapeLayer()

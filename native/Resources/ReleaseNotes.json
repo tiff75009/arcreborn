@@ -1,46 +1,25 @@
 {
-  "version": "0.4.1",
-  "build": 5,
+  "version": "0.4.2",
+  "build": 6,
+  "showOnLaunch": false,
   "title": {
-    "fr": "Plus simple au quotidien.",
-    "en": "Smoother every day."
+    "fr": "L’accueil d’Arc Reborn",
+    "en": "Welcome to Arc Reborn"
   },
   "subtitle": {
-    "fr": "Une navigation plus fiable et des fenêtres plus faciles à organiser.",
-    "en": "More reliable browsing and easier window management."
+    "fr": "Le logo s’affiche à nouveau pendant l’animation de bienvenue.",
+    "en": "The logo is visible again during the welcome animation."
   },
   "highlights": [
     {
-      "symbol": "cursorarrow.click",
+      "symbol": "sparkles",
       "title": {
-        "fr": "Vos pages au bon endroit",
-        "en": "Your pages where they belong"
+        "fr": "Logo de bienvenue",
+        "en": "Welcome logo"
       },
       "detail": {
-        "fr": "Les liens ouvrent leurs onglets dans Arc Reborn. Le clic droit fonctionne sans modifier votre sélection de texte.",
-        "en": "Links open tabs inside Arc Reborn. Right-click works without changing your text selection."
-      }
-    },
-    {
-      "symbol": "hand.draw",
-      "title": {
-        "fr": "Déplacez la fenêtre depuis la sidebar",
-        "en": "Move your window from the sidebar"
-      },
-      "detail": {
-        "fr": "Cliquez et faites glisser une zone vide de la barre latérale pour déplacer la fenêtre.",
-        "en": "Click and drag an empty area of the sidebar to move the window."
-      }
-    },
-    {
-      "symbol": "macwindow.badge.plus",
-      "title": {
-        "fr": "Vos fenêtres depuis le Dock",
-        "en": "Open windows from the Dock"
-      },
-      "detail": {
-        "fr": "Le clic droit sur Arc Reborn dans le Dock propose une nouvelle fenêtre et une nouvelle fenêtre privée.",
-        "en": "Right-click Arc Reborn in the Dock to open a new window or a private window."
+        "fr": "Le « A » bleu et violet apparaît au centre des rubans dès le premier lancement et quand vous rejouez l’accueil.",
+        "en": "The blue and purple A appears between the ribbons on first launch and when you replay the welcome screen."
       }
     }
   ]

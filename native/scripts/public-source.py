@@ -13,13 +13,13 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
 DIRECTORIES = ['native/Sources','native/Bridge','native/Tests','native/Resources','native/Signing',
-               'native/Engine/patches','native/Engine/licenses','design/app-icon/ArcReborn.icon',
+               'native/Demo','native/Engine/patches','native/Engine/licenses','design/app-icon/ArcReborn.icon',
                '.github/workflows','.github/ISSUE_TEMPLATE','docs/development']
 FILES = ['README.md','LICENSE','NOTICE.md','CONTRIBUTING.md','SECURITY.md','.gitignore','Makefile',
          '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json']
 SCRIPTS = ['build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
            'engine.py','engine-framework-fingerprint.py','check-engine-patches.py',
-           'sign-and-notarize.sh','sign-sparkle.sh','release.py','verify-release.swift','ci-signing.py','public-source.py']
+           'welcome-assets.sh','onboarding-demo.sh','sign-and-notarize.sh','sign-sparkle.sh','release.py','verify-release.swift','ci-signing.py','public-source.py']
 FILES += ['native/scripts/'+name for name in SCRIPTS]
 FORBIDDEN = {'server','node_modules','vendor','build','dist','.env','profile','Chromium','.DS_Store','__pycache__'}
 SUFFIXES = {'.p8','.p12','.pfx','.pem','.key','.dmg','.zip','.log','.pyc','.certSigningRequest','.mobileprovision'}

@@ -1,4 +1,4 @@
-.PHONY: dev build check release-check
+.PHONY: dev build check release-check demo-onboarding
 dev:
 	./native/scripts/dev.sh
 build:
@@ -7,3 +7,5 @@ check:
 	./native/scripts/check.sh
 release-check:
 	/usr/bin/python3 native/scripts/release.py check
+demo-onboarding:
+	./native/scripts/onboarding-demo.sh
