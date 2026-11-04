@@ -15,6 +15,17 @@ struct ChromeTabSurface {
   bool visible = false;
 };
 static std::map<std::string, ChromeTabSurface> chromeTabs;
+static NSWindow *ChromeDocumentWindow(NSString *key) {
+  auto it = chromeTabs.find(key.UTF8String);
+  if (it == chromeTabs.end()) return nil;
+  return it->second.container.window;
+}
+static NSView *VisibleChromePage(NSString *key) {
+  auto it = chromeTabs.find(key.UTF8String);
+  if (it == chromeTabs.end() || !it->second.visible) return nil;
+  NSView *view = it->second.content;
+  return view.window.isVisible && !view.hiddenOrHasHiddenAncestor ? view : nil;
+}
 struct ChromePopupDestination {
   NSView *container;
   CefClient *client;

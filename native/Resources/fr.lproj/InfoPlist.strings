@@ -1,2 +1,4 @@
+"NSAudioCaptureUsageDescription" = "Vous pouvez inclure le son de votre Mac dans un partage d’écran.";
 "NSCameraUsageDescription" = "Un site autorisé peut utiliser votre caméra.";
 "NSMicrophoneUsageDescription" = "Un site autorisé peut utiliser votre microphone.";
+"NSLocationUsageDescription" = "Un site autorisé peut utiliser votre position.";

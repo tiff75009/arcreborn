@@ -1,2 +1,4 @@
+"NSAudioCaptureUsageDescription" = "You can include audio from your Mac when sharing your screen.";
 "NSCameraUsageDescription" = "An authorized website may use your camera.";
 "NSMicrophoneUsageDescription" = "An authorized website may use your microphone.";
+"NSLocationUsageDescription" = "An authorized website may use your location.";

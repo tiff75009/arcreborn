@@ -607,6 +607,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var sidebarTransition = 0
     private var sidebarAnimating = false
     private var sidebarHoverTask: DispatchWorkItem?
+    private var backgroundSidebarTimer: Timer?
     private var sidebarPendingIntent: SidebarRevealIntent?
     private var sidebarObservers: [NSObjectProtocol] = []
     private var trackingMenus = 0
@@ -777,6 +778,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if let spaceScrollMonitor { NSEvent.removeMonitor(spaceScrollMonitor) }
         if let observer = quitCancellationObserver { NotificationCenter.default.removeObserver(observer) }
         sidebarHoverTask?.cancel(); recentPeekTask?.cancel()
+        backgroundSidebarTimer?.invalidate()
         sidebarObservers.forEach(NotificationCenter.default.removeObserver)
     }
     private func t(_ key: String) -> String { L10n.text(key, language: session.language) }
@@ -932,9 +934,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let finishSidebarTracking: () -> Void = { [weak self] in
             guard let self else { return }
             self.sidebarMousePressed = NSEvent.pressedMouseButtons & 1 != 0
-            let point = self.root.convert(self.window.mouseLocationOutsideOfEventStream, from: nil)
-            self.sidebarPointer = self.root.bounds.contains(point) ? point : nil
-            self.updateSidebarHover()
+            self.refreshSidebarPointer()
         }
         sidebarHost.dragFinished = finishSidebarTracking
         table.mouseTrackingEnded = finishSidebarTracking
@@ -983,8 +983,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             self?.engine.closeExtensionPopup()
             self?.finishSpaceSwitch()
             self?.addMenu?.close()
-            self?.sidebarPointer = nil; self?.sidebarMousePressed = false
-            self?.cancelSidebarHover(); self?.setSidebarRevealed(false)
+            self?.sidebarMousePressed = false
+            self?.refreshSidebarPointer()
         })
     }
     private func layoutFavorites(animated: Bool) {
@@ -1110,6 +1110,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard session.sidebarHidden, sidebarRevealed != revealed else { return }
         cancelSidebarHover()
         sidebarRevealed = revealed
+        updateBackgroundSidebarTracking()
         sidebarTransition += 1
         let transition = sidebarTransition
         sidebarAnimating = true
@@ -1127,6 +1128,29 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func cancelSidebarHover() {
         sidebarHoverTask?.cancel(); sidebarHoverTask = nil; sidebarPendingIntent = nil
+    }
+    private func refreshSidebarPointer() {
+        sidebarPointer = SidebarRevealState.pointer(at: NSEvent.mouseLocation, in: root)
+        if NSEvent.pressedMouseButtons & 1 == 0 { sidebarMousePressed = false }
+        updateRecentPeekHover()
+        updateSidebarHover()
+    }
+    private func updateBackgroundSidebarTracking() {
+        // Local tracking events can stop when the pointer moves to another app.
+        // Sample only while a background window has a transient sidebar open.
+        guard session.sidebarHidden, sidebarRevealed, !window.isKeyWindow,
+              window.isVisible, !window.isMiniaturized, !isQuitting else {
+            backgroundSidebarTimer?.invalidate()
+            backgroundSidebarTimer = nil
+            return
+        }
+        guard backgroundSidebarTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
+            self?.refreshSidebarPointer()
+        }
+        timer.tolerance = 0.015
+        backgroundSidebarTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
     private func sidebarHoverIntent() -> SidebarRevealIntent {
         let interacting = library != nil || trackingMenus > 0 || addMenu != nil || spaceCreation != nil || sheet != nil || window.attachedSheet != nil || commandPalette != nil || siteMenu?.isShown == true || iconPicker?.isShown == true || themeEditor != nil || sidebarMousePressed || sidebarDragActive || sidebarTitleEditor?.isEditingTitle == true
@@ -1158,12 +1182,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             if !recentPeekVisible || !recentPeek.frame.contains(point) { dismissRecentPeek() }
         }
         if event.type == .leftMouseUp { sidebarMousePressed = false }
-        let location = root.convert(event.type == .mouseExited ? window.mouseLocationOutsideOfEventStream : event.locationInWindow,from:nil)
-        sidebarPointer = event.window === window && root.bounds.contains(location) ? location : nil
+        let location = root.convert(event.locationInWindow, from:nil)
+        sidebarPointer = event.type != .mouseExited && event.window === window && root.bounds.contains(location) ? location : nil
         updateRecentPeekHover()
         updateSidebarHover()
     }
     private func updateSidebarHover() {
+        updateBackgroundSidebarTracking()
         guard windowKind != .compact else { return }
         guard !isQuitting, library == nil else { return }
         let intent = sidebarHoverIntent()
@@ -1173,7 +1198,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let task = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.sidebarPendingIntent = nil; self.sidebarHoverTask = nil
-            guard self.sidebarHoverIntent() == intent else { return }
+            self.sidebarPointer = SidebarRevealState.pointer(at: NSEvent.mouseLocation, in: self.root)
+            guard self.sidebarHoverIntent() == intent else { self.updateSidebarHover(); return }
             self.setSidebarRevealed(intent == .reveal)
         }
         sidebarHoverTask = task
@@ -2022,6 +2048,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarTransition += 1; sidebarAnimating = false
         session.sidebarHidden.toggle()
         sidebarRevealed = session.sidebarHidden
+        updateBackgroundSidebarTracking()
         layout()
         if session.sidebarHidden { setSidebarRevealed(false) }
         persist()

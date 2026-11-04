@@ -1,9 +1,16 @@
-import Foundation
-import CoreGraphics
+import AppKit
 
 /// Hovering only changes transient presentation, never the saved sidebar preference.
 enum SidebarRevealIntent: Equatable { case reveal, hide, keep }
 struct SidebarRevealState {
+    /// A point inside the window frame may actually belong to an overlapping app.
+    static func pointer(at screenPoint: NSPoint, in root: NSView) -> NSPoint? {
+        guard let window = root.window, window.isVisible, !window.isMiniaturized else { return nil }
+        let point = root.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        guard root.bounds.contains(point),
+              NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0) == window.windowNumber else { return nil }
+        return point
+    }
     static func intent(hidden: Bool, revealed: Bool, active: Bool, pointer: CGPoint?,
                        height: CGFloat, sidebarWidth: CGFloat, protected: Bool) -> SidebarRevealIntent {
         guard hidden else { return .keep }

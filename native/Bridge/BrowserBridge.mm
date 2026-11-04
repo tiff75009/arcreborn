@@ -274,6 +274,8 @@ static CefRefPtr<CefClient> NewExtensionClient();
 static void ExtensionStoreCompatibility(CefRefPtr<CefBrowser> browser, bool enabled);
 static void PrepareChromePopup(NSString *key, NSView *container, CefRefPtr<CefClient> client, std::weak_ptr<bool> lifetime);
 static void CancelChromePopup(const std::string& key);
+static NSView *VisibleChromePage(NSString *key);
+static NSWindow *ChromeDocumentWindow(NSString *key);
 static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> params,
                               CefRefPtr<CefMenuModel> model, CefRefPtr<CefRunContextMenuCallback> callback);
 static void RegisterNativeExtensionTabs(bool enabled);
@@ -378,6 +380,45 @@ class FaviconDownload : public CefDownloadImageCallback {
   size_t candidate_;
   IMPLEMENT_REFCOUNTING(FaviconDownload);
 };
+
+// A site sheet belongs to exactly one tab, including in split view.
+struct SitePermissionSheet {
+  uint64_t promptID;
+  NSWindow *window;
+};
+static std::map<std::string, SitePermissionSheet> sitePermissionSheets;
+
+static void DismissSitePermissionSheet(const std::string& tab) {
+  auto found = sitePermissionSheets.find(tab);
+  if (found == sitePermissionSheets.end()) return;
+  NSWindow *sheet = found->second.window;
+  if (sheet.sheetParent) [sheet.sheetParent endSheet:sheet returnCode:NSModalResponseCancel];
+}
+
+static NSArray<NSString *> *SitePermissionNames(uint32_t permissions) {
+  // Only generic decisions whose scope can be described by origin and type.
+  // Device, file and screen choosers require the user's specific selection.
+  struct Description { uint32_t bit; NSString *fr; NSString *en; };
+  const Description descriptions[] = {
+    {CEF_PERMISSION_TYPE_MIC_STREAM, @"microphone", @"microphone"},
+    {CEF_PERMISSION_TYPE_CAMERA_STREAM, @"caméra", @"camera"},
+    {CEF_PERMISSION_TYPE_CAMERA_PAN_TILT_ZOOM, @"contrôle des mouvements et du zoom de la caméra", @"camera pan, tilt and zoom controls"},
+    {CEF_PERMISSION_TYPE_GEOLOCATION, @"position", @"location"},
+    {CEF_PERMISSION_TYPE_NOTIFICATIONS, @"notifications", @"notifications"},
+    {CEF_PERMISSION_TYPE_CLIPBOARD, @"presse-papiers", @"clipboard"},
+    {CEF_PERMISSION_TYPE_LOCAL_FONTS, @"polices installées sur votre Mac", @"fonts installed on your Mac"},
+    {CEF_PERMISSION_TYPE_WINDOW_MANAGEMENT, @"informations sur vos écrans et placement des fenêtres", @"screen information and window placement"},
+    {CEF_PERMISSION_TYPE_MULTIPLE_DOWNLOADS, @"téléchargement automatique de plusieurs fichiers", @"automatic download of multiple files"},
+  };
+  NSMutableArray *names = [NSMutableArray array];
+  for (const auto& description : descriptions) {
+    if (permissions & description.bit) {
+      [names addObject:L(description.fr, description.en)];
+      permissions &= ~description.bit;
+    }
+  }
+  return permissions == 0 && names.count > 0 ? names : nil;
+}
 
 class NativeClient : public CefClient,
                      public CefCommandHandler,
@@ -498,6 +539,7 @@ class NativeClient : public CefClient,
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     CEF_REQUIRE_UI_THREAD();
     BrowserTrace(@"tab.before-close",@{@"tab":tabID_,@"browser":@(browser->GetIdentifier()),@"quitting":@(quitting)});
+    DismissSitePermissionSheet(tabID_.UTF8String);
     favicon_->closed = true;
     ++favicon_->generation;
     CloseTabDeveloperTools(tabID_.UTF8String);
@@ -654,19 +696,33 @@ class NativeClient : public CefClient,
     alert.informativeText = L(@"Les modifications non enregistrées risquent d’être perdues.", @"Unsaved changes may be lost.");
     [alert addButtonWithTitle:L(@"Rester", @"Stay")];
     [alert addButtonWithTitle:L(@"Quitter", @"Leave")];
-    NSView *view = (__bridge NSView *)browser->GetHost()->GetWindowHandle();
+    NSWindow *parent = embedded_ && chrome_ ? ChromeDocumentWindow(tabID_) :
+        ((__bridge NSView *)browser->GetHost()->GetWindowHandle()).window;
     auto complete = ^(NSModalResponse response) {
       bool leave = response == NSAlertSecondButtonReturn;
       if (!leave) { if ([engine_.delegate respondsToSelector:@selector(browserCloseCancelled:)]) [engine_.delegate browserCloseCancelled:tabID_]; if (quitting) { quitting = false; Notify(@"BrowserEngineQuitCancelled"); } }
       callback->Continue(leave, CefString());
     };
-    if (view.window) [alert beginSheetModalForWindow:view.window completionHandler:complete]; else complete([alert runModal]);
+    if (parent.isVisible) [alert beginSheetModalForWindow:parent completionHandler:complete]; else complete([alert runModal]);
     return true;
   }
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& origin, uint32_t requested, CefRefPtr<CefMediaAccessCallback> callback) override {
-    NSView *view = (__bridge NSView *)browser->GetHost()->GetWindowHandle();
-    const uint32_t supported = CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE;
-    if (!view.window || view.hiddenOrHasHiddenAncestor || view.window.attachedSheet || (requested & ~supported)) { callback->Cancel(); return true; }
+    constexpr uint32_t devices = CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE;
+    constexpr uint32_t display = CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE | CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE;
+    const bool chromeTab = embedded_ && chrome_;
+    NSView *view = chromeTab ? VisibleChromePage(tabID_) : (__bridge NSView *)browser->GetHost()->GetWindowHandle();
+    if (!view.window.isVisible || view.hiddenOrHasHiddenAncestor) { callback->Cancel(); return true; }
+    // Delegate the original request, including its constraints and requesting frame.
+    // For display capture Chromium owns source selection, cancellation and stop;
+    // CEF's callback->Continue would instead pick the whole desktop by default.
+    // CEF 156 does not map DISPLAY_VIDEO_CAPTURE_THIS_TAB into this mask, so a
+    // valid preferCurrentTab request without audio can arrive with zero bits.
+    if (chromeTab) {
+      BrowserTrace((requested & display) ? @"permission.display-request" : @"permission.media-request", @{@"tab":tabID_, @"devices":@(requested)});
+      return false;
+    }
+    // The legacy device-only sheet has no surface picker.
+    if (!requested || (requested & ~devices) || view.window.attachedSheet) { callback->Cancel(); return true; }
     NSAlert *alert = [[NSAlert alloc] init];
     NSMutableArray<NSString *> *names = [NSMutableArray array];
     if (requested & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE) [names addObject:L(@"microphone", @"microphone")];
@@ -681,23 +737,50 @@ class NativeClient : public CefClient,
     return true;
   }
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser, uint64_t promptID, const CefString& origin, uint32_t permissions, CefRefPtr<CefPermissionPromptCallback> callback) override {
-    NSView *view = (__bridge NSView *)browser->GetHost()->GetWindowHandle();
-    const uint32_t supported = CEF_PERMISSION_TYPE_GEOLOCATION | CEF_PERMISSION_TYPE_NOTIFICATIONS | CEF_PERMISSION_TYPE_CLIPBOARD;
-    if (!view.window || view.hiddenOrHasHiddenAncestor || view.window.attachedSheet || (permissions & ~supported)) { callback->Continue(CEF_PERMISSION_RESULT_DENY); return true; }
-    NSMutableArray<NSString *> *names = [NSMutableArray array];
-    if (permissions & CEF_PERMISSION_TYPE_GEOLOCATION) [names addObject:L(@"position", @"location")];
-    if (permissions & CEF_PERMISSION_TYPE_NOTIFICATIONS) [names addObject:L(@"notifications", @"notifications")];
-    if (permissions & CEF_PERMISSION_TYPE_CLIPBOARD) [names addObject:L(@"presse-papiers", @"clipboard")];
+    NSView *view = embedded_ && chrome_ ? VisibleChromePage(tabID_) : (__bridge NSView *)browser->GetHost()->GetWindowHandle();
+    NSArray<NSString *> *names = SitePermissionNames(permissions);
+    if (!names) {
+      BrowserTrace(@"permission.unsupported", @{@"types":@(permissions)});
+      callback->Continue(CEF_PERMISSION_RESULT_DISMISS);
+      return true;
+    }
+    const std::string tab = tabID_.UTF8String;
+    auto frame = browser->GetMainFrame();
+    NSWindow *window = view.window;
+    if (!frame || !window.isVisible || view.hiddenOrHasHiddenAncestor || window.attachedSheet || sitePermissionSheets.count(tab)) {
+      callback->Continue(CEF_PERMISSION_RESULT_DISMISS);
+      return true;
+    }
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = L(@"Autorisation du site", @"Website permission");
     alert.informativeText = [NSString stringWithFormat:L(@"%@ demande l’accès à : %@.", @"%@ requests access to: %@."), Str(origin), [names componentsJoinedByString:@", "]];
     [alert addButtonWithTitle:L(@"Refuser", @"Deny")]; [alert addButtonWithTitle:L(@"Autoriser", @"Allow")];
-    std::string before = browser->GetMainFrame()->GetURL();
-    [alert beginSheetModalForWindow:view.window completionHandler:^(NSModalResponse response) {
-      bool accept = response == NSAlertSecondButtonReturn && browser->IsValid() && browser->GetMainFrame()->GetURL().ToString() == before;
-      callback->Continue(accept ? CEF_PERMISSION_RESULT_ACCEPT : CEF_PERMISSION_RESULT_DENY);
+    std::string before = frame->GetURL();
+    NSNumber *key = @(promptID);
+    sitePermissionSheets.emplace(tab, SitePermissionSheet{promptID, alert.window});
+    BrowserTrace(@"permission.prompt-shown", @{@"prompt":key, @"types":@(permissions)});
+    [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
+      auto found = sitePermissionSheets.find(tab);
+      if (found == sitePermissionSheets.end() || found->second.promptID != promptID) return;
+      sitePermissionSheets.erase(found);
+      auto current = browser->IsValid() ? browser->GetMainFrame() : nullptr;
+      if (!current || current->GetURL().ToString() != before || view.window != window || !window.isVisible || view.hiddenOrHasHiddenAncestor) {
+        callback->Continue(CEF_PERMISSION_RESULT_DISMISS);
+      } else if (response == NSAlertFirstButtonReturn) {
+        callback->Continue(CEF_PERMISSION_RESULT_DENY);
+      } else {
+        callback->Continue(response == NSAlertSecondButtonReturn ? CEF_PERMISSION_RESULT_ACCEPT : CEF_PERMISSION_RESULT_DISMISS);
+      }
     }];
     return true;
+  }
+  void OnDismissPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t promptID, cef_permission_request_result_t) override {
+    BrowserTrace(@"permission.prompt-dismissed", @{@"prompt":@(promptID)});
+    auto found = sitePermissionSheets.find(tabID_.UTF8String);
+    if (found == sitePermissionSheets.end() || found->second.promptID != promptID) return;
+    NSWindow *sheet = found->second.window;
+    sitePermissionSheets.erase(found);
+    if (sheet.sheetParent) [sheet.sheetParent endSheet:sheet returnCode:NSModalResponseCancel];
   }
   void OnDownloadUpdated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item, CefRefPtr<CefDownloadItemCallback> callback) override {
     CEF_REQUIRE_UI_THREAD();
@@ -953,7 +1036,7 @@ static void QuitNext() {
 }
 - (void)navigateTab:(NSString *)tabID url:(NSString *)url { if (!Allowed(url)) return; auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetMainFrame()->LoadURL(CefStr(url)); else if (pendingBrowsers.count(tabID.UTF8String)) pendingNavigation[tabID.UTF8String] = url.UTF8String; }
 - (void)resizeTab:(NSString *)tabID inView:(NSView *)container { if (chromeTabs.count(tabID.UTF8String)) { LayoutChromeTab(tabID.UTF8String); return; } auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) return; NSView *view = (__bridge NSView *)i->second->GetHost()->GetWindowHandle(); view.frame = container.bounds; }
-- (void)setTab:(NSString *)tabID visible:(BOOL)visible { SetDeveloperToolsVisible(tabID.UTF8String,visible); if (!visible && tabVisibility[tabID.UTF8String]) CloseNativeExtensionPopup(tabID.UTF8String); tabVisibility[tabID.UTF8String] = visible; if (chromeTabs.count(tabID.UTF8String)) { LayoutChromeTab(tabID.UTF8String); return; } auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) return; NSView *view = (__bridge NSView *)i->second->GetHost()->GetWindowHandle(); BOOL wasHidden = view.hidden; view.hidden = !visible; if (visible && wasHidden && view.window.isKeyWindow && !view.window.attachedSheet) i->second->GetHost()->SetFocus(true); }
+- (void)setTab:(NSString *)tabID visible:(BOOL)visible { SetDeveloperToolsVisible(tabID.UTF8String,visible); if (!visible && tabVisibility[tabID.UTF8String]) { DismissSitePermissionSheet(tabID.UTF8String); CloseNativeExtensionPopup(tabID.UTF8String); } tabVisibility[tabID.UTF8String] = visible; if (chromeTabs.count(tabID.UTF8String)) { LayoutChromeTab(tabID.UTF8String); return; } auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) return; NSView *view = (__bridge NSView *)i->second->GetHost()->GetWindowHandle(); BOOL wasHidden = view.hidden; view.hidden = !visible; if (visible && wasHidden && view.window.isKeyWindow && !view.window.attachedSheet) i->second->GetHost()->SetFocus(true); }
 - (void)focusTab:(NSString *)tabID {
   auto chrome = chromeTabs.find(tabID.UTF8String);
   if (chrome != chromeTabs.end() && chrome->second.content) {

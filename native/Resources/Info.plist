@@ -26,7 +26,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.3</string>
+	<string>0.4.4</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -42,7 +42,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>7</string>
+	<string>8</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSEnvironment</key>
@@ -54,10 +54,14 @@
 	<true/>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Vous pouvez inclure le son de votre Mac dans un partage d’écran.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Un site autorisé peut utiliser votre caméra.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSLocationUsageDescription</key>
+	<string>Un site autorisé peut utiliser votre position.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Un site autorisé peut utiliser votre microphone.</string>
 	<key>NSPrincipalClass</key>

@@ -30,10 +30,10 @@ class CDP {
   close(){this.ws.close();}
 }
 let app,log,exited=true,exitPromise,debugPort;const connections=[];
-async function launch(seconds){
+async function launch(seconds, switches=[], background=true){
   const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));debugPort=probe.address().port;await new Promise(r=>probe.close(r));
   log=await fs.open(path.join(root,'build','smoke-app.log'),'a');
-  app=spawn(path.resolve(process.env.BROWSER_SMOKE_APP || path.join(root,'build','Arc Reborn.app'),'Contents','MacOS','Arc Reborn'),[],{env:{...process.env,BROWSER_NATIVE_TEST_BACKGROUND:'1',BROWSER_NATIVE_TEST_DATA:data,BROWSER_NATIVE_DEBUG_PORT:String(debugPort),BROWSER_NATIVE_TEST_AUTOCLOSE:String(seconds)},stdio:['ignore',log.fd,log.fd]});exited=false;
+  app=spawn(path.resolve(process.env.BROWSER_SMOKE_APP || path.join(root,'build','Arc Reborn.app'),'Contents','MacOS','Arc Reborn'),switches,{env:{...process.env,BROWSER_NATIVE_TEST_BACKGROUND:background?'1':'0',BROWSER_NATIVE_TEST_DATA:data,BROWSER_NATIVE_DEBUG_PORT:String(debugPort),BROWSER_NATIVE_TEST_AUTOCLOSE:String(seconds)},stdio:['ignore',log.fd,log.fd]});exited=false;
   exitPromise=new Promise(resolve=>app.once('exit',(code,signal)=>{exited=true;resolve({code,signal});}));
   console.log(JSON.stringify({pid:app.pid,origin,debugPort,data}));
   const target=await until(async()=>{if(exited)throw Error('App exited');return (await targets()).find(p=>p.url.startsWith(origin));},20);
@@ -59,8 +59,33 @@ async function selectSavedSpace(state) {
   await fs.writeFile(file,JSON.stringify(records));
 }
 
-try{
-  await fs.writeFile(path.join(root,'build','smoke-app.log'),'');
+// Exercise Chromium's actual pickers; only the local fixture tab can be selected.
+async function displaySharingSmoke() {
+  const fixture = 'Arc Reborn display test ' + process.pid;
+  for (const accept of [true, false]) {
+    const switches = accept
+      ? ['--auto-select-tab-capture-source-by-title='+fixture, '--auto-accept-this-tab-capture']
+      : ['--auto-reject-capture', '--auto-reject-this-tab-capture'];
+    const page = await launch(15, switches, false);
+    await page.evaluate('document.title='+JSON.stringify(fixture));
+    for (const preferCurrentTab of [false, true]) {
+      // With preferCurrentTab and no audio, CEF 156 reports an empty media mask.
+      const options = {video:true, audio:!preferCurrentTab, preferCurrentTab, selfBrowserSurface:'include'};
+      const expression = `navigator.mediaDevices.getDisplayMedia(${JSON.stringify(options)}).then(stream=>{
+        const track=stream.getVideoTracks()[0];
+        const kind=track.getSettings().displaySurface, live=track.readyState;
+        stream.getTracks().forEach(t=>t.stop());
+        return [kind,live,track.readyState];
+      }).catch(e=>e.name)`;
+      const result = await page.send('Runtime.evaluate',{expression,userGesture:true,awaitPromise:true,returnByValue:true});
+      assert.deepEqual(result.result.value, accept ? ['browser','live','ended'] : 'NotAllowedError');
+      check((preferCurrentTab?'Current-tab':'Display')+' picker: '+(accept?'selected tab shared and stopped':'cancellation returned to site'));
+    }
+    await finish();
+  }
+}
+
+async function browserSmoke(){
   const page=await launch(25);await title(page,'Native Browser Test');check('Chromium navigation in AppKit');
   assert.equal(await page.evaluate('matchMedia("(prefers-color-scheme: dark)").matches'),true);check('Dark appearance reaches Chromium');
   assert.equal(await page.evaluate('typeof window.require+":"+typeof window.process'),'undefined:undefined');check('No Node integration');
@@ -102,6 +127,10 @@ try{
   }
   check('No standalone Chromium window for links, popups, POST or restoration');
   const logs=await fs.readFile(path.join(root,'build','smoke-app.log'),'utf8');assert.doesNotMatch(logs,/Keychain lookup failed|Encryption is not available|Cannot create profile/);check('No Keychain or profile initialization errors');
+}
+try{
+  await fs.writeFile(path.join(root,'build','smoke-app.log'),'');
+  if(process.argv.includes('--display-sharing')) await displaySharingSmoke(); else await browserSmoke();
 }catch(error){report.failure=String(error);console.error(error);}
 finally{connections.forEach(c=>c.close());if(!exited){app.kill('SIGTERM');await exitPromise;}if(log)await log.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.writeFile(path.join(root,'build','smoke-report.json'),JSON.stringify(report,null,2));}
 if(report.failure)process.exitCode=1;else console.log('NATIVE_SMOKE_PASS');
