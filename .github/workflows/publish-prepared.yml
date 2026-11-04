@@ -6,6 +6,10 @@ on:
         description: Existing browser tag with a prepared draft release
         required: true
         type: string
+      source_run_id:
+        description: Optional successful Native macOS push run for this tag's exact main commit
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -13,17 +17,21 @@ concurrency:
   cancel-in-progress: false
 jobs:
   source:
-    if: github.repository == 'tiff75009/arcreborn'
+    if: github.repository == 'tiff75009/arcreborn' && !inputs.source_run_id
     uses: ./.github/workflows/ci.yml
     with:
       source_ref: refs/tags/${{ inputs.tag }}
   publish:
     needs: source
-    if: github.repository == 'tiff75009/arcreborn'
-    runs-on: macos-26
+    if: >-
+      ${{ !cancelled() && github.repository == 'tiff75009/arcreborn' &&
+          (needs.source.result == 'success' || (inputs.source_run_id != '' && needs.source.result == 'skipped')) }}
+    # Validation checks signatures and tickets without executing the arm64 app.
+    runs-on: macos-26-intel
     environment: release
     timeout-minutes: 20
     permissions:
+      actions: read
       contents: write
     env:
       TAG: ${{ inputs.tag }}
@@ -43,7 +51,30 @@ jobs:
       - name: Verify the tag still points to the tested commit
         env:
           TESTED_SHA: ${{ needs.source.outputs.tested_commit }}
-        run: test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          SOURCE_RUN: ${{ inputs.source_run_id }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re, subprocess
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          run_id = os.environ["SOURCE_RUN"]
+          if not run_id:
+              assert head == os.environ["TESTED_SHA"], "Tag differs from freshly tested commit"
+          else:
+              assert re.fullmatch(r"[0-9]+", run_id), "Invalid run ID"
+              repo = os.environ["GITHUB_REPOSITORY"]
+              def api(path):
+                  return json.loads(subprocess.check_output(["gh", "api", f"repos/{repo}/actions/{path}"]))
+              run = api(f"runs/{run_id}")
+              assert run["workflow_id"] == api("workflows/ci.yml")["id"]
+              assert run["head_repository"]["full_name"] == repo
+              assert (run["head_sha"], run["head_branch"], run["event"]) == (head, "main", "push")
+              assert (run["status"], run["conclusion"]) == ("completed", "success")
+              jobs = api(f"runs/{run_id}/attempts/{run['run_attempt']}/jobs")["jobs"]
+              required = {"Build with the pinned engine (no Apple account)", "State checks", "Validate release metadata and source boundary"}
+              assert any(job["name"] == "build" and job["conclusion"] == "success" and "macos-26" in job["labels"]
+                         and required <= {s["name"] for s in job["steps"] if s["conclusion"] == "success"} for job in jobs)
+              print(f"Verified arm64 build and tests: https://github.com/{repo}/actions/runs/{run_id}")
+          PYTHON
       - name: Download prepared release
         run: |
           mkdir -p "$RUNNER_TEMP/arc-release-assets"

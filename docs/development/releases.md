@@ -71,7 +71,12 @@ Actions without uploading Apple or Sparkle private keys:
 gh workflow run publish-prepared.yml --ref main -f tag=v0.4.1
 ```
 
-Run this after uploading the tagged draft assets. The publication workflow runs
+If the exact tagged commit already passed the Native macOS push workflow on main, append
+`-f source_run_id=RUN_ID` to reuse that arm64 build. Actions checks the commit,
+repository, workflow, runner and successful build and test steps. The signed DMG
+is independently verified on a standard Intel Mac before publication.
+
+Run this after uploading the tagged draft assets. Without a run ID, the publication workflow runs
 the native macOS build and tests for that tag before opening the publishing job.
 The workflow checks version/engine metadata, every checksum, the signed Sparkle
 feed and DMG, the Apple signatures and stapled notarization tickets, then publishes
