@@ -12,6 +12,10 @@ import CoreGraphics
         catch { passed += 1 }
     }
     static func main() throws {
+        check(isAllowedBrowserURL("view-source:https://example.com/page"), "website source can open in a native tab")
+        for address in ["view-source:file:///etc/hosts", "view-source:chrome://settings/", "view-source:view-source:https://example.com", "view-source:https://user:password@example.com"] {
+            check(!isAllowedBrowserURL(address), "source viewer keeps the URL restrictions")
+        }
         for address in ["arc://extensions/", " browser://extensions \n", "CHROME://EXTENSIONS/"] {
             check(isExtensionsAddress(address), "extensions command recognized: \(address)")
             check(!isAllowedBrowserURL(address), "internal command never becomes an ordinary web tab")

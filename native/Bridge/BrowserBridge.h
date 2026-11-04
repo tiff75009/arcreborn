@@ -8,6 +8,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)browserRequestedNewTab:(NSString *)url sourceTab:(NSString *)tabID NS_SWIFT_NAME(browserRequestedNewTab(_:sourceTab:));
 - (void)browserClosed:(NSString *)tabID NS_SWIFT_NAME(browserClosed(_:));
 @optional
+- (void)browserRequestedPrivateWindow:(NSString *)url sourceTab:(NSString *)tabID NS_SWIFT_NAME(browserRequestedPrivateWindow(_:sourceTab:));
+- (void)browserRequestedNewWindow:(NSString *)url sourceTab:(NSString *)tabID NS_SWIFT_NAME(browserRequestedNewWindow(_:sourceTab:));
+- (nullable NSDictionary<NSString *, id> *)browserPreparePopup:(NSString *)url sourceTab:(NSString *)tabID active:(BOOL)active NS_SWIFT_NAME(browserPreparePopup(_:sourceTab:active:));
 - (void)browserPictureInPictureReturn:(NSString *)tabID NS_SWIFT_NAME(browserPictureInPictureReturn(_:));
 - (void)browserExtensionInstalled:(NSString *)identifier name:(NSString *)name profile:(NSString *)profile NS_SWIFT_NAME(browserExtensionInstalled(_:name:profile:));
 - (nullable NSDictionary<NSString *, id> *)browserPrepareExtensionTab:(NSString *)sourceTab active:(BOOL)active pinned:(BOOL)pinned index:(NSInteger)index NS_SWIFT_NAME(browserPrepareExtensionTab(_:active:pinned:index:));

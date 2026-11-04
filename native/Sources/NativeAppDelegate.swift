@@ -65,6 +65,14 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         next.becameKey = { [weak self] value in self?.controller = value; self?.buildMenu() }
         next.windowClosed = { [weak self] value in self?.closed(value) }
         next.newWindowRequested = { [weak self,weak next] kind in _ = self?.openWindow(kind,from:next) }
+        next.privateAddressRequested = { [weak self,weak next] address in
+            guard let self else { return }
+            self.openWindow(.privateWindow,from:next).openExternalAddress(address)
+        }
+        next.windowAddressRequested = { [weak self,weak next] address in
+            guard let self else { return }
+            self.openWindow(.blank,from:next).openExternalAddress(address)
+        }
         next.promoteWindowRequested = { [weak self,weak next] in
             guard let self, let next else { return }
             let target = self.openWindow(next.isPrivateWindow ? .privateWindow : .normal,from:next)
@@ -176,6 +184,31 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         persistWindows(); quitting = true; BrowserEngine.requestQuit()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication) -> Bool { false }
+    func applicationDockMenu(_ sender:NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let language = controller?.menuLanguage ?? sharedSession.language
+        let actions:[(String,Selector)] = [
+            (language == "en" ? "New Window" : "Nouvelle fenêtre",#selector(newDockWindow(_:))),
+            (language == "en" ? "New Private Window" : "Nouvelle fenêtre privée",#selector(newDockPrivateWindow(_:)))
+        ]
+        for (title,action) in actions {
+            let item = NSMenuItem(title:title,action:action,keyEquivalent:"")
+            item.target = self
+            item.isEnabled = booted && sharedSession.onboardingComplete == true && !quitting
+            menu.addItem(item)
+        }
+        return menu
+    }
+    @objc private func newDockWindow(_ sender:Any?) {
+        guard booted, sharedSession.onboardingComplete == true, !quitting else { return }
+        openWindow(.normal)
+        NSApp.activate(ignoringOtherApps:true)
+    }
+    @objc private func newDockPrivateWindow(_ sender:Any?) {
+        guard booted, sharedSession.onboardingComplete == true, !quitting else { return }
+        openWindow(.privateWindow)
+        NSApp.activate(ignoringOtherApps:true)
+    }
     func applicationSupportsSecureRestorableState(_ app:NSApplication) -> Bool { true }
     func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows flag:Bool) -> Bool {
         if let controller { controller.show() } else { _ = openWindow(.normal) }; return true

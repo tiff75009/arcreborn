@@ -15,8 +15,18 @@ struct ChromeTabSurface {
   bool visible = false;
 };
 static std::map<std::string, ChromeTabSurface> chromeTabs;
-static std::map<std::string, NSView *> chromePopupContainers;
-static void PrepareChromePopup(NSString *key, NSView *container) { chromePopupContainers[key.UTF8String] = container; }
+struct ChromePopupDestination {
+  NSView *container;
+  CefClient *client;
+  std::weak_ptr<bool> lifetime;
+};
+static std::map<std::string, ChromePopupDestination> chromePopupContainers;
+static void PrepareChromePopup(NSString *key, NSView *container, CefRefPtr<CefClient> client, std::weak_ptr<bool> lifetime) {
+  // CEF owns the client. Holding it here would prevent its destructor from
+  // releasing an aborted popup when its opener has already closed.
+  chromePopupContainers[key.UTF8String] = {container, client.get(), lifetime};
+}
+static void CancelChromePopup(const std::string& key) { chromePopupContainers.erase(key); }
 static void LayoutChromeTab(const std::string& key) {
   ImmediateNativeSurfaceUpdate immediate;
   auto it = chromeTabs.find(key); if (it == chromeTabs.end()) return;
@@ -120,13 +130,18 @@ class ChromeTabView : public CefBrowserViewDelegate {
   bool OnPopupBrowserViewCreated(CefRefPtr<CefBrowserView> source, CefRefPtr<CefBrowserView> popup, bool devtools) override {
     if (devtools) return EmbedDeveloperTools(source,popup);
     auto browser = popup->GetBrowser();
-    for (auto &entry : browsers) {
-      if (!entry.second->IsSame(browser)) continue;
-      auto destination = chromePopupContainers.find(entry.first);
-      if (destination == chromePopupContainers.end()) break;
-      NSView *container = destination->second;
+    if (!browser) return false;
+    // CEF 156 Chrome calls this BEFORE NativeClient::OnAfterCreated, despite
+    // the public header's ordering comment. The browser registry is not ready.
+    // Identify the reserved destination by its client, which already exists.
+    auto client = browser->GetHost()->GetClient();
+    for (auto destination = chromePopupContainers.begin(); destination != chromePopupContainers.end(); ++destination) {
+      if (destination->second.client != client.get() || destination->second.lifetime.expired()) continue;
+      const std::string key = destination->first;
+      NSView *container = destination->second.container;
       chromePopupContainers.erase(destination);
-      CefWindow::CreateTopLevelWindow(new ChromeTabWindow(popup, @(entry.first.c_str()), container));
+      CefWindow::CreateTopLevelWindow(new ChromeTabWindow(popup, @(key.c_str()), container));
+      BrowserTrace(@"tab.popup-attached",@{@"tab":@(key.c_str()),@"browser":@(browser->GetIdentifier())});
       return true;
     }
     return false; // Chromium owns extension action bubbles and permission UI.

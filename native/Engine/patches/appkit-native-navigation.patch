@@ -1,0 +1,79 @@
+diff --git a/cef/libcef/browser/chrome/chrome_browser_web_contents_delegate.cc b/cef/libcef/browser/chrome/chrome_browser_web_contents_delegate.cc
+--- a/cef/libcef/browser/chrome/chrome_browser_web_contents_delegate.cc
++++ b/cef/libcef/browser/chrome/chrome_browser_web_contents_delegate.cc
+@@ -10,6 +10,8 @@
+ #include "base/logging.h"
+ #include "cef/libcef/browser/browser_contents_delegate.h"
+ #include "cef/libcef/browser/chrome/browser_delegate.h"
++#include "cef/libcef/browser/chrome/browser_util.h"
++#include "cef/include/internal/cef_export.h"
+ #include "cef/libcef/browser/chrome/chrome_browser_host_impl.h"
+ #include "cef/libcef/browser/hang_monitor.h"
+ #include "cef/libcef/browser/media_access_query.h"
+@@ -157,6 +159,28 @@
+     }
+   }
+ 
++  // Keep the original OpenURLParams, including POST data, initiator and
++  // referrer. Reopening only params.url in the embedder silently turns forms
++  // into GET requests. The AppKit adapter creates a real same-profile target.
++  if (browser_->cef_delegate() &&
++      (params.disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB ||
++       params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
++       params.disposition == WindowOpenDisposition::NEW_WINDOW ||
++       params.disposition == WindowOpenDisposition::NEW_POPUP)) {
++    auto created = cef::CreateAppKitExtensionTab(
++        *browser_,
++        params.disposition != WindowOpenDisposition::NEW_BACKGROUND_TAB,
++        false, -1);
++    if (!created.has_value()) return nullptr;
++    if (auto* target = created.value()) {
++      content::OpenURLParams redirected(params);
++      redirected.disposition = WindowOpenDisposition::CURRENT_TAB;
++      return BrowserWebContentsDelegate::From(target)->OpenURLFromTab(
++          target->GetTabStripModel()->GetActiveWebContents(), redirected,
++          std::move(navigation_handle_callback));
++    }
++  }
++
+   if (browser_->cef_delegate()) {
+     // Chrome UI navigations may not supply a source. Use the active contents
+     // for the CEF callback, but preserve the original source passed to Chrome.
+@@ -405,3 +429,6 @@
+   BrowserWebContentsDelegate::RequestMediaAccessPermission(
+       web_contents, request, std::move(callback));
+ }
++
++// Embedder packaging rejects engines lacking complete native tab navigation.
++extern "C" CEF_EXPORT int browser_native_navigation_version_v1() { return 1; }
+diff --git a/cef/libcef/browser/chrome/chrome_browser_host_impl.cc b/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
+--- a/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
++++ b/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
+@@ -428,6 +428,11 @@
+   // documentation.
+   ChromeBrowserView* chrome_browser_view = nullptr;
+   if (params.browser_view) {
++    // AppKit restores its own windows/tabs. Keeping Chrome's hidden backend in
++    // SessionService creates extra Chrome windows after a crash or restart.
++    // Cookie persistence remains enabled independently in the profile prefs.
++    chrome_params.omit_from_session_restore = true;
++    chrome_params.should_trigger_session_restore = false;
+     if (chrome_params.type == BrowserWindowInterface::TYPE_NORMAL) {
+       // Don't show most controls.
+       chrome_params.type = BrowserWindowInterface::TYPE_POPUP;
+diff --git a/third_party/blink/renderer/core/editing/selection_controller.cc b/third_party/blink/renderer/core/editing/selection_controller.cc
+--- a/third_party/blink/renderer/core/editing/selection_controller.cc
++++ b/third_party/blink/renderer/core/editing/selection_controller.cc
+@@ -1398,6 +1398,12 @@
+     const PhysicalOffset& position) {
+   if (!Selection().IsAvailable())
+     return;
++  // Arc Reborn keeps the user's existing selection when opening a mouse
++  // context menu. macOS word/link auto-selection must not replace it.
++  if (mouse_event->GetMenuSourceType() ==
++      ui::mojom::blink::MenuSourceType::kMouse) {
++    return;
++  }
+   if (Selection().Contains(position) || hit_test_result.GetScrollbar() ||
+       // FIXME: In the editable case, word selection sometimes selects content
+       // that isn't underneath the mouse.

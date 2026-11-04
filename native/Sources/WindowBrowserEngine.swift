@@ -53,6 +53,8 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     func browserLoadingChanged(_ id:String,loading:Bool,back:Bool,forward:Bool) { receiver?.browserLoadingChanged(logical(id),loading:loading,back:back,forward:forward) }
     func browserFailed(_ id:String,message:String) { receiver?.browserFailed(logical(id),message:message) }
     func browserRequestedNewTab(_ url:String,sourceTab:String) { receiver?.browserRequestedNewTab(url,sourceTab:logical(sourceTab)) }
+    func browserRequestedPrivateWindow(_ url:String,sourceTab:String) { receiver?.browserRequestedPrivateWindow?(url,sourceTab:logical(sourceTab)) }
+    func browserRequestedNewWindow(_ url:String,sourceTab:String) { receiver?.browserRequestedNewWindow?(url,sourceTab:logical(sourceTab)) }
     func browserClosed(_ id:String) { receiver?.browserClosed(logical(id)) }
     func browserCloseCancelled(_ id:String) { receiver?.browserCloseCancelled?(logical(id)) }
     func browserPictureInPictureReturn(_ id:String) { receiver?.browserPictureInPictureReturn?(logical(id)) }
@@ -66,4 +68,5 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     func browserPrepareExtensionTab(_ source:String,active:Bool,pinned:Bool,index:Int) -> [String:Any]? { reservation(receiver?.browserPrepareExtensionTab?(logical(source),active:active,pinned:pinned,index:index)) }
     func browserExtensionTabCreated(_ id:String,success:Bool) { receiver?.browserExtensionTabCreated?(logical(id),success:success) }
     func browserPreparePopup(_ url:String,sourceTab:String) -> [String:Any]? { reservation(receiver?.browserPreparePopup?(url,sourceTab:logical(sourceTab))) }
+    func browserPreparePopup(_ url:String,sourceTab:String,active:Bool) -> [String:Any]? { reservation(receiver?.browserPreparePopup?(url,sourceTab:logical(sourceTab),active:active)) }
 }

@@ -4,6 +4,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_handler.h"
+#include "include/cef_context_menu_handler.h"
 #include "include/cef_id_mappers.h"
 #include "include/cef_image.h"
 #include "include/cef_parser.h"
@@ -31,6 +32,7 @@
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <cmath>
+#include <functional>
 #include "BrowserDiagnostics.inc"
 #include "TestKeychainPolicy.h"
 
@@ -248,6 +250,11 @@ static bool quitting = false;
 static NSString *Str(const CefString& value) { return [NSString stringWithUTF8String:value.ToString().c_str()] ?: @""; }
 static CefString CefStr(NSString *value) { return CefString(value.UTF8String ?: ""); }
 static bool Allowed(NSString *value) {
+  if ([value hasPrefix:@"view-source:"]) {
+    NSString *source = [value substringFromIndex:12];
+    NSString *scheme = [NSURLComponents componentsWithString:source].scheme.lowercaseString;
+    return ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) && Allowed(source);
+  }
   if ([value isEqualToString:@"about:blank"] || [value isEqualToString:@"chrome://extensions/"] || [value isEqualToString:@"chrome://history/"]) return true;
   NSURLComponents *internal = [NSURLComponents componentsWithString:value];
   if ([internal.scheme.lowercaseString isEqualToString:@"chrome"] && ([internal.host.lowercaseString isEqualToString:@"settings"] || [internal.host.lowercaseString isEqualToString:@"password-manager"]) &&
@@ -265,7 +272,10 @@ static NSString *L(NSString *fr, NSString *en) { return French() ? fr : en; }
 static void QuitNext();
 static CefRefPtr<CefClient> NewExtensionClient();
 static void ExtensionStoreCompatibility(CefRefPtr<CefBrowser> browser, bool enabled);
-static void PrepareChromePopup(NSString *key, NSView *container);
+static void PrepareChromePopup(NSString *key, NSView *container, CefRefPtr<CefClient> client, std::weak_ptr<bool> lifetime);
+static void CancelChromePopup(const std::string& key);
+static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> params,
+                              CefRefPtr<CefMenuModel> model, CefRefPtr<CefRunContextMenuCallback> callback);
 static void RegisterNativeExtensionTabs(bool enabled);
 static void Notify(NSString *name) { [[NSNotificationCenter defaultCenter] postNotificationName:name object:nil]; }
 #include "DeveloperTools.inc"
@@ -371,6 +381,7 @@ class FaviconDownload : public CefDownloadImageCallback {
 
 class NativeClient : public CefClient,
                      public CefCommandHandler,
+                     public CefContextMenuHandler,
                      public CefLifeSpanHandler,
                      public CefDisplayHandler,
                      public CefLoadHandler,
@@ -381,7 +392,40 @@ class NativeClient : public CefClient,
                      public CefKeyboardHandler {
  public:
   NativeClient(BrowserEngine *engine, NSString *tabID, bool embedded = true, bool chrome = false) : engine_(engine), tabID_([tabID copy]), embedded_(embedded), chrome_(chrome) {}
+  ~NativeClient() override {
+    // CEF does not send OnBeforePopupAborted after the opener was destroyed.
+    // Release a failed reservation even in that case, on the native UI thread.
+    if (popupFinished_) {
+      auto finish = std::move(popupFinished_);
+      dispatch_async(dispatch_get_main_queue(), ^{ finish(false); });
+    }
+  }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
+  CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
+  bool RunContextMenu(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+                      CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model,
+                      CefRefPtr<CefRunContextMenuCallback> callback) override {
+    if (!embedded_ || !chrome_) return false;
+    return RunNativePageMenu(tabID_, params, model, callback);
+  }
+  bool OnContextMenuCommand(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>,
+                            CefRefPtr<CefContextMenuParams> params, int command, EventFlags) override {
+    if (!embedded_ || command < 0) return false;
+    const bool privateWindow = command == cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD");
+    if (!privateWindow && command != cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW")) return false;
+    NSString *url = Str(params->GetLinkUrl()), *source = tabID_;
+    if (quitting || !Allowed(url)) return true;
+    __weak BrowserEngine *engine = engine_;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (quitting || !browser->IsValid()) return;
+      if (privateWindow) {
+        if ([engine.delegate respondsToSelector:@selector(browserRequestedPrivateWindow:sourceTab:)])
+          [engine.delegate browserRequestedPrivateWindow:url sourceTab:source];
+      } else if ([engine.delegate respondsToSelector:@selector(browserRequestedNewWindow:sourceTab:)])
+        [engine.delegate browserRequestedNewWindow:url sourceTab:source];
+    });
+    return true;
+  }
   bool OnChromeCommand(CefRefPtr<CefBrowser> browser, int command_id,
                        cef_window_open_disposition_t) override {
     if (!chrome_ || !embedded_ || !engine_.delegate || command_id < 0) return false;
@@ -422,6 +466,7 @@ class NativeClient : public CefClient,
   }
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     CEF_REQUIRE_UI_THREAD();
+    if (popupFinished_) { popupFinished_(true); popupFinished_ = nullptr; }
     browsers[tabID_.UTF8String] = browser;
     if (embedded_ && chrome_) nativeTabOwners[tabID_.UTF8String] = {engine_};
     ApplyPageAppearance(browser);
@@ -527,27 +572,77 @@ class NativeClient : public CefClient,
     NSString *scheme = [NSURLComponents componentsWithString:url].scheme.lowercaseString;
     return [scheme isEqualToString:@"file"] || [scheme isEqualToString:@"chrome"] || [scheme isEqualToString:@"devtools"];
   }
+  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>,
+                        const CefString& target, WindowOpenDisposition disposition, bool) override {
+    // Normal new-tab navigations are routed inside the engine with their full
+    // OpenURLParams. This callback only exposes a URL, and cannot preserve POST.
+    if (!embedded_ || disposition != CEF_WOD_OFF_THE_RECORD) return false;
+    NSString *url = Str(target), *source = tabID_;
+    if (quitting || !Allowed(url)) return true;
+    __weak BrowserEngine *engine = engine_;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (quitting || !browser->IsValid()) return;
+      if ([engine.delegate respondsToSelector:@selector(browserRequestedPrivateWindow:sourceTab:)])
+        [engine.delegate browserRequestedPrivateWindow:url sourceTab:source];
+    });
+    BrowserTrace(@"tab.open-url-routed",@{@"tab":source,@"disposition":@(disposition)});
+    return true;
+  }
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int popup_id, const CefString& target_url, const CefString& target_frame_name, WindowOpenDisposition disposition, bool gesture, const CefPopupFeatures& features, CefWindowInfo& info, CefRefPtr<CefClient>& client, CefBrowserSettings& settings, CefRefPtr<CefDictionaryValue>& extra, bool* no_javascript_access) override {
     NSString *url = target_url.empty() ? @"about:blank" : Str(target_url);
     if (quitting || !Allowed(url)) return true;
     NSDictionary *prepared = nil;
-    if ([engine_.delegate respondsToSelector:@selector(browserPreparePopup:sourceTab:)]) prepared = [engine_.delegate browserPreparePopup:url sourceTab:tabID_];
+    if ([engine_.delegate respondsToSelector:@selector(browserPreparePopup:sourceTab:active:)])
+      prepared = [engine_.delegate browserPreparePopup:url sourceTab:tabID_ active:disposition != CEF_WOD_NEW_BACKGROUND_TAB];
+    else if ([engine_.delegate respondsToSelector:@selector(browserPreparePopup:sourceTab:)])
+      prepared = [engine_.delegate browserPreparePopup:url sourceTab:tabID_];
     NSView *container = prepared[@"view"];
     NSString *identifier = prepared[@"id"];
     if (container && identifier.length) {
+      auto popupClient = new NativeClient(engine_, identifier, true, chrome_);
+      auto reservations = pendingPopups_;
+      const std::string key = identifier.UTF8String;
+      __weak BrowserEngine *owner = engine_;
+      popupClient->popupLifetime_ = std::make_shared<bool>(true);
+      popupClient->popupFinished_ = [reservations, popup_id, key, owner, identifier](bool created) {
+        reservations->erase(popup_id);
+        if (created) return;
+        CancelChromePopup(key);
+        if (!pendingBrowsers.erase(key)) return; // Already handled by the abort callback.
+        pendingNavigation.erase(key); discardedBrowsers.erase(key); tabVisibility.erase(key);
+        [owner.delegate browserClosed:identifier];
+        if (quitting) QuitNext();
+      };
+      client = popupClient;
+      pendingBrowsers[identifier.UTF8String] = false;
+      (*pendingPopups_)[popup_id] = identifier.UTF8String;
       if (chrome_) {
         info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
-        PrepareChromePopup(identifier, container);
+        PrepareChromePopup(identifier, container, client, popupClient->popupLifetime_);
       } else {
         info.SetAsChild((__bridge CefWindowHandle)container, CefRect(0, 0, (int)container.bounds.size.width, (int)container.bounds.size.height));
         info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
       }
-      client = new NativeClient(engine_, identifier, true, chrome_);
     } else {
-      client = new NativeClient(engine_, NSUUID.UUID.UUIDString, false);
+      // A page can never fall back to a standalone Chromium window.
+      BrowserTrace(@"tab.popup-rejected",@{@"tab":tabID_,@"popup":@(popup_id)});
+      return true;
     }
+    BrowserTrace(@"tab.popup-prepared",@{@"tab":identifier,@"source":tabID_,@"popup":@(popup_id)});
     // CEF creates the real browsing context, preserving POST bodies and opener relationships.
     return false;
+  }
+  void OnBeforePopupAborted(CefRefPtr<CefBrowser>, int popup_id) override {
+    const auto found = pendingPopups_->find(popup_id);
+    if (found == pendingPopups_->end()) return;
+    const std::string key = found->second;
+    pendingPopups_->erase(found);
+    if (browsers.count(key)) return;
+    CancelChromePopup(key);
+    pendingBrowsers.erase(key); pendingNavigation.erase(key); discardedBrowsers.erase(key);
+    NSString *identifier = @(key.c_str());
+    __weak BrowserEngine *engine = engine_;
+    dispatch_async(dispatch_get_main_queue(), ^{ [engine.delegate browserClosed:identifier]; });
   }
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser, TerminationStatus status, int code, const CefString& message) override {
     BrowserTrace(@"tab.renderer-terminated",@{@"tab":tabID_,@"browser":@(browser->GetIdentifier()),@"status":@(status),@"code":@(code)});
@@ -672,6 +767,9 @@ class NativeClient : public CefClient,
   NSString *tabID_;
   bool embedded_;
   bool chrome_;
+  std::shared_ptr<std::map<int, std::string>> pendingPopups_ = std::make_shared<std::map<int, std::string>>();
+  std::shared_ptr<bool> popupLifetime_;
+  std::function<void(bool)> popupFinished_;
   std::shared_ptr<FaviconState> favicon_ = std::make_shared<FaviconState>();
   IMPLEMENT_REFCOUNTING(NativeClient);
 };
@@ -686,6 +784,7 @@ static void QuitNext() {
 // They share the exact request context used by the AppKit tab containers.
 #include "ExtensionWindows.inc"
 #include "ChromeTabs.inc"
+#include "NativePageMenus.inc"
 #include "NativeExtensionTabs.inc"
 
 @implementation BrowserEngine

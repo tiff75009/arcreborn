@@ -4,7 +4,19 @@ import QuartzCore
 private class FlippedView: NSView { override var isFlipped: Bool { true } }
 private final class SidebarSurface: ThemeBackdropView {
     var contextMenu: (() -> NSMenu?)?
+    var dragFinished: (() -> Void)?
     override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() }
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with:event)
+        dragFinished?()
+    }
+}
+private final class SidebarClipView: NSClipView {
+    var dragFinished: (() -> Void)?
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with:event)
+        dragFinished?()
+    }
 }
 private struct ProfileReload {
     var profileID: String
@@ -229,6 +241,7 @@ private final class SidebarTable: NSTableView {
     var context: ((Int) -> NSMenu?)?
     var clicked: ((Int) -> Void)?
     var dragExited: (() -> Void)?
+    var backgroundDragFinished: (() -> Void)?
     var didDrag = false
     var handlingMouseDown = false
     private(set) var clickedTitle = false
@@ -246,6 +259,12 @@ private final class SidebarTable: NSTableView {
         didDrag = false; handlingMouseDown = true
         let point = convert(event.locationInWindow, from: nil)
         let hitRow = row(at: point)
+        if hitRow < 0 {
+            handlingMouseDown = false
+            window?.performDrag(with:event)
+            backgroundDragFinished?()
+            return
+        }
         let cell = hitRow >= 0 ? view(atColumn: 0, row: hitRow, makeIfNecessary: false) as? TabCell : nil
         clickedTitle = cell.map { $0.titleLabel.frame.contains($0.convert(event.locationInWindow, from: nil)) } ?? false
         defer { handlingMouseDown = false }
@@ -578,6 +597,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     var becameKey: ((BrowserController)->Void)?
     var windowClosed: ((BrowserController)->Void)?
     var newWindowRequested: ((BrowserWindowKind)->Void)?
+    var privateAddressRequested: ((String)->Void)?
+    var windowAddressRequested: ((String)->Void)?
     var promoteWindowRequested: (()->Void)?
     private var windowChrome: WindowChromeBar?
     private var closingWindow = false
@@ -918,6 +939,16 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         table.dragExited = { [weak self] in self?.clearDropProposal() }
         table.draggingDestinationFeedbackStyle = .none
         table.registerForDraggedTypes([dragType,folderDragType]); table.setDraggingSourceOperationMask(.move, forLocal: true)
+        let dragFinished:() -> Void = { [weak self] in
+            self?.sidebarMousePressed = false
+            self?.updateSidebarHover()
+        }
+        sidebarHost.dragFinished = dragFinished
+        table.backgroundDragFinished = dragFinished
+        let sidebarClip = SidebarClipView()
+        sidebarClip.drawsBackground = false
+        sidebarClip.dragFinished = dragFinished
+        rowsScroll.contentView = sidebarClip
         rowsScroll.scrollerStyle = .overlay; rowsScroll.automaticallyAdjustsContentInsets = false; rowsScroll.contentInsets = .init(); rowsScroll.documentView = table; rowsScroll.drawsBackground = false; rowsScroll.hasVerticalScroller = true; rowsScroll.autohidesScrollers = true; rowsScroll.borderType = .noBorder
         resizeStrip.width = { [weak self] in self?.session.sidebarWidth ?? SidebarSizing.standard }
         resizeStrip.begin = { [weak self] in self?.finishSpaceSwitch() }
@@ -2778,16 +2809,34 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
     }
     func browserPreparePopup(_ url: String, sourceTab: String) -> [String: Any]? {
+        browserPreparePopup(url, sourceTab:sourceTab, active:true)
+    }
+    func browserPreparePopup(_ url: String, sourceTab: String, active: Bool) -> [String: Any]? {
         guard !isQuitting else { return nil }
         guard let source = session.tabs.first(where: { $0.id == sourceTab }) else { return nil }
         guard profileReloads[source.spaceID] == nil else { return nil }
         let value = url.isEmpty ? "about:blank" : url
         guard isAllowedBrowserURL(value) else { return nil }
+        let previousSpace = session.activeSpaceID
+        let selected = session.spaces.first(where: { $0.id == source.spaceID })?.selectedTabID
         let id = session.createTab(url: value, spaceID: source.spaceID)
         guard !id.isEmpty else { return nil }
+        if !active {
+            if let index = session.spaces.firstIndex(where: { $0.id == source.spaceID }) { session.spaces[index].selectedTabID = selected }
+            session.activeSpaceID = previousSpace
+        }
         let container = NSView(frame: content.bounds); content.addSubview(container); containers[id] = container
+        container.isHidden = !active
         DispatchQueue.main.async { [weak self] in guard let self, !self.isQuitting else { return }; self.render(); self.showSelectedTab(); self.persist() }
         return ["id": id, "view": container]
+    }
+    func browserRequestedPrivateWindow(_ url: String, sourceTab: String) {
+        guard !isQuitting, session.tabs.contains(where: { $0.id == sourceTab }), browserURL(url) != nil else { return }
+        privateAddressRequested?(url)
+    }
+    func browserRequestedNewWindow(_ url: String, sourceTab: String) {
+        guard !isQuitting, session.tabs.contains(where: { $0.id == sourceTab }), browserURL(url) != nil else { return }
+        windowAddressRequested?(url)
     }
     func browserCloseCancelled(_ tabID: String) {
         if closeParticipants.contains(tabID), !isQuitting { windowCloseCancelled = true; closeWaiting.remove(tabID); finishWindowCloseAttempt(); return }

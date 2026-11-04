@@ -1,57 +1,46 @@
 {
-  "version": "0.4.0",
-  "build": 4,
+  "version": "0.4.1",
+  "build": 5,
   "title": {
-    "fr": "Bienvenue dans Arc Reborn.",
-    "en": "Welcome to Arc Reborn."
+    "fr": "Plus simple au quotidien.",
+    "en": "Smoother every day."
   },
   "subtitle": {
-    "fr": "Un nouvel accueil pour installer votre navigateur et retrouver vos onglets.",
-    "en": "Set up your browser and bring your tabs with you."
+    "fr": "Une navigation plus fiable et des fenêtres plus faciles à organiser.",
+    "en": "More reliable browsing and easier window management."
   },
   "highlights": [
     {
-      "symbol": "sparkles",
+      "symbol": "cursorarrow.click",
       "title": {
-        "fr": "Un premier lancement en musique",
-        "en": "A musical welcome"
+        "fr": "Vos pages au bon endroit",
+        "en": "Your pages where they belong"
       },
       "detail": {
-        "fr": "Les rubans du logo se déploient au son de la musique d’accueil. Commencez quand vous voulez.",
-        "en": "The logo ribbons unfold to the welcome score. Get started whenever you are ready."
+        "fr": "Les liens ouvrent leurs onglets dans Arc Reborn. Le clic droit fonctionne sans modifier votre sélection de texte.",
+        "en": "Links open tabs inside Arc Reborn. Right-click works without changing your text selection."
       }
     },
     {
-      "symbol": "square.and.arrow.down",
+      "symbol": "hand.draw",
       "title": {
-        "fr": "Vos favoris et vos onglets",
-        "en": "Bring your bookmarks and tabs"
+        "fr": "Déplacez la fenêtre depuis la sidebar",
+        "en": "Move your window from the sidebar"
       },
       "detail": {
-        "fr": "Choisissez votre navigateur et son profil pour importer les données compatibles dans un nouvel espace.",
-        "en": "Choose a browser and profile to import supported data into a new space."
+        "fr": "Cliquez et faites glisser une zone vide de la barre latérale pour déplacer la fenêtre.",
+        "en": "Click and drag an empty area of the sidebar to move the window."
       }
     },
     {
-      "symbol": "arrow.triangle.2.circlepath",
+      "symbol": "macwindow.badge.plus",
       "title": {
-        "fr": "Vos espaces sur vos appareils",
-        "en": "Your spaces across devices"
+        "fr": "Vos fenêtres depuis le Dock",
+        "en": "Open windows from the Dock"
       },
       "detail": {
-        "fr": "Un compte facultatif permet de synchroniser vos espaces, vos onglets et vos réglages.",
-        "en": "With an optional account, you can sync spaces, tabs and settings across devices."
-      }
-    },
-    {
-      "symbol": "arrow.down.circle",
-      "title": {
-        "fr": "Les mises à jour automatiques",
-        "en": "Automatic updates"
-      },
-      "detail": {
-        "fr": "Arc Reborn recherche les mises à jour signées et peut les installer à la fermeture.",
-        "en": "Arc Reborn checks for signed updates and can install them when you quit."
+        "fr": "Le clic droit sur Arc Reborn dans le Dock propose une nouvelle fenêtre et une nouvelle fenêtre privée.",
+        "en": "Right-click Arc Reborn in the Dock to open a new window or a private window."
       }
     }
   ]

@@ -10,9 +10,9 @@ const report={data,checks:[],failure:null};
 const server=createServer(async(req,res)=>{
   if(req.url==='/favicon.png') { res.setHeader('Content-Type','image/png'); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMElEQVR4nO3OIQEAAAgDMJKg6Z+MBhDjZmJ+tdOXVAICAgICAgICAgICAgICAunAAzX/1HnVWnPXAAAAAElFTkSuQmCC','base64')); return; }
   let body='';for await(const c of req)body+=c;
-  const title=({'/':'Native Browser Test','/next':'Second Page','/popup':'Popup','/post':'POST Complete'})[req.url]||'Native Browser Test';
+  const title=({'/':'Native Browser Test','/next':'Second Page','/popup':'Popup','/post':'POST Complete','/blank':'Blank Link'})[req.url]||'Native Browser Test';
   res.setHeader('Content-Type','text/html;charset=utf-8');
-  res.end(`<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="/favicon.png"><title>${title}</title><style>body{font:17px system-ui;background:#f8fafc;color:#243348;margin:0;padding:70px}h1{font-size:42px}button,a,input{padding:12px;margin:8px}</style></head><body><h1>${title}</h1><p>Page locale rendue par Chromium dans une interface AppKit native.</p><a id="next" href="/next">Page suivante</a><button id="popup" onclick="window.child=window.open('/popup','native-popup')">Fenêtre secondaire</button><form action="/post" method="POST" target="_blank"><input name="message" value="preserved"><button id="post">Envoyer</button></form><p id="payload">${body}</p></body></html>`);
+  res.end(`<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="/favicon.png"><title>${title}</title><style>body{font:17px system-ui;background:#f8fafc;color:#243348;margin:0;padding:70px}h1{font-size:42px}button,a,input{padding:12px;margin:8px}</style></head><body><h1>${title}</h1><p>Page locale rendue par Chromium dans une interface AppKit native.</p><a id="next" href="/next">Page suivante</a><a id="blank" href="/blank" target="_blank">Nouvel onglet</a><button id="popup" onclick="window.child=window.open('/popup','native-popup')">Fenêtre secondaire</button><form action="/post" method="POST" target="_blank"><input name="message" value="preserved"><button id="post">Envoyer</button></form><p id="payload">${body}</p></body></html>`);
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin=`http://127.0.0.1:${server.address().port}`;
 const state={language:'fr',onboardingComplete:true,sidebarWidth:250,sidebarHidden:false,profiles:[{id:'profile-a',name:'Personnel'},{id:'profile-b',name:'Travail'}],spaces:[{id:'space-a',name:'Personnel',color:'#B5AED9',icon:'◈',profileID:'profile-a',selectedTabID:'tab-a'},{id:'space-b',name:'Travail',color:'#A8CCBA',icon:'✦',profileID:'profile-b',selectedTabID:'tab-b'}],tabs:[{id:'tab-a',spaceID:'space-a',url:origin,title:'Navigation native',pinned:true,favorite:false},{id:'tab-b',spaceID:'space-b',url:origin,title:'Profil séparé',pinned:false,favorite:false}],folders:[],closedTabs:[],activeSpaceID:'space-a'};
@@ -33,7 +33,7 @@ let app,log,exited=true,exitPromise,debugPort;const connections=[];
 async function launch(seconds){
   const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));debugPort=probe.address().port;await new Promise(r=>probe.close(r));
   log=await fs.open(path.join(root,'build','smoke-app.log'),'a');
-  app=spawn(path.join(root,'build','Arc Reborn.app','Contents','MacOS','Arc Reborn'),[],{env:{...process.env,BROWSER_NATIVE_TEST_BACKGROUND:'1',BROWSER_NATIVE_TEST_DATA:data,BROWSER_NATIVE_DEBUG_PORT:String(debugPort),BROWSER_NATIVE_TEST_AUTOCLOSE:String(seconds)},stdio:['ignore',log.fd,log.fd]});exited=false;
+  app=spawn(path.resolve(process.env.BROWSER_SMOKE_APP || path.join(root,'build','Arc Reborn.app'),'Contents','MacOS','Arc Reborn'),[],{env:{...process.env,BROWSER_NATIVE_TEST_BACKGROUND:'1',BROWSER_NATIVE_TEST_DATA:data,BROWSER_NATIVE_DEBUG_PORT:String(debugPort),BROWSER_NATIVE_TEST_AUTOCLOSE:String(seconds)},stdio:['ignore',log.fd,log.fd]});exited=false;
   exitPromise=new Promise(resolve=>app.once('exit',(code,signal)=>{exited=true;resolve({code,signal});}));
   console.log(JSON.stringify({pid:app.pid,origin,debugPort,data}));
   const target=await until(async()=>{if(exited)throw Error('App exited');return (await targets()).find(p=>p.url.startsWith(origin));},20);
@@ -47,6 +47,18 @@ async function finish(){
   return JSON.parse(await fs.readFile(path.join(data,'session.json'),'utf8'));
 }
 function check(s){report.checks.push(s);console.log('PASS '+s);}
+// Multi-window persistence overrides the shared sidebar's last active space.
+// Switching the fixture's profile must update that explicit window selection.
+async function selectSavedSpace(state) {
+  const file=path.join(data,'windows.json');
+  const records=JSON.parse(await fs.readFile(file,'utf8'));
+  for (const record of records) {
+    record.activeSpaceID=state.activeSpaceID;
+    record.selections=Object.fromEntries(state.spaces.filter(s=>s.selectedTabID).map(s=>[s.id,s.selectedTabID]));
+  }
+  await fs.writeFile(file,JSON.stringify(records));
+}
+
 try{
   await fs.writeFile(path.join(root,'build','smoke-app.log'),'');
   const page=await launch(25);await title(page,'Native Browser Test');check('Chromium navigation in AppKit');
@@ -55,6 +67,10 @@ try{
   await page.evaluate('document.cookie="scope=first; Max-Age=3600; path=/";localStorage.setItem("profile","first")');
   await page.evaluate('document.querySelector("#next").click()');await title(page,'Second Page');
   const history=await page.send('Page.getNavigationHistory');await page.send('Page.navigateToHistoryEntry',{entryId:history.entries[history.currentIndex-1].id});await title(page,'Native Browser Test');check('Navigation and back history');
+  await page.evaluate('document.querySelector("#blank").click()');
+  const blank=await connect(await until(async()=>(await targets()).find(p=>p.url===origin+'/blank')));await title(blank,'Blank Link');
+  check('target=_blank opens a native tab');
+  await blank.evaluate('window.close()');
   await page.evaluate('document.querySelector("#popup").click()');
   const popup=await connect(await until(async()=>(await targets()).find(p=>p.url===origin+'/popup')));await title(popup,'Popup');assert.equal(await popup.evaluate('!!window.opener'),true);check('Popup preserves opener');
   await page.evaluate('document.querySelector("#post").click()');
@@ -65,7 +81,7 @@ try{
   let saved=await finish();assert.equal(saved.spaces.length,2);assert.equal(saved.tabs.length,2);check('Orderly shutdown and session restoration');
   assert.equal(saved.tabs.find(t=>t.id==='tab-a').favorite,true);assert.equal(saved.tabs.find(t=>t.id==='tab-b').favoriteSourceID,'tab-a');check('Shared favorite and profile-local tab persist');
   assert.deepEqual(saved.spaces[0].theme,state.spaces[0].theme);check('Gradient and grain persist on disk');
-  saved.themeAppearance='light';saved.activeSpaceID='space-b';await fs.writeFile(path.join(data,'session.json'),JSON.stringify(saved));
+  saved.themeAppearance='light';saved.activeSpaceID='space-b';await fs.writeFile(path.join(data,'session.json'),JSON.stringify(saved));await selectSavedSpace(saved);
   const second=await launch(10);await title(second,'Native Browser Test');assert.equal((await targets()).filter(p=>p.type==='page').length,1);check('Restoring favorites does not load their pages');assert.equal(await second.evaluate('document.cookie'),'');assert.equal(await second.evaluate('localStorage.getItem("profile")'),null);await second.evaluate('document.cookie="scope=second; Max-Age=3600; path=/";localStorage.setItem("profile","second")');check('Cookie and localStorage isolation between profiles');
   assert.equal(await second.evaluate('matchMedia("(prefers-color-scheme: light)").matches'),true);check('Light appearance reaches Chromium');
   saved=await finish();
@@ -76,8 +92,15 @@ try{
     await new Promise((resolve,reject)=>{const build=spawn(path.join(root,'scripts','build.sh'),[],{stdio:'ignore'});build.once('exit',code=>code===0?resolve():reject(Error('Rebuild failed: '+code)));});
     assert.equal(requirement(),before);check('Signing identity remains stable across rebuild');
   }
-  saved.themeAppearance='automatic';saved.activeSpaceID='space-a';saved.spaces[0].selectedTabID='tab-a';await fs.writeFile(path.join(data,'session.json'),JSON.stringify(saved));
+  saved.themeAppearance='automatic';saved.activeSpaceID='space-a';saved.spaces[0].selectedTabID='tab-a';await fs.writeFile(path.join(data,'session.json'),JSON.stringify(saved));await selectSavedSpace(saved);
   const restored=await launch(10);await title(restored,'Native Browser Test');assert.equal(await restored.evaluate('document.cookie'),'scope=first');assert.equal(await restored.evaluate('localStorage.getItem("profile")'),'first');check('Cookies and localStorage persist across restart');await finish();
+  const diagnostics=path.join(data,'Chromium','Diagnostics');
+  for (const run of await fs.readdir(diagnostics)) {
+    const trace=await fs.readFile(path.join(diagnostics,run,'events.jsonl'),'utf8');
+    assert.doesNotMatch(trace, /"event":"chrome.unmanaged-created"/, 'A new tab escaped into a Chromium window');
+    assert.doesNotMatch(trace, /"event":"app.uncaught-exception"/);
+  }
+  check('No standalone Chromium window for links, popups, POST or restoration');
   const logs=await fs.readFile(path.join(root,'build','smoke-app.log'),'utf8');assert.doesNotMatch(logs,/Keychain lookup failed|Encryption is not available|Cannot create profile/);check('No Keychain or profile initialization errors');
 }catch(error){report.failure=String(error);console.error(error);}
 finally{connections.forEach(c=>c.close());if(!exited){app.kill('SIGTERM');await exitPromise;}if(log)await log.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.writeFile(path.join(root,'build','smoke-report.json'),JSON.stringify(report,null,2));}

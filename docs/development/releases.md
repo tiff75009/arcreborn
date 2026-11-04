@@ -62,6 +62,18 @@ build. `draft` requires a clean reviewed Git checkout with its version tag alrea
 pushed. It uploads only DMG, appcast.xml, release.json and SHA256SUMS, never the
 working directory, signing credentials or server code.
 
+For local signing, the prepared draft can be verified and published by GitHub
+Actions without uploading Apple or Sparkle private keys:
+
+```sh
+gh workflow run publish-prepared.yml --ref main -f tag=v0.4.1
+```
+
+Run this after the source CI succeeds and the tagged draft assets are uploaded.
+The workflow checks version/engine metadata, every checksum, the signed Sparkle
+feed and DMG, the Apple signatures and stapled notarization tickets, then publishes
+the draft as Latest. A failed verification leaves the release unpublished.
+
 ## Update behavior
 
 Feed: `https://github.com/tiff75009/arcreborn/releases/latest/download/appcast.xml`.

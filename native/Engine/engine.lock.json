@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "156.0.8078.80-arcreborn.1",
+  "version": "156.0.8078.80-arcreborn.2",
   "platform": "macos-arm64",
   "cefCommit": "cf671c072925b27823a61181152f4f288e8e4306",
   "chromiumCommit": "fb096c0011f9d50f0a264a9376420cdea9c421e3",
@@ -26,13 +26,17 @@
     {
       "file": "patches/devtools-mobile-scrollbars.patch",
       "sha256": "964827cb1453c127b82a5ea8172b5f793f2ff5dcf350d770704e0ae5fe72fe29"
+    },
+    {
+      "file": "patches/appkit-native-navigation.patch",
+      "sha256": "3b0af28b6eb06a5ab3b8aadd098902127d2340990cc5a0597862d18f2f199311"
     }
   ],
   "gnDefines": "use_system_xcode=true is_official_build=false is_component_build=false symbol_level=0 use_remoteexec=false",
   "buildTarget": "cef_framework",
   "archive": {
-    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.1-macos-arm64.tar.gz",
-    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.1/ArcReborn-Engine-156.0.8078.80-arcreborn.1-macos-arm64.tar.gz",
-    "sha256": "c0ce03c234c030e33dcc66d889bb2495edda6f251c9001bc19f93d5340278ba1"
+    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.2-macos-arm64.tar.gz",
+    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.2/ArcReborn-Engine-156.0.8078.80-arcreborn.2-macos-arm64.tar.gz",
+    "sha256": "1486944f89a905b12b3605973814464605667deccc3647046f79aa6308d8f0dc"
   }
 }

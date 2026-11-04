@@ -1,0 +1,96 @@
+name: Publish verified macOS update
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing browser tag with a prepared draft release
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: macos-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'tiff75009/arcreborn'
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate version tag
+        run: python3 -c 'import os,re; assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+",os.environ["TAG"])'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - name: Validate reviewed sources
+        run: |
+          /usr/bin/python3 native/scripts/release.py check
+          /usr/bin/python3 native/scripts/public-source.py audit .
+          /usr/bin/python3 -c 'import json,os; assert os.environ["TAG"] == "v"+json.load(open("native/Resources/ReleaseNotes.json"))["version"]'
+      - name: Require successful source build
+        run: |
+          export SOURCE_SHA="$(git rev-parse HEAD)"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&per_page=50" > "$RUNNER_TEMP/source-checks.json"
+          /usr/bin/python3 - <<'PY'
+          import json,os
+          runs=json.load(open(os.environ['RUNNER_TEMP']+'/source-checks.json'))['workflow_runs']
+          assert any(r['head_sha']==os.environ['SOURCE_SHA'] and r['conclusion']=='success' for r in runs), 'Source CI must pass for this exact commit'
+          PY
+      - name: Download prepared release
+        run: |
+          mkdir -p "$RUNNER_TEMP/arc-release-assets"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/arc-release-assets" \
+            --pattern 'ArcReborn-*-macos-arm64.dmg' --pattern appcast.xml --pattern release.json --pattern SHA256SUMS
+      - name: Verify checksums and version
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+          assets=Path(os.environ['RUNNER_TEMP'])/'arc-release-assets'
+          notes=json.loads(Path('native/Resources/ReleaseNotes.json').read_text())
+          release=json.loads((assets/'release.json').read_text())
+          engine=json.loads(Path('native/Engine/engine.lock.json').read_text())
+          assert release == {'version':notes['version'],'build':notes['build'],'engine':engine['version']}
+          expected={f"ArcReborn-{notes['version']}-macos-arm64.dmg",'appcast.xml','release.json'}
+          checked=set()
+          for line in (assets/'SHA256SUMS').read_text().splitlines():
+              digest,name=line.split('  ',1)
+              assert name in expected and name not in checked and re.fullmatch('[0-9a-f]{64}',digest)
+              assert hashlib.sha256((assets/name).read_bytes()).hexdigest() == digest
+              checked.add(name)
+          assert checked == expected
+          PY
+          xcrun swift native/scripts/verify-release.swift native/Resources/Info.plist "$RUNNER_TEMP/arc-release-assets"
+      - name: Verify Apple signature and notarization
+        run: |
+          assets="$RUNNER_TEMP/arc-release-assets"
+          dmg="$assets/ArcReborn-${TAG#v}-macos-arm64.dmg"
+          mount="$RUNNER_TEMP/arc-release-mount"
+          mkdir -p "$mount"
+          codesign --verify --strict "$dmg"
+          xcrun stapler validate "$dmg"
+          trap 'hdiutil detach "$mount" || true' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$dmg"
+          codesign --verify --deep --strict "$mount/Arc Reborn.app"
+          xcrun stapler validate "$mount/Arc Reborn.app"
+          spctl --assess --type execute --verbose=2 "$mount/Arc Reborn.app"
+          /usr/bin/python3 - "$mount/Arc Reborn.app/Contents/Info.plist" <<'PY'
+          import plistlib,sys
+          expected=plistlib.load(open('native/Resources/Info.plist','rb'))
+          actual=plistlib.load(open(sys.argv[1],'rb'))
+          for key in ['CFBundleIdentifier','CFBundleVersion','CFBundleShortVersionString','SUPublicEDKey']:
+              assert actual[key] == expected[key], key
+          assert not actual.get('ArcRebornDevelopmentBuild',False)
+          PY
+      - name: Publish update and changelog
+        run: |
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          echo "Published Arc Reborn ${TAG#v}: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

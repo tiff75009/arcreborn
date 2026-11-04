@@ -292,6 +292,11 @@ func browserDisplayAddress(_ address: String) -> String {
 func isAllowedBrowserURL(_ input: String) -> Bool {
     guard input.utf8.count <= 32768, input.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
         !input.contains("\\") else { return false }
+    if input.hasPrefix("view-source:") {
+        let source = String(input.dropFirst(12))
+        guard let scheme = URLComponents(string:source)?.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return false }
+        return isAllowedBrowserURL(source)
+    }
     if input == "about:blank" || input == "chrome://extensions/" || input == "chrome://history/" { return true }
     if URLComponents(string:input)?.scheme?.lowercased() == "chrome", settingsPageURL(input) != nil { return true }
     if let url = URLComponents(string:input), url.scheme == "chrome-extension", let id = url.host,

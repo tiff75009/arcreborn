@@ -25,10 +25,12 @@ BROWSER_ENGINE_FRAMEWORK='/path/to/engine/chromium_git/chromium/src/out/Release_
 
 The script uses upstream CEF automate-git, validates the checked-out commits,
 applies the included patch stack and builds `cef_framework`. Re-running configure
-recognizes the complete applied stack without reversing live edits. The first
-engine was compiled with Xcode 26.2; the shell is currently compiled with Xcode
-27.2. A full clean engine rebuild with every later Xcode version is not yet validated.
-A macOS SDK is obtained legally through the developer's Xcode installation.
+recognizes the complete applied stack without reversing live edits. The initial
+engine objects were compiled with Xcode 26.2. Engine `arcreborn.2` rebuilds the
+navigation changes with Xcode 27.2 and links them with unchanged pinned objects;
+its `engine.json` records this incremental build and its base version. The shell
+is compiled with Xcode 27.2. A full clean engine build with 27.2 remains unvalidated.
+A macOS SDK is obtained through the developer's Xcode installation.
 
 Before changing the patch stack, update its hashes and increment the engine
 version. Rebuild and verify the private ABI before packaging a new archive.
@@ -48,3 +50,26 @@ Chromium's third-party credits remain accessible via `chrome://credits`.
 
 References: [CEF build guide](https://chromiumembedded.github.io/cef/branches_and_building),
 [Chromium macOS build instructions](https://chromium.googlesource.com/chromium/src/+/main/docs/mac_build_instructions.md).
+
+## Native navigation and menus
+
+`appkit-native-navigation.patch` routes Chromium's complete `OpenURLParams` to a
+same-profile AppKit tab. This keeps POST data, referrers and initiator information.
+A URL-only `OnOpenURLFromTab` replacement loses form bodies. Explicit link menu
+commands for normal/private windows use the existing native window controller.
+
+CEF 156 Chrome delivers the popup view callback before the lifespan creation
+callback, despite the public header's ordering comment. Popup reservations are
+matched by their `CefClient`, with the tab marked pending before AppKit redraws.
+Hidden backend windows are excluded from Chromium session restoration; the native
+session remains responsible for restoring tabs and windows.
+
+The website context menu retains Chromium's command model and callbacks, and
+presents an `NSMenu` in the actual document view. Chromium keyboard mnemonic
+markers are removed from labels; escaped literal ampersands remain visible.
+`browser_native_navigation_version_v1` identifies engines with full-request routing.
+
+Mouse context menus also preserve the existing DOM selection. The selection
+controller skips automatic word/link selection for mouse menus; keyboard and
+touch paths retain their existing behavior. This applies inside the engine,
+without injecting page event handlers or clearing the user's selected text.
