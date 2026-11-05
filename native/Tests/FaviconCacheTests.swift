@@ -64,6 +64,26 @@ import AppKit
         precondition(icon.image === restored && icon.alphaValue > 0 && icon.alphaValue < 0.6,"Dormant favorite keeps its restored icon visible but dim")
         favorite.isLoaded = true; grid.update([favorite],activeID:"favorite",ink:.white)
         precondition(icon.alphaValue == 1,"Loaded page lights its icon")
+        let speaker = tile.subviews.compactMap { $0 as? TabSoundButton }.first!
+        var playback = TabSoundState.playing
+        favorite.configureSound = { $0.configure(id:"favorite",sound:playback,ink:.white,language:"fr") }
+        let neighbors = (1...2).map { FavoriteVisual(id:"peer-\($0)",title:"Peer",image:nil,menu:NSMenu()) }
+        for otherTiles in [[],neighbors] {
+            grid.update([favorite]+otherTiles,activeID:"favorite",ink:.white)
+            for state in [TabSoundState.playing,.muted,.silent] {
+                playback = state
+                grid.update([favorite]+otherTiles,activeID:"favorite",ink:.white)
+                grid.layoutSubtreeIfNeeded()
+                precondition(abs(icon.frame.midX-tile.bounds.midX)<0.01 && abs(speaker.frame.midX-icon.frame.midX)<0.01)
+                if state == .silent {
+                    precondition(speaker.isHidden && icon.frame.midY == tile.bounds.midY)
+                } else {
+                    precondition(!speaker.isHidden && (tile.isFlipped ? speaker.frame.maxY < icon.frame.minY : speaker.frame.minY > icon.frame.maxY))
+                    let center = NSPoint(x:speaker.frame.midX,y:speaker.frame.midY)
+                    precondition(tile.hitTest(tile.convert(center,to:grid)) === speaker)
+                }
+            }
+        }
         var unread = FavoriteUnread()
         let mailbox = "https://mail.google.com/mail/u/0/#inbox"
         unread.update(title:"Boîte de réception (1 234) – Gmail",address:mailbox)

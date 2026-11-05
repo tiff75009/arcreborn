@@ -167,6 +167,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
     private let colorBorder = CAGradientLayer()
     private let borderMask = CAShapeLayer()
     private var fallback = ""
+    private var tileTitle = ""
     init(id: String, grid: FavoritesGrid) {
         self.id = id; self.grid = grid
         super.init(frame:.zero)
@@ -175,6 +176,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         iconView.imageScaling = .scaleProportionallyUpOrDown; iconView.wantsLayer = true
         addSubview(iconView)
         addSubview(soundButton)
+        soundButton.hoverChanged = { [weak self] inside in self?.toolTip = inside ? nil : self?.tileTitle }
         colorBorder.startPoint = CGPoint(x:0,y:1); colorBorder.endPoint = CGPoint(x:1,y:0)
         borderMask.fillColor = NSColor.clear.cgColor; borderMask.strokeColor = NSColor.white.cgColor; borderMask.lineWidth = 2
         colorBorder.mask = borderMask; layer?.addSublayer(colorBorder)
@@ -187,7 +189,8 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         developerMode = item.developerMode && active; developerOutline.update(in:bounds,enabled:developerMode)
         let imageChanged = favicon !== item.image
         favicon = item.image; if imageChanged { iconView.image = item.image }; fallback = String(item.title.prefix(1)).uppercased()
-        self.active = active; self.ink = ink; menu = item.menu; toolTip = item.title
+        self.active = active; self.ink = ink; menu = item.menu; tileTitle = item.title
+        toolTip = soundButton.hovered ? nil : tileTitle
         hasUnread = item.unreadLabel != nil
         item.configureSound?(soundButton)
         setAccessibilityLabel([item.title, item.unreadLabel].compactMap { $0 }.joined(separator:", "))
@@ -204,8 +207,13 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        iconView.frame = NSRect(x:bounds.midX-10,y:bounds.midY-10,width:20,height:20)
-        soundButton.frame = NSRect(x:1, y:isFlipped ? 1 : bounds.height-21,width:21,height:20)
+        let iconCenterY = bounds.midY + (isFlipped ? 9 : -9) * soundButton.reveal
+        let iconFrame = NSRect(x:bounds.midX-10,y:iconCenterY-10,width:20,height:20)
+        if iconView.frame != iconFrame {
+            iconView.frame = iconFrame
+            if favicon == nil { needsDisplay = true }
+        }
+        soundButton.frame = NSRect(x:bounds.midX-12, y:isFlipped ? bounds.minY+2 : bounds.maxY-20,width:24,height:18)
         colorBorder.frame = bounds
         developerOutline.update(in:bounds,enabled:developerMode)
         borderMask.path = CGPath(roundedRect:bounds.insetBy(dx:1,dy:1),cornerWidth:11,cornerHeight:11,transform:nil)
@@ -230,7 +238,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         }
         if favicon == nil {
             let style = NSMutableParagraphStyle(); style.alignment = .center
-            NSAttributedString(string:fallback,attributes:[.font:NSFont.systemFont(ofSize:18,weight:.semibold),.foregroundColor:ink.withAlphaComponent(isLoaded ? 1 : 0.42),.paragraphStyle:style]).draw(in:NSRect(x:0,y:bounds.midY-12,width:bounds.width,height:24))
+            NSAttributedString(string:fallback,attributes:[.font:NSFont.systemFont(ofSize:18,weight:.semibold),.foregroundColor:ink.withAlphaComponent(isLoaded ? 1 : 0.42),.paragraphStyle:style]).draw(in:NSRect(x:0,y:iconView.frame.midY-12,width:bounds.width,height:24))
         }
     }
     override func resetCursorRects() { addCursorRect(bounds,cursor:.arrow) }

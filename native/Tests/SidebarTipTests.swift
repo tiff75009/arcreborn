@@ -40,6 +40,15 @@ private final class TipTestWindow: NSWindow { override var isKeyWindow: Bool { t
         active = true; tips.refreshIfVisible()
         precondition(labels(panel()!.contentView!) == ["Étude des couleurs et de la lumière","Cliquez pour renommer"])
         try snapshot(panel()!.contentView!,"onglet.png")
+        var soundAction = "Couper le son de cet onglet"
+        tips.track(.sound("c")) { .init(content:.tab(title:soundAction,hint:nil),anchor:anchor) }
+        precondition(panel() == nil)
+        wait(0.8)
+        let soundPanel = panel()!
+        precondition(labels(soundPanel.contentView!) == [soundAction] && soundPanel.ignoresMouseEvents)
+        soundAction = "Réactiver le son de cet onglet"; tips.refreshIfVisible()
+        precondition(panel() === soundPanel && labels(soundPanel.contentView!) == [soundAction])
+        try snapshot(soundPanel.contentView!,"son.png")
         tips.dismiss(); precondition(panel() == nil)
         tips.track(.space("stale")) { nil }; wait(1.02); precondition(panel() == nil,"removed or obscured targets must never show")
         parent.orderOut(nil)

@@ -22,11 +22,14 @@ final class TabSoundButton: NSButton {
         }
     }
 
-    private var presence = Motion(), fold = Motion()
+    private var presence = Motion(), fold = Motion(), hover = Motion()
     private var timer: Timer?
-    private var representedID: String?
+    private(set) var representedID: String?
+    private(set) var hovered = false
+    var hoverChanged: ((Bool) -> Void)?
     private(set) var playback: TabSoundState = .silent
-    private var reveal: CGFloat = 0, mute: CGFloat = 0
+    private(set) var reveal: CGFloat = 0
+    private var mute: CGFloat = 0
     private var ink = NSColor.labelColor
     var toggle: (() -> Void)?
     var titleInset: CGFloat { reveal * (25 - 4*mute) }
@@ -46,12 +49,21 @@ final class TabSoundButton: NSButton {
     deinit { timer?.invalidate() }
     @objc private func pressed() { if playback != .silent { toggle?() } }
 
+    func setHovered(_ inside:Bool) {
+        let active = inside && playback != .silent
+        guard active != hovered else { return }
+        hovered = active; hoverChanged?(active)
+        let animate = window != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        hover.move(to:active ? 1 : 0, at:ProcessInfo.processInfo.systemUptime, duration:animate ? 0.12 : 0)
+        updateMotion()
+    }
+
     func configure(id:String?, sound next:TabSoundState, ink:NSColor, language:String) {
         self.ink = ink
         let label = next == .muted
-            ? (language == "fr" ? "Réactiver le son de l’onglet" : "Unmute tab")
-            : (language == "fr" ? "Couper le son de l’onglet" : "Mute tab")
-        if toolTip != label { toolTip = label; setAccessibilityLabel(label) }
+            ? (language == "fr" ? "Réactiver le son de cet onglet" : "Unmute this tab")
+            : (language == "fr" ? "Couper le son de cet onglet" : "Mute this tab")
+        setAccessibilityLabel(label)
         needsDisplay = true
         guard representedID != id || playback != next else { return }
         let animate = representedID != nil && representedID == id && window != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -60,23 +72,29 @@ final class TabSoundButton: NSButton {
         // button keeps its last pose while the title comes back.
         let firstPose = playback == .silent || !animate
         let folded: CGFloat = next == .silent ? fold.to : (next == .muted ? 1 : 0)
+        if representedID != id || next == .silent { setHovered(false) }
         representedID = id; playback = next
         setAccessibilityElement(next != .silent)
         presence.move(to: next == .silent ? 0 : 1, at:now, duration:animate ? 0.24 : 0)
         fold.move(to:folded, at:now, duration:animate && !firstPose ? 0.34 : 0)
+        updateMotion()
+    }
+    private var motionEnd: TimeInterval { max(presence.start+presence.duration, fold.start+fold.duration, hover.start+hover.duration) }
+    private func updateMotion() {
         tick()
-        if animate, timer == nil {
+        if timer == nil && ProcessInfo.processInfo.systemUptime < motionEnd {
             let t = Timer(timeInterval:1/Double(max(60, window?.screen?.maximumFramesPerSecond ?? 60)),repeats:true) { [weak self] _ in self?.tick() }
             RunLoop.main.add(t, forMode:.common); timer = t
         }
     }
     private func tick() {
         let now = ProcessInfo.processInfo.systemUptime
+        let previousInset = titleInset
         reveal = presence.value(at:now); mute = fold.value(at:now)
         isHidden = reveal <= 0 && playback == .silent
-        superview?.needsLayout = true
+        if previousInset != titleInset { superview?.needsLayout = true }
         needsDisplay = true
-        if now >= max(presence.start+presence.duration, fold.start+fold.duration) {
+        if now >= motionEnd {
             timer?.invalidate(); timer = nil
         }
     }
@@ -85,12 +103,17 @@ final class TabSoundButton: NSButton {
     override func draw(_ dirtyRect:NSRect) {
         guard reveal > 0, let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState(); defer { ctx.restoreGState() }
+        let highlight = hover.value(at:ProcessInfo.processInfo.systemUptime)
+        if highlight > 0 {
+            ink.withAlphaComponent(reveal * highlight * (isHighlighted ? 0.16 : 0.095)).setFill()
+            NSBezierPath(roundedRect:bounds,xRadius:5.5,yRadius:5.5).fill()
+        }
         let side = min(19, min(bounds.width,bounds.height))
         let scale = side / 24 * (0.74+0.26*reveal) * (1-0.07*mute)
         ctx.translateBy(x:bounds.midX, y:bounds.midY)
         ctx.scaleBy(x:scale, y:scale)
         ctx.translateBy(x:-12+1.6*mute, y:-12)
-        ctx.setAlpha(reveal * (isHighlighted ? 0.55 : 0.84))
+        ctx.setAlpha(reveal * (isHighlighted ? 0.60 : 0.75))
         ctx.beginTransparencyLayer(auxiliaryInfo:nil)
         ctx.setStrokeColor(ink.cgColor); ctx.setLineWidth(1.65)
         ctx.setLineCap(.round); ctx.setLineJoin(.round)

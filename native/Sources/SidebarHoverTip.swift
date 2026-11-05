@@ -4,9 +4,9 @@ import QuartzCore
 
 /// The same non-interactive child window can sit above both AppKit and Chromium.
 final class SidebarHoverTip {
-    enum Target: Equatable { case tab(String), space(String) }
+    enum Target: Equatable { case tab(String), sound(String), space(String) }
     enum Content: Equatable {
-        case tab(title:String, hint:String)
+        case tab(title:String, hint:String?)
         case space(name:String, keys:[String])
     }
     struct Presentation { let content:Content; let anchor:NSRect } // screen coordinates
@@ -32,7 +32,7 @@ final class SidebarHoverTip {
         }
         pending = task
         let delay:Double
-        switch next { case .space: delay = 0.95; case .tab: delay = 0.65 }
+        switch next { case .space: delay = 0.95; case .tab, .sound: delay = 0.65 }
         DispatchQueue.main.asyncAfter(deadline:.now()+delay,execute:task)
     }
     func refreshIfVisible() { if panel?.isVisible == true { present() } }
@@ -109,14 +109,18 @@ final class SidebarTipBubble: NSView {
         switch content {
         case .tab(let caption,let hint):
             title.stringValue = caption
-            let detail = NSTextField(labelWithString:hint); detail.textColor = NSColor(white:0.66,alpha:1)
-            detail.font = .systemFont(ofSize:11,weight:.regular); detail.sizeToFit(); addSubview(detail)
+            let detail = hint.map { hint -> NSTextField in
+                let field = NSTextField(labelWithString:hint)
+                field.textColor = NSColor(white:0.66,alpha:1)
+                field.font = .systemFont(ofSize:11,weight:.regular); field.sizeToFit(); addSubview(field)
+                return field
+            }
             let limit = max(64,min(350,maxSize.width-20))
-            let width = min(limit,max(ceil(title.attributedStringValue.size().width)+4,detail.frame.width))
+            let width = min(limit,max(ceil(title.attributedStringValue.size().width)+4,detail?.frame.width ?? 0))
             let height = max(15,min(maxSize.height-34,ceil(title.cell!.cellSize(forBounds:NSRect(x:0,y:0,width:width,height:10000)).height)))
             title.frame = NSRect(x:9,y:6,width:width,height:height)
-            detail.frame = NSRect(x:9,y:title.frame.maxY,width:width,height:14)
-            setFrameSize(NSSize(width:width+18,height:detail.frame.maxY+6))
+            detail?.frame = NSRect(x:9,y:title.frame.maxY,width:width,height:14)
+            setFrameSize(NSSize(width:width+18,height:(detail?.frame.maxY ?? title.frame.maxY)+6))
             pointerCorner = true; layer?.backgroundColor = nil; layer?.borderWidth = 0
         case .space(let name,let keys):
             title.stringValue = name; title.maximumNumberOfLines = 1; title.lineBreakMode = .byTruncatingTail

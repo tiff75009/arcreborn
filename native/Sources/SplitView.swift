@@ -229,7 +229,12 @@ final class SplitGroupCell: NSTableCellView {
             groupIcon.image = NSImage(size:NSSize(width:16,height:16),flipped:false) { rect in SpaceIcon.draw(icon,in:rect,color:ink,size:14); return true }
         }
         groupIcon.isHidden = icon == nil; addSubview(groupIcon)
-        if let title { toolTip = title }
+        if let title {
+            toolTip = title
+            for chip in chips {
+                chip.soundButton.hoverChanged = { [weak self] inside in self?.toolTip = inside ? nil : title }
+            }
+        }
     }
     required init?(coder:NSCoder) { fatalError() }
     override func layout() {

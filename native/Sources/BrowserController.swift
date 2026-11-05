@@ -667,6 +667,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let rowsScroll = NSScrollView()
     private let table = SidebarTable()
     private weak var sidebarTitleEditor: TabCell?
+    private weak var hoveredSoundButton: TabSoundButton?
     private lazy var sidebarTip = SidebarHoverTip(parent:window)
     private let favorites = FavoritesGrid(frame:.zero)
     private let favoritesHint = FavoritesHint(frame: .zero)
@@ -875,7 +876,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         else if profiles { preferencesWindow?.showProfiles() } else { preferencesWindow?.showAccount() }
     }
     func prepareToQuit() -> Bool {
-        sidebarTip.dismiss()
+        dismissSidebarTip()
         dismissFolderPeek(animated:false)
         pageCapture?.close()
         finishSpaceSwitch()
@@ -890,7 +891,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { requestWindowClose(); return false }
     func windowDidResize(_ notification: Notification) {
-        sidebarTip.dismiss()
+        dismissSidebarTip()
         dismissFolderPeek(animated:false)
         finishSpaceSwitch()
         sidebarTransition += 1; sidebarAnimating = false
@@ -898,7 +899,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         layout()
     }
     func windowDidResignKey(_ notification: Notification) {
-        spaceIndicatorContent.clearHover(); sidebarTip.dismiss()
+        spaceIndicatorContent.clearHover(); dismissSidebarTip()
         updateRecentPeekHover(); updateSidebarHover()
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.window.isKeyWindow, self.folderPeek?.isKey != true else { return }
@@ -1022,7 +1023,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         rowsScroll.contentView = sidebarClip
         sidebarClip.postsBoundsChangedNotifications = true
         sidebarObservers.append(NotificationCenter.default.addObserver(forName:NSView.boundsDidChangeNotification,object:sidebarClip,queue:.main) { [weak self] _ in
-            self?.sidebarTip.dismiss()
+            self?.dismissSidebarTip()
             self?.dismissFolderPeek(animated:false)
         })
         rowsScroll.scrollerStyle = .overlay; rowsScroll.automaticallyAdjustsContentInsets = false; rowsScroll.contentInsets = .init(); rowsScroll.documentView = table; rowsScroll.drawsBackground = false; rowsScroll.hasVerticalScroller = true; rowsScroll.autohidesScrollers = true; rowsScroll.borderType = .noBorder
@@ -1052,7 +1053,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         for name in [NSMenu.didBeginTrackingNotification, NSMenu.didEndTrackingNotification] {
             sidebarObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 guard let self else { return }
-                if name == NSMenu.didBeginTrackingNotification { self.dismissFolderPeek(animated:false); self.spaceIndicatorContent.clearHover(); self.sidebarTip.dismiss() }
+                if name == NSMenu.didBeginTrackingNotification { self.dismissFolderPeek(animated:false); self.spaceIndicatorContent.clearHover(); self.dismissSidebarTip() }
                 self.trackingMenus = max(0, self.trackingMenus + (name == NSMenu.didBeginTrackingNotification ? 1 : -1))
                 self.updateSidebarHover()
             })
@@ -1293,7 +1294,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
     }
     private func setSidebarRevealed(_ revealed: Bool) {
-        if !revealed { spaceIndicatorContent.clearHover(); sidebarTip.dismiss() }
+        if !revealed { spaceIndicatorContent.clearHover(); dismissSidebarTip() }
         guard session.sidebarHidden, sidebarRevealed != revealed else { return }
         cancelSidebarHover()
         if !revealed { dismissFolderPeek(animated:false) }
@@ -1353,7 +1354,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                                          sidebarWidth: CGFloat(SidebarSizing.clamp(session.sidebarWidth)), protected: interacting)
     }
     private func clearSidebarPointerFeedback() {
-        sidebarTip.dismiss()
+        dismissSidebarTip()
         guard let outside = NSEvent.mouseEvent(with:.mouseMoved,location:NSPoint(x:-10000,y:-10000),modifierFlags:[],timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:0,context:nil,eventNumber:0,clickCount:0,pressure:0) else { return }
         updateSidebarPointerFeedback(outside)
     }
@@ -1402,7 +1403,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         updateSidebarPointerFeedback(event)
         if event.window === window && [.mouseMoved,.mouseEntered,.leftMouseUp].contains(event.type) {
             trackSidebarTip(at:event.locationInWindow)
-        } else { sidebarTip.dismiss() }
+        } else if event.type != .leftMouseDown || hoveredSoundButton == nil || soundButton(at:event.locationInWindow) !== hoveredSoundButton {
+            dismissSidebarTip()
+        }
         if event.type == .leftMouseDown || event.type == .leftMouseDragged {
             sidebarMousePressed = true
             let point = sidebarHost.convert(event.locationInWindow,from:nil)
@@ -1414,9 +1417,24 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         updateFolderHover(); updateRecentPeekHover()
         updateSidebarHover()
     }
-    private func tipTarget(at p:NSPoint) -> SidebarHoverTip.Target? {
-        guard window.isKeyWindow, canPreviewFolder, folderPeek == nil, !sidebarAnimating,
-              !sidebarMousePressed, NSEvent.pressedMouseButtons == 0 else { return nil }
+    private func setHoveredSoundButton(_ button:TabSoundButton?) {
+        if hoveredSoundButton !== button { hoveredSoundButton?.setHovered(false) }
+        hoveredSoundButton = button
+        button?.setHovered(true)
+    }
+    private func dismissSidebarTip() {
+        setHoveredSoundButton(nil)
+        sidebarTip.dismiss()
+    }
+    private func soundButton(at point:NSPoint) -> TabSoundButton? {
+        guard let host = sidebarHost.superview, !sidebarHost.isHiddenOrHasHiddenAncestor,
+              sidebarHost.visibleRect.contains(sidebarHost.convert(point,from:nil)) else { return nil }
+        return sidebarHost.hitTest(host.convert(point,from:nil)) as? TabSoundButton
+    }
+    private func tipTarget(at p:NSPoint, sound:TabSoundButton?) -> SidebarHoverTip.Target? {
+        guard window.isKeyWindow, canPreviewFolder, folderPeek == nil, !sidebarAnimating else { return nil }
+        if let sound, sound.playback != .silent, let id = sound.representedID { return .sound(id) }
+        guard !sidebarMousePressed, NSEvent.pressedMouseButtons == 0 else { return nil }
         if let slot = spaceIndicatorContent.slot(at:p) { return .space(slot.id) }
         let point = table.convert(p,from:nil)
         guard table.visibleRect.contains(point) else { return nil }
@@ -1431,12 +1449,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         return nil
     }
     private func trackSidebarTip(at point:NSPoint) {
-        let target = tipTarget(at:point)
+        let sound = soundButton(at:point)
+        let target = tipTarget(at:point,sound:sound)
+        if case .sound = target { setHoveredSoundButton(sound) } else { setHoveredSoundButton(nil) }
         sidebarTip.track(target) { [weak self] in
             guard let self, let target else { return nil }
             let p = self.window.mouseLocationOutsideOfEventStream
-            guard self.tipTarget(at:p) == target else { return nil }
+            let currentSound = self.soundButton(at:p)
+            guard self.tipTarget(at:p,sound:currentSound) == target else { return nil }
             switch target {
+            case .sound:
+                guard let label = currentSound?.accessibilityLabel() else { return nil }
+                return .init(content:.tab(title:label,hint:nil),anchor:NSRect(origin:self.window.convertPoint(toScreen:p),size:.zero))
             case .space(let id):
                 guard let i = self.session.spaces.firstIndex(where:{ $0.id == id }),
                       let slot = self.spaceIndicatorContent.slot(at:p) else { return nil }
@@ -3261,6 +3285,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func setSidebarSound(_ sound:TabSoundState, for tabID:String) {
         guard let tab = session.tabs.first(where:{ $0.id == tabID }) else { return }
+        defer {
+            trackSidebarTip(at:window.mouseLocationOutsideOfEventStream)
+            if sidebarTip.target == .sound(tabID) { sidebarTip.refreshIfVisible() }
+        }
         status[tabID,default:TabStatus()].sound = sound
         if tab.favorite || tab.favoriteSourceID != nil { refreshFavorites(); return }
         let visible = table.rows(in:table.visibleRect)
@@ -3847,7 +3875,7 @@ extension BrowserController {
         }
     }
     private func beginSidebarTitleEditing(_ cell:TabCell, cleanup:(() -> Void)? = nil) {
-        sidebarTip.dismiss()
+        dismissSidebarTip()
         sidebarTitleEditor = cell
         cell.titleEditingEnded = { [weak self] in
             cleanup?(); self?.sidebarTitleEditor = nil; self?.updateSidebarHover()

@@ -1,36 +1,36 @@
 {
-  "version": "0.8.0",
-  "build": 20,
-  "showOnLaunch": true,
+  "version": "0.8.1",
+  "build": 21,
+  "showOnLaunch": false,
   "title": {
-    "fr": "Le son des onglets à portée de clic",
-    "en": "Tab audio, one click away"
+    "en": "Tab audio controls",
+    "fr": "Le son dans la barre latérale"
   },
   "subtitle": {
-    "fr": "Contrôle le son depuis la barre latérale et découvre la nouvelle animation des dossiers.",
-    "en": "Control audio from the sidebar and see folders unfold as you open them."
+    "en": "A clearer speaker button for tabs and favorites.",
+    "fr": "Un bouton de son plus facile à repérer dans les onglets et les favoris."
   },
   "highlights": [
     {
-      "symbol": "speaker.wave.3",
+      "symbol": "speaker.wave.2",
       "title": {
-        "fr": "Coupe le son d’un onglet d’un clic",
-        "en": "Mute a tab with one click"
+        "en": "See what a click will do",
+        "fr": "Le son au survol"
       },
       "detail": {
-        "fr": "Quand un onglet émet du son, son titre laisse place à un haut-parleur. Clique dessus pour couper ou réactiver le son, même en arrière-plan. Le bouton est aussi disponible dans les favoris et les vues partagées.",
-        "en": "When a tab plays audio, its title slides over to reveal a speaker. Click it to mute or unmute the tab, even in the background. The button also works in favorites and split views."
+        "en": "The speaker has a softer tint and a rounded highlight on hover. Its tooltip tells you whether clicking will mute or unmute that tab.",
+        "fr": "Le haut-parleur est légèrement atténué. Au survol, un fond arrondi le souligne et une infobulle indique si un clic va couper ou réactiver le son de cet onglet."
       }
     },
     {
-      "symbol": "folder",
+      "symbol": "star",
       "title": {
-        "fr": "Des dossiers qui se déplient",
-        "en": "Folders that fold open"
+        "en": "A centered speaker in favorites",
+        "fr": "Un haut-parleur centré dans les favoris"
       },
       "detail": {
-        "fr": "Le rabat de l’icône s’ouvre en même temps que le contenu du dossier se déplie. Un second clic en plein mouvement inverse l’animation en douceur, même dans un sous-dossier.",
-        "en": "The folder icon’s front flap opens as its contents slide into view. Click again mid-animation to reverse it smoothly, even in a nested folder."
+        "en": "The speaker now sits just above the favicon. The favicon slides down to make room and returns to the center when the button disappears.",
+        "fr": "Le haut-parleur se place juste au-dessus du favicon. Le favicon descend pour lui laisser de la place et se recentre quand le bouton disparaît."
       }
     }
   ]
