@@ -33,12 +33,21 @@ import Foundation
         store.updateDownload(id:"one",name:"",path:"",source:"",profileID:"",received:7,total:10,state:"progress")
         check(store.downloads.count == 2 && store.downloads.first(where: { $0.id == "one" })?.profileID == "personal","callbacks preserve original profile and do not duplicate")
         store.flush()
-        let restored = LibraryStore(directory:root,downloadsDirectory:downloads)
+        let secondWindow = LibraryStore(directory:root,downloadsDirectory:downloads)
+        check(secondWindow.downloads.first(where: { $0.id == "one" })?.isActive == true,"a concurrent window sees the active transfer")
+        // Load the on-disk snapshot without a live peer, as on a cold launch.
+        func coldLaunch() throws -> LibraryStore {
+            let restart = root.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at:restart,withIntermediateDirectories:true)
+            try FileManager.default.copyItem(at:root.appendingPathComponent("library.json"),to:restart.appendingPathComponent("library.json"))
+            return LibraryStore(directory:restart,downloadsDirectory:downloads)
+        }
+        let restored = try coldLaunch()
         check(restored.downloads.count == 2 && restored.downloads.first(where: { $0.id == "two" })?.state == "complete","download history persists")
         check(restored.downloads.first(where: { $0.id == "one" })?.state == "interrupted","unfinished download is interrupted after restart")
         let before = try Data(contentsOf:downloads.appendingPathComponent("Photo Été.png"))
         store.enableMedia(); store.flush()
-        check(LibraryStore(directory:root,downloadsDirectory:downloads).mediaEnabled,"media opt-in persists")
+        check(try coldLaunch().mediaEnabled,"media opt-in persists")
         check(try Data(contentsOf:downloads.appendingPathComponent("Photo Été.png")) == before,"indexing never modifies originals")
         do { _ = try LibraryMediaScanner.scan(root.appendingPathComponent("missing")); check(false,"missing directory must report an error") } catch { check(true,"missing directory reports an error") }
         let recentFiles = (0..<6).map { i -> LibraryMedia in
@@ -78,7 +87,7 @@ import Foundation
         check(store.downloads.first(where: { $0.id == "multi-0" })?.speed == 50,"engine throughput is retained")
         store.updateDownload(id:"multi-0",name:"",path:"",source:"",profileID:"",received:100,total:100,state:"complete")
         store.flush()
-        let afterTransfers = LibraryStore(directory:root,downloadsDirectory:downloads)
+        let afterTransfers = try coldLaunch()
         check(afterTransfers.unreadCount == 1,"unread completion survives restart")
         check(afterTransfers.downloads.first(where: { $0.id == "one" })?.state == "interrupted","paused transfer does not pretend to resume after restart")
         check(afterTransfers.activeDownloads.isEmpty,"stale runtime transfers are not controllable after restart")
@@ -90,7 +99,7 @@ import Foundation
         check(!store.downloads.contains(where: { $0.id == "remove" }) && FileManager.default.fileExists(atPath:original.path),"remove only deletes history, preserving disk file")
         check(!RecentLibraryFile.collect(media:recentFiles,downloads:[],excluding:store.hiddenRecents).contains(where: { $0.url == original }),"removed file stays out of recent shelf")
         store.flush()
-        check(LibraryStore(directory:root,downloadsDirectory:downloads).hiddenRecents.contains(original.path),"recent dismissal persists")
+        check(try coldLaunch().hiddenRecents.contains(original.path),"recent dismissal persists")
         print("PASS: \(passed) library assertions")
     }
 }

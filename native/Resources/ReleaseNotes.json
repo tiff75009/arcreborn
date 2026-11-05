@@ -1,47 +1,36 @@
 {
-  "version": "0.7.3",
-  "build": 19,
+  "version": "0.8.0",
+  "build": 20,
   "showOnLaunch": true,
   "title": {
-    "fr": "Du nouveau dans la barre latérale",
-    "en": "What’s new in the sidebar"
+    "fr": "Le son des onglets à portée de clic",
+    "en": "Tab audio, one click away"
   },
   "subtitle": {
-    "fr": "Repère les onglets endormis et les favoris qui ont des messages non lus.",
-    "en": "See which tabs are sleeping and which favorites have unread messages."
+    "fr": "Contrôle le son depuis la barre latérale et découvre la nouvelle animation des dossiers.",
+    "en": "Control audio from the sidebar and see folders unfold as you open them."
   },
   "highlights": [
     {
-      "symbol": "moon.zzz",
+      "symbol": "speaker.wave.3",
       "title": {
-        "fr": "Des onglets endormis plus discrets",
-        "en": "A subtle cue for sleeping tabs"
+        "fr": "Coupe le son d’un onglet d’un clic",
+        "en": "Mute a tab with one click"
       },
       "detail": {
-        "fr": "Le favicon et le titre sont légèrement atténués. Ils retrouvent leur apparence habituelle dès que tu ouvres l’onglet, même si tu le laisses ensuite en arrière-plan.",
-        "en": "A sleeping tab has a softer favicon and title. Both return to full opacity as soon as you open it and stay that way when you switch tabs."
+        "fr": "Quand un onglet émet du son, son titre laisse place à un haut-parleur. Clique dessus pour couper ou réactiver le son, même en arrière-plan. Le bouton est aussi disponible dans les favoris et les vues partagées.",
+        "en": "When a tab plays audio, its title slides over to reveal a speaker. Click it to mute or unmute the tab, even in the background. The button also works in favorites and split views."
       }
     },
     {
-      "symbol": "envelope",
+      "symbol": "folder",
       "title": {
-        "fr": "Un point rouge pour les non-lus",
-        "en": "A red dot for unread messages"
+        "fr": "Des dossiers qui se déplient",
+        "en": "Folders that fold open"
       },
       "detail": {
-        "fr": "Un petit point apparaît sur les favoris qui signalent des messages non lus dans leur titre, ou dans le compteur de la boîte de réception Gmail. Il disparaît quand le site indique que tout est lu. Chaque profil garde son propre état.",
-        "en": "A small dot appears on favorites that report unread messages in their title or in Gmail’s inbox counter. It clears when the site reports that everything is read. Each profile keeps its own unread state."
-      }
-    },
-    {
-      "symbol": "arrow.turn.down.right",
-      "title": {
-        "fr": "La dernière page ouverte est conservée",
-        "en": "Stay on the page you opened"
-      },
-      "detail": {
-        "fr": "Si une synchronisation se termine juste après un clic sur un lien, l’onglet conserve la nouvelle adresse. Les favicons et les pastilles se mettent à jour sur place.",
-        "en": "When sync finishes just after you follow a link, the tab keeps the new address. Favicons and unread dots update in place."
+        "fr": "Le rabat de l’icône s’ouvre en même temps que le contenu du dossier se déplie. Un second clic en plein mouvement inverse l’animation en douceur, même dans un sous-dossier.",
+        "en": "The folder icon’s front flap opens as its contents slide into view. Click again mid-animation to reverse it smoothly, even in a nested folder."
       }
     }
   ]

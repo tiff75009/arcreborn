@@ -33,6 +33,9 @@ its `engine.json` records this incremental build and its base version. The shell
 is compiled with Xcode 27.2. Engine `arcreborn.5` replaces that incremental build with a complete optimized
 build from the same pinned source revisions using Xcode 27.2. Its `engine.json`
 records the effective GN arguments, PGO profile and validated V8 configuration.
+Engine `arcreborn.6` adds `browser_observe_tab_sound_v1` on top of that build.
+It reports audibility and mute changes from each tab's Chromium WebContents
+on the UI thread. The observer lives for the lifetime of the WebContents.
 A macOS SDK is obtained through the developer's Xcode installation.
 
 Before changing the patch stack, update its hashes and increment the engine

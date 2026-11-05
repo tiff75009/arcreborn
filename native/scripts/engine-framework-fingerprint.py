@@ -26,7 +26,8 @@ def fingerprint(framework, reference):
     exports = set(subprocess.check_output(['/usr/bin/nm', '-gjU', str(binary)], text=True).split())
     required = {'_browser_native_navigation_version_v1', '_browser_execute_extension_action_v1', '_browser_close_extension_popup_v1',
                 '_browser_set_extension_tab_creator_v1', '_browser_set_extension_install_notice_v1',
-                '_browser_extension_popup_state_v1', '_browser_set_extension_dialog_bounds_v1', '_browser_attach_native_view_v1', '_browser_native_view_visibility_v1', '_cef_api_hash', '_cef_initialize'}
+                '_browser_extension_popup_state_v1', '_browser_set_extension_dialog_bounds_v1', '_browser_attach_native_view_v1', '_browser_native_view_visibility_v1',
+                '_browser_observe_tab_sound_v1', '_cef_api_hash', '_cef_initialize'}
     missing = required - exports
     if missing:
         raise ValueError('Engine exports missing: ' + ', '.join(sorted(missing)))

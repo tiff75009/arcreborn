@@ -1,0 +1,48 @@
+diff --git a/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm b/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm
+--- a/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm
++++ b/cef/libcef/browser/native/browser_platform_delegate_native_mac.mm
+@@ -23,6 +23,7 @@
+ #include "content/browser/renderer_host/render_widget_host_view_mac.h"
+ #include "content/public/browser/render_widget_host_view.h"
+ #include "content/public/browser/web_contents.h"
++#include "content/public/browser/web_contents_observer.h"
+ #include "third_party/blink/public/common/input/web_input_event.h"
+ #include "third_party/blink/public/common/input/web_mouse_event.h"
+ #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
+@@ -693,3 +694,36 @@
+   if (visible) contents->WasShown(); else contents->WasHidden();
+   return 1;
+ }
++
++namespace {
++using TabSoundCallback = void (*)(int, int, int);
++const char kTabSoundObserverKey = 0;
++
++class TabSoundObserver final : public content::WebContentsObserver,
++                               public base::SupportsUserData::Data {
++ public:
++  TabSoundObserver(content::WebContents* contents, int id, TabSoundCallback callback)
++      : content::WebContentsObserver(contents), id_(id), callback_(callback) {}
++  void OnAudioStateChanged(bool audible) override { Notify(); }
++  void DidUpdateAudioMutingState(bool muted) override { Notify(); }
++  void Notify() {
++    callback_(id_, web_contents()->IsCurrentlyAudible(), web_contents()->IsAudioMuted());
++  }
++ private:
++  const int id_;
++  const TabSoundCallback callback_;
++};
++}  // namespace
++
++extern "C" CEF_EXPORT int browser_observe_tab_sound_v1(int id, TabSoundCallback callback) {
++  CEF_REQUIRE_UIT_RETURN(0);
++  auto* contents = BrowserContentsForNativeHost(id, false);
++  if (!contents || !callback) return 0;
++  if (!contents->GetUserData(&kTabSoundObserverKey)) {
++    auto observer = std::make_unique<TabSoundObserver>(contents, id, callback);
++    auto* current = observer.get();
++    contents->SetUserData(&kTabSoundObserverKey, std::move(observer));
++    current->Notify();
++  }
++  return 1;
++}

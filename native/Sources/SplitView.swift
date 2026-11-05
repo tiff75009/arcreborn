@@ -162,6 +162,7 @@ final class SplitTabChip: NSView, NSDraggingSource {
     let id:String
     let icon = NSImageView()
     let label = NSTextField(labelWithString:"")
+    let soundButton = TabSoundButton()
     var select:(() -> Void)?
     var rename:(() -> Void)?
     var context:(() -> NSMenu)?
@@ -173,6 +174,7 @@ final class SplitTabChip: NSView, NSDraggingSource {
         icon.image = image; icon.imageScaling = .scaleProportionallyUpOrDown
         label.stringValue = title; label.font = .systemFont(ofSize:12,weight:.medium); label.lineBreakMode = .byTruncatingTail
         addSubview(icon); addSubview(label); label.allowsExpansionToolTips = false; setAccessibilityLabel(title); setAccessibilityRole(.button)
+        addSubview(soundButton)
         layer?.addSublayer(developerOutline)
     }
     required init?(coder:NSCoder) { fatalError() }
@@ -180,7 +182,10 @@ final class SplitTabChip: NSView, NSDraggingSource {
         super.layout(); let compact = bounds.width < 76
         developerOutline.update(in:bounds,enabled:developerMode,radius:8)
         icon.frame = NSRect(x:compact ? bounds.midX-9 : 7,y:bounds.midY-9,width:18,height:18)
-        label.isHidden = compact; label.frame = NSRect(x:30,y:bounds.midY-8,width:max(0,bounds.width-36),height:17)
+        let inset = soundButton.titleInset
+        icon.isHidden = compact && inset > 0
+        soundButton.frame = NSRect(x:compact ? bounds.midX-11 : 28,y:bounds.midY-12,width:22,height:24)
+        label.isHidden = compact; label.frame = NSRect(x:30+inset,y:bounds.midY-8,width:max(0,bounds.width-36-inset),height:17)
     }
     override func menu(for event:NSEvent) -> NSMenu? { context?() }
     override func mouseDown(with event:NSEvent) {

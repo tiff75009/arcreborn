@@ -26,6 +26,7 @@ struct FavoriteVisual {
     var isLoaded: Bool = false
     var developerMode: Bool = false
     var unreadLabel: String?
+    var configureSound: ((TabSoundButton) -> Void)?
 }
 
 /// Retained tiles: a title/favicon refresh never replaces a running drag source.
@@ -156,6 +157,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
     weak var grid: FavoritesGrid?
     private var favicon: NSImage?
     private let iconView = NSImageView()
+    private let soundButton = TabSoundButton()
     private var isLoaded = false
     private var hasUnread = false
     private var configured = false
@@ -172,6 +174,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         layer?.cornerRadius = 12
         iconView.imageScaling = .scaleProportionallyUpOrDown; iconView.wantsLayer = true
         addSubview(iconView)
+        addSubview(soundButton)
         colorBorder.startPoint = CGPoint(x:0,y:1); colorBorder.endPoint = CGPoint(x:1,y:0)
         borderMask.fillColor = NSColor.clear.cgColor; borderMask.strokeColor = NSColor.white.cgColor; borderMask.lineWidth = 2
         colorBorder.mask = borderMask; layer?.addSublayer(colorBorder)
@@ -186,6 +189,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         favicon = item.image; if imageChanged { iconView.image = item.image }; fallback = String(item.title.prefix(1)).uppercased()
         self.active = active; self.ink = ink; menu = item.menu; toolTip = item.title
         hasUnread = item.unreadLabel != nil
+        item.configureSound?(soundButton)
         setAccessibilityLabel([item.title, item.unreadLabel].compactMap { $0 }.joined(separator:", "))
         if imageChanged || colorBorder.colors == nil { colorBorder.colors = faviconPalette(favicon,fallback:ink).map(\.cgColor) }
         let opacity: CGFloat = item.isLoaded ? 1 : 0.42
@@ -201,6 +205,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
         iconView.frame = NSRect(x:bounds.midX-10,y:bounds.midY-10,width:20,height:20)
+        soundButton.frame = NSRect(x:1, y:isFlipped ? 1 : bounds.height-21,width:21,height:20)
         colorBorder.frame = bounds
         developerOutline.update(in:bounds,enabled:developerMode)
         borderMask.path = CGPath(roundedRect:bounds.insetBy(dx:1,dy:1),cornerWidth:11,cornerHeight:11,transform:nil)

@@ -478,7 +478,8 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
     private(set) var isEditingTitle = false
     private var originalTitle = ""
     var depth = 0 { didSet { needsLayout = true } }
-    var isFolder = false { didSet { needsLayout = true } }
+    private var folderIcon: FolderDisclosureIcon?
+    let soundButton = TabSoundButton()
     var active = false { didSet { updateLayer() } }
     var ink = NSColor.black { didSet { titleLabel.textColor = ink; icon.contentTintColor = ink.withAlphaComponent(0.6); closeButton.contentTintColor = ink } }
     var canClose = false { didSet { closeButton.isHidden = isEditingTitle || !canClose || !hovered } }
@@ -498,10 +499,21 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
         titleLabel.isBordered = false; titleLabel.isBezeled = false; titleLabel.drawsBackground = false
         titleLabel.cell?.usesSingleLineMode = true
         titleLabel.delegate = self; titleLabel.focusRingType = .none
-        addSubview(icon); addSubview(titleLabel); addSubview(closeButton)
+        addSubview(icon); addSubview(titleLabel); addSubview(closeButton); addSubview(soundButton)
         layer?.addSublayer(developerOutline)
     }
     required init?(coder: NSCoder) { fatalError() }
+    func showFolder(_ folder: NativeFolder, tint: NSColor, animated: Bool = false) {
+        let glyph = folderIcon ?? FolderDisclosureIcon()
+        if folderIcon == nil {
+            folderIcon = glyph
+            addSubview(glyph)
+            needsLayout = true
+        }
+        icon.isHidden = true
+        glyph.configure(folder, ink: ink, tint: tint, animated: animated)
+        setAccessibilityExpanded(!folder.collapsed)
+    }
     func setTabHint(_ text:String) {
         setAccessibilityHelp(text); titleLabel.setAccessibilityHelp(text)
         toolTip = nil; titleLabel.toolTip = nil
@@ -558,17 +570,21 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
     override func layout() {
         super.layout()
         developerOutline.update(in:bounds,enabled:developerMode)
-        let indent = CGFloat(min(depth,8))*16, size: CGFloat = isFolder ? 20 : 16
-        icon.frame = NSRect(x:20-size/2+indent,y:(bounds.height-size)/2,width:size,height:size)
+        let indent = CGFloat(min(depth,8))*16
+        icon.frame = NSRect(x:12+indent,y:(bounds.height-16)/2,width:16,height:16)
+        let glyphSize = FolderDisclosureIcon.size
+        folderIcon?.frame = NSRect(x:20-glyphSize/2+indent,y:(bounds.height-glyphSize)/2,width:glyphSize,height:glyphSize)
+        let inset = soundButton.titleInset
+        soundButton.frame = NSRect(x:34+indent,y:bounds.midY-12,width:23,height:24)
         closeButton.frame = NSRect(x:bounds.width-28,y:(bounds.height-22)/2,width:22,height:22)
         // NSTextField adds a 2 pt text inset; align its glyphs with the header at x = 37.
         if isEditingTitle {
             // A separate layer adds padding without intercepting the native field editor.
-            let fieldRect = NSRect(x:32+indent,y:(bounds.height-28)/2,width:max(0,bounds.width-40-indent),height:28)
+            let fieldRect = NSRect(x:32+indent+inset,y:(bounds.height-28)/2,width:max(0,bounds.width-40-indent-inset),height:28)
             titleEditingBackground.frame = fieldRect
             titleLabel.frame = NSRect(x:fieldRect.minX+6,y:(bounds.height-19)/2,width:max(0,fieldRect.width-12),height:19)
         } else {
-            titleLabel.frame = NSRect(x:35+indent,y:(bounds.height-19)/2,width:max(0,bounds.width-67-indent),height:19)
+            titleLabel.frame = NSRect(x:35+indent+inset,y:(bounds.height-19)/2,width:max(0,bounds.width-67-indent-inset),height:19)
         }
     }
     override var wantsUpdateLayer: Bool { true }
@@ -581,8 +597,8 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
         layer?.shadowColor = NSColor.black.cgColor; layer?.shadowOpacity = active ? 0.12 : 0; layer?.shadowRadius = 1; layer?.shadowOffset = NSSize(width: 0, height: -1)
     }
 }
-private struct TabStatus { var unread = FavoriteUnread(); var progress: Double = 0; var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
-private enum SidebarRow { case tab(String), folder(String), heading(String), newTab }
+private struct TabStatus { var unread = FavoriteUnread(); var sound: TabSoundState = .silent; var progress: Double = 0; var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
+private enum SidebarRow: Equatable { case tab(String), folder(String), heading(String), newTab }
 private final class MenuAction: NSObject { let kind: String; let id: String; let value: String; init(_ kind: String, _ id: String, _ value: String = "") { self.kind = kind; self.id = id; self.value = value } }
 
 final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
@@ -708,6 +724,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let folderDragType = NSPasteboard.PasteboardType("local.browser.folder")
     private var containers: [String: NSView] = [:]
     private var status: [String: TabStatus] = [:]
+    private var pendingSilence: [String: DispatchWorkItem] = [:]
     private var backButton: NavigationButton!
     private var forwardButton: NavigationButton!
     private var reloadButton: ReloadButton!
@@ -1544,17 +1561,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         findField.placeholderString = t("find")
         refreshFavorites()
         renderSpaceContent()
-        table.insertionColor = sidebarInk
-        table.reloadData(); renderSpacesFooter(); updateToolbar(); buildHome(); layoutFavorites(animated:true); style(spaceButton, opacity: 0.7); style(downloadButton, opacity: 0.8)
+        renderSpacesFooter(); updateToolbar(); buildHome(); layoutFavorites(animated:true); style(spaceButton, opacity: 0.7); style(downloadButton, opacity: 0.8)
         library?.update(session:session); sidebarTip.refreshIfVisible()
     }
     /// Updates only the movable part of the sidebar; previewing never opens a Chromium tab.
-    private func renderSpaceContent() {
+    private func renderSpaceContent(toggling folder: NativeFolder? = nil) {
         spaceButton.spaceName = activeSpace?.name ?? "Arc Reborn"; spaceButton.spaceIcon = activeSpace?.icon ?? "◈"
         spaceButton.collapsed = activeSpace?.foldersCollapsed == true; spaceButton.ink = sidebarInk; spaceButton.accent = favoritesHint.accent; spaceButton.moreLabel = t("more"); spaceButton.refreshTitle()
         spaceButton.setAccessibilityLabel((spaceButton.collapsed ? t("expandSpace") : t("collapseSpace")) + " — " + spaceButton.spaceName)
         spaceButton.menu = activeSpace.map(spaceMenu)
         spaceButton.toolTip = t(spaceButton.collapsed ? "expandSpace" : "collapseSpace"); folderButton.toolTip = t("newFolder")
+        let previousRows = rows, previousTree = treeRows
         treeRows = session.sidebarTree(spaceID:session.activeSpaceID,retainedTabs:sidebarCollapse.retainedTabs)
         var visibleGroups = Set<String>()
         func includeTab(_ id:String) -> Bool {
@@ -1572,7 +1589,42 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             if case .tab(let id) = $0, includeTab(id) { return .tab(id) }; return nil
         }
         table.insertionColor = sidebarInk
-        table.reloadData(); style(spaceButton,opacity:0.7)
+        if let folder, let row = previousRows.firstIndex(of:.folder(folder.id)) {
+            let cell = table.view(atColumn:0,row:row,makeIfNecessary:false) as? TabCell
+            cell?.showFolder(folder, tint:tint(), animated:true)
+            updateFolderRows(from:previousRows, previousTree:previousTree)
+        } else {
+            table.reloadData()
+        }
+        style(spaceButton,opacity:0.7)
+    }
+
+    /// Keep the folder cell and the surrounding rows alive. A tab retained
+    /// under a collapsed ancestor can have the same ID at a different depth.
+    private func updateFolderRows(from before: [SidebarRow], previousTree: [SidebarTreeRow]) {
+        func same(_ old: Int, _ new: Int) -> Bool {
+            guard before[old] == rows[new] else { return false }
+            let a = previousTree.indices.contains(old) ? previousTree[old] : nil
+            let b = treeRows.indices.contains(new) ? treeRows[new] : nil
+            return a?.depth == b?.depth && a?.parentID == b?.parentID
+        }
+        var first = 0, oldEnd = before.count, newEnd = rows.count
+        while first < min(oldEnd,newEnd), same(first,first) { first += 1 }
+        while oldEnd > first, newEnd > first, same(oldEnd-1,newEnd-1) { oldEnd -= 1; newEnd -= 1 }
+        guard oldEnd > first || newEnd > first else { return }
+        let animate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animate ? 0.22 : 0
+            context.timingFunction = CAMediaTimingFunction(controlPoints:0.2,0.8,0.26,1)
+            table.beginUpdates()
+            if oldEnd > first {
+                table.removeRows(at:IndexSet(integersIn:first..<oldEnd),withAnimation:animate ? [.effectFade,.slideUp] : [])
+            }
+            if newEnd > first {
+                table.insertRows(at:IndexSet(integersIn:first..<newEnd),withAnimation:animate ? [.effectFade,.slideDown] : [])
+            }
+            table.endUpdates()
+        }
     }
     private func renderSpacesFooter() {
         if addButton.superview == nil { spacesFooter.addSubview(addButton) }
@@ -2035,6 +2087,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     // NSTableView owns scrolling, accessibility and row recycling; page views never enter the UI process.
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard rows.indices.contains(row) else { return 36 }
         if case .heading = rows[row] { return 24 }
         if case .tab(let id) = rows[row], let group = session.splitGroup(containing:id), group.name != nil || group.icon != nil { return 60 }
         return 36
@@ -2064,8 +2117,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             let clear = ActionButton("↓ " + t("clear")) { [weak self] in self?.clearTemporaryTabs() }; clear.font = .systemFont(ofSize:10,weight:.semibold); clear.frame = NSRect(x:tableView.bounds.width-61,y:1,width:55,height:22); clear.autoresizingMask = [.minXMargin]; style(clear,opacity:0.42); holder.addSubview(clear); return holder
         }
         if case .tab(let id) = rows[row], let group = session.splitGroup(containing:id) { return makeSplitCell(group) }
-        let cell = (copyingSpaceRows ? nil : tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier("tabCell"), owner: self) as? TabCell) ?? TabCell(frame: .zero)
-        cell.identifier = NSUserInterfaceItemIdentifier("tabCell"); cell.active = false; cell.canClose = false; cell.isFolder = false
+        let identifier: NSUserInterfaceItemIdentifier
+        if case .folder = rows[row] { identifier = .init("folderCell") } else { identifier = .init("tabCell") }
+        let cell = (copyingSpaceRows ? nil : tableView.makeView(withIdentifier:identifier, owner:self) as? TabCell) ?? TabCell(frame:.zero)
+        cell.identifier = identifier; cell.active = false; cell.canClose = false
         cell.developerMode = false
         cell.rename = nil; cell.titleLabel.toolTip = nil; cell.titleLabel.setAccessibilityHelp(nil); cell.setAccessibilityHelp(nil)
         cell.ink = sidebarInk; cell.depth = treeRows.indices.contains(row) ? treeRows[row].depth : 0
@@ -2088,10 +2143,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             }
         case .folder(let id):
             guard let folder = session.folders.first(where: { $0.id == id }) else { return cell }
-            cell.isFolder = true
             cell.titleLabel.font = .systemFont(ofSize:14,weight:.semibold)
             cell.titleLabel.stringValue = folder.name; cell.toolTip = folder.name
-            cell.icon.image = folder.liveHost == nil ? Self.folderImage(open:!folder.collapsed) : NSImage(systemSymbolName:"folder.badge.gearshape",accessibilityDescription:t("folder"))
+            cell.showFolder(folder, tint:tint())
         case .heading:
             cell.titleLabel.stringValue = ""; cell.icon.image = nil; cell.toolTip = nil
         case .newTab:
@@ -2100,6 +2154,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             cell.icon.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
         }
         styleSidebarTab(sidebarTab, icon:cell.icon, title:cell.titleLabel)
+        configureSound(cell.soundButton, id:sidebarTab?.id)
         return cell
     }
     private func styleSidebarTab(_ tab: NativeTab?, icon: NSImageView, title: NSTextField) {
@@ -2109,20 +2164,6 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         icon.alphaValue = dormant ? 0.66 : 1
         title.alphaValue = dormant && !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.86 : 1
     }
-    private static func folderImage(open: Bool) -> NSImage {
-        let image = NSImage(size:NSSize(width:20,height:20),flipped:false) { _ in
-            NSColor.labelColor.setStroke()
-            let back = NSBezierPath(); back.lineWidth = 1.5; back.lineJoinStyle = .round
-            back.move(to:NSPoint(x:2,y:4)); back.line(to:NSPoint(x:2,y:16)); back.line(to:NSPoint(x:7,y:16))
-            back.line(to:NSPoint(x:9,y:14)); back.line(to:NSPoint(x:17,y:14)); back.line(to:NSPoint(x:17,y:4)); back.close()
-            back.stroke()
-            let front = NSBezierPath(); front.lineWidth = 1.5; front.lineJoinStyle = .round
-            front.move(to:NSPoint(x:2,y:4)); front.line(to:NSPoint(x:open ? 6 : 2,y:12))
-            front.line(to:NSPoint(x:19,y:12)); front.line(to:NSPoint(x:open ? 16 : 19,y:4)); front.close()
-            NSColor.labelColor.withAlphaComponent(0.15).setFill(); front.fill(); front.stroke(); return true
-        }
-        image.isTemplate = true; return image
-    }
     private func toggleSpaceFolders() {
         sidebarCollapse.toggle(.space(session.activeSpaceID),in:&session)
         render(); persist()
@@ -2131,7 +2172,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard rows.indices.contains(row) else { return }
         switch rows[row] {
         case .folder(let id):
-            sidebarCollapse.toggle(.folder(id),in:&session); render(); persist()
+            sidebarCollapse.toggle(.folder(id),in:&session)
+            guard let folder = session.folders.first(where:{ $0.id == id }) else { return }
+            if swipeTarget != nil || spaceSwitch != nil {
+                render()
+            } else {
+                isRendering = true
+                renderSpaceContent(toggling:folder)
+                isRendering = false
+                library?.update(session:session)
+            }
+            persist()
         case .tab(let id):
             // Capture the active tab before selection: the click that opens an
             // inactive tab must never also enter its title editor.
@@ -2261,7 +2312,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         menu.addItem(.separator())
         addMenu(menu,splitText("Changer l’icône…","Change Icon…"),"tabIcon",tab.id)
         addMenu(menu,splitText("Renommer","Rename"),"tabRename",tab.id)
-        addMenu(menu,splitText("Activer / couper le son","Toggle Mute"),"tabMute",tab.id)
+        let soundID = tab.favorite ? session.favoriteTabID(tab.id,spaceID:session.activeSpaceID) : tab.id
+        if let soundID {
+            let muted = status[soundID]?.sound == .muted
+            addMenu(menu,muted ? splitText("Réactiver le son de l’onglet","Unmute tab") : splitText("Couper le son de l’onglet","Mute tab"),"tabMute",soundID)
+        }
         addMenu(menu,splitText("Personnaliser la page…","Customize Page…"),"unavailable",tab.id); menu.items.last?.isEnabled = false
         menu.addItem(.separator())
         addMenu(menu,splitText("Ajouter une vue partagée","Add Split View"),"splitAdd",tab.id)
@@ -3177,9 +3232,47 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             return FavoriteVisual(id:favorite.id, title:displayTitle(favorite), image:favoriteImage(favorite.id),
                                   menu:tabMenu(favorite), isLoaded:favoriteIsLoaded(favorite.id),
                                   developerMode:favorite.id == activeFavorite && activeTab?.developerMode == true,
-                                  unreadLabel:unread ? splitText("Messages non lus","Unread messages") : nil)
+                                  unreadLabel:unread ? splitText("Messages non lus","Unread messages") : nil,
+                                  configureSound:{ [weak self] button in self?.configureSound(button, id:localID) })
         }
         favorites.update(items,activeID:activeFavorite,ink:sidebarInk)
+    }
+    private func configureSound(_ button:TabSoundButton, id:String?) {
+        button.toggle = id.map { tabID in { [weak self] in self?.engine.toggleMute(tabID) } }
+        button.configure(id:id, sound:id.flatMap { status[$0]?.sound } ?? .silent, ink:sidebarInk, language:session.language)
+    }
+    func browserSoundChanged(_ tabID:String, audible:Bool, muted:Bool) {
+        guard !isQuitting, containers[tabID] != nil else { return }
+        pendingSilence.removeValue(forKey:tabID)?.cancel()
+        let next: TabSoundState = muted ? .muted : (audible ? .playing : .silent)
+        let old = status[tabID]?.sound ?? .silent
+        guard old != next else { return }
+        if old == .playing && next == .silent {
+            // Short gaps between notes or buffered segments shouldn't move the title.
+            let work = DispatchWorkItem { [weak self] in
+                self?.pendingSilence.removeValue(forKey:tabID)
+                self?.setSidebarSound(.silent, for:tabID)
+            }
+            pendingSilence[tabID] = work
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.65, execute:work)
+        } else {
+            setSidebarSound(next, for:tabID)
+        }
+    }
+    private func setSidebarSound(_ sound:TabSoundState, for tabID:String) {
+        guard let tab = session.tabs.first(where:{ $0.id == tabID }) else { return }
+        status[tabID,default:TabStatus()].sound = sound
+        if tab.favorite || tab.favoriteSourceID != nil { refreshFavorites(); return }
+        let visible = table.rows(in:table.visibleRect)
+        for row in visible.location..<NSMaxRange(visible) where rows.indices.contains(row) {
+            guard case .tab(let id) = rows[row] else { continue }
+            let view = table.view(atColumn:0,row:row,makeIfNecessary:false)
+            if let cell = view as? TabCell, id == tabID {
+                configureSound(cell.soundButton, id:tabID)
+            } else if let group = view as? SplitGroupCell, let chip = group.chips.first(where:{ $0.id == tabID }) {
+                configureSound(chip.soundButton, id:tabID)
+            }
+        }
     }
     private func favoriteImage(_ id: String) -> NSImage? {
         guard let source = session.tabs.first(where:{ $0.id == id }) else { return nil }
@@ -3384,6 +3477,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         for key in Array(pendingSpaceClosures.keys) where pendingSpaceClosures[key]?.contains(tabID) == true { pendingSpaceClosures.removeValue(forKey: key) }
     }
     func browserClosed(_ tabID: String) {
+        pendingSilence.removeValue(forKey:tabID)?.cancel()
+        if let sound = status[tabID]?.sound, sound != .silent { setSidebarSound(.silent, for:tabID) }
         let archiveDecision = automaticClose[tabID]?()
         automaticClose.removeValue(forKey:tabID)
         let archivedAutomatically = archiveDecision == true
@@ -3612,6 +3707,7 @@ extension BrowserController {
         let chips = group.tabIDs.compactMap { id -> SplitTabChip? in
             guard let tab = session.tabs.first(where: { $0.id == id }) else { return nil }
             let chip = SplitTabChip(id:id,title:displayTitle(tab),image:splitTabIcon(tab),active:id == activeTab?.id)
+            configureSound(chip.soundButton, id:id)
             styleSidebarTab(tab, icon:chip.icon, title:chip.label)
             chip.developerMode = tab.developerMode == true && id == activeTab?.id
             chip.select = { [weak self] in

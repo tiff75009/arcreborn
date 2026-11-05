@@ -614,6 +614,7 @@ class NativeClient : public CefClient,
     CloseTabDeveloperTools(tabID_.UTF8String);
     ForgetPictureInPicture(tabID_);
     FinishArchiveProbe(tabID_.UTF8String,false); capturingTabs.erase(tabID_.UTF8String);
+    audibleTabs.erase(tabID_.UTF8String);
     automaticallyClosing.erase(tabID_.UTF8String);
     browsers.erase(tabID_.UTF8String);
     nativeTabOwners.erase(tabID_.UTF8String);
@@ -1173,7 +1174,7 @@ static void QuitNext() {
   const std::string key = tabID.UTF8String;
   auto it = browsers.find(key);
   if (quitting || it == browsers.end() || !it->second->IsValid() || it->second->IsLoading()
-      || capturingTabs.count(key) || [self hasPictureInPicture:tabID] || [self hasDeveloperTools:tabID]) {
+      || capturingTabs.count(key) || audibleTabs.count(key) || [self hasPictureInPicture:tabID] || [self hasDeveloperTools:tabID]) {
     [self.delegate browserCloseCancelled:tabID]; return;
   }
   automaticallyClosing.insert(key);

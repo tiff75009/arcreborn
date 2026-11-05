@@ -13,6 +13,7 @@ struct ChromeTabSurface {
   __weak NSView *container = nil;
   __weak NSView *content = nil;
   bool visible = false;
+  bool observingSound = false;
 };
 static std::map<std::string, ChromeTabSurface> chromeTabs;
 static NSWindow *ChromeDocumentWindow(NSString *key) {
@@ -38,6 +39,24 @@ static void PrepareChromePopup(NSString *key, NSView *container, CefRefPtr<CefCl
   chromePopupContainers[key.UTF8String] = {container, client.get(), lifetime};
 }
 static void CancelChromePopup(const std::string& key) { chromePopupContainers.erase(key); }
+static void TabSoundChanged(int browserID, int audible, int muted) {
+  if (quitting) return;
+  auto tab = std::find_if(browsers.begin(), browsers.end(), [browserID](const auto& entry) {
+    return entry.second->GetIdentifier() == browserID;
+  });
+  if (tab == browsers.end()) return;
+  if (audible) {
+    audibleTabs.insert(tab->first);
+    FinishArchiveProbe(tab->first, false);
+  } else {
+    audibleTabs.erase(tab->first);
+  }
+  auto owner = nativeTabOwners.find(tab->first);
+  if (owner == nativeTabOwners.end()) return;
+  id<BrowserEngineDelegate> delegate = owner->second.engine.delegate;
+  if ([delegate respondsToSelector:@selector(browserSoundChanged:audible:muted:)])
+    [delegate browserSoundChanged:@(tab->first.c_str()) audible:audible != 0 muted:muted != 0];
+}
 static void LayoutChromeTab(const std::string& key) {
   ImmediateNativeSurfaceUpdate immediate;
   auto it = chromeTabs.find(key); if (it == chromeTabs.end()) return;
@@ -55,6 +74,11 @@ static void LayoutChromeTab(const std::string& key) {
   if (!attach || !visibility) return; // Packaging requires both private exports.
   if (!tab.content) tab.content = (__bridge NSView*)attach(browser->GetIdentifier(), (__bridge void*)container);
   if (!tab.content) return;
+  if (!tab.observingSound) {
+    using Observe = int (*)(int, void (*)(int, int, int));
+    static auto observe = reinterpret_cast<Observe>(BrowserEngineSymbol("browser_observe_tab_sound_v1"));
+    tab.observingSound = observe && observe(browser->GetIdentifier(), TabSoundChanged);
+  }
   const bool visible = tabVisibility[key] && !container.hiddenOrHasHiddenAncestor;
   if (tab.visible && !visible) CloseNativeExtensionPopup(key);
   if (!NSEqualSizes(tab.content.frame.size, container.bounds.size)) CloseNativeExtensionPopup(key);
