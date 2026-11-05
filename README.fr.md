@@ -26,6 +26,18 @@ Avec Codex et Claude, j’ai étudié par rétro-ingénierie certains comporteme
 
 **Dans les mouvements.** Quand vous ouvrez un dossier, le volet avant de son icône se déplie. Quand vous passez à un autre Espace, la barre latérale glisse jusqu’à sa nouvelle position. Ces mouvements rendent le changement visible et respectent le réglage « Réduire les animations » du Mac.
 
+## Deux façons d’organiser le navigateur
+
+Dans **Préférences → Interface**, choisissez la disposition qui vous convient. Les deux gardent vos onglets et vos Espaces dans la barre latérale.
+
+| Compacte · par défaut | Classique |
+| :--- | :--- |
+| [![Compacte · par défaut](docs/showcase/layout-compact.jpg)](docs/showcase/layout-compact.jpg) | [![Classique](docs/showcase/layout-classic.jpg)](docs/showcase/layout-classic.jpg) |
+| L’adresse et les boutons Précédent, Suivant et Actualiser se trouvent dans la barre latérale. La page occupe toute la hauteur disponible. | La barre d’adresse se place au-dessus de la page. Vos onglets restent alignés verticalement à gauche. |
+
+> [!TIP]
+> Dans les deux interfaces, **⌘T** ouvre la barre de commande.
+
 ## Mode développeur et capture
 
 | Le mode développeur | La capture d’un élément |
@@ -40,7 +52,8 @@ Appuyez sur **⇧⌘2** pour lancer une capture. Survolez la page, puis cliquez 
 
 Le navigateur et cette présentation sont disponibles en **français et en anglais**. J’aimerais proposer Arc Reborn dans d’autres langues, avec la même attention aux détails : le verbe d’un menu, l’indication d’un raccourci ou le ton du premier lancement.
 
-**Vous aimeriez retrouver Arc Reborn dans votre langue ?** [Proposez une traduction](https://github.com/tiff75009/arcreborn/issues/new?title=Traduction%20%3A%20) en indiquant la langue ou sa variante régionale et la partie qui vous intéresse. Relire quelques libellés suffit pour commencer. Pour contribuer au code, consultez les [textes actuels de l’interface](native/Sources/Localization.swift) et le [guide de contribution](CONTRIBUTING.md).
+> [!NOTE]
+> **Vous aimeriez retrouver Arc Reborn dans votre langue ?** [Proposez une traduction](https://github.com/tiff75009/arcreborn/issues/new?title=Traduction%20%3A%20) en indiquant la langue ou sa variante régionale et la partie qui vous intéresse. Relire quelques libellés suffit pour commencer. Pour contribuer au code, consultez les [textes actuels de l’interface](native/Sources/Localization.swift) et le [guide de contribution](CONTRIBUTING.md).
 
 ## Installation et développement
 

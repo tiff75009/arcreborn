@@ -26,6 +26,18 @@ I used Codex and Claude to reverse-engineer parts of Arc’s behavior. The imple
 
 **In motion.** Watch a folder icon as it opens: the front flap folds away from the back. Switching Spaces slides the sidebar into place. These details help you see what opened and where you landed. Both movements respect the Mac’s Reduce Motion setting.
 
+## Two ways to arrange the browser
+
+Choose **Preferences → Interface** to switch layouts. Both keep your tabs and Spaces in the sidebar.
+
+| Compact · the default | Classic |
+| :--- | :--- |
+| [![Compact · the default](docs/showcase/layout-compact.jpg)](docs/showcase/layout-compact.jpg) | [![Classic](docs/showcase/layout-classic.jpg)](docs/showcase/layout-classic.jpg) |
+| The address, Back, Forward and Reload sit in the sidebar. The page starts at the top of the window. | The address bar runs across the top of the page. Your tabs stay stacked vertically on the left. |
+
+> [!TIP]
+> Press **⌘T** in either layout to open the command bar.
+
 ## Developer Mode and Capture
 
 | Developer Mode | Capture an element |
@@ -40,7 +52,8 @@ Press **⇧⌘2** to start a capture. Move over the page to highlight an element
 
 The browser and this guide are available in **English and French**. I’d love to bring the same experience to more languages, including the small things like menu verbs, shortcut hints and the welcome screens.
 
-**Want to translate Arc Reborn into your language?** [Open a translation request](https://github.com/tiff75009/arcreborn/issues/new?title=Translation%3A%20) and tell me the language or regional variant and which part you’d like to help with. Reviewing a handful of interface labels is a good place to start. For code contributions, see the [current UI strings](native/Sources/Localization.swift) and the [contribution guide](CONTRIBUTING.md).
+> [!NOTE]
+> **Want to translate Arc Reborn into your language?** [Open a translation request](https://github.com/tiff75009/arcreborn/issues/new?title=Translation%3A%20) and tell me the language or regional variant and which part you’d like to help with. Reviewing a handful of interface labels is a good place to start. For code contributions, see the [current UI strings](native/Sources/Localization.swift) and the [contribution guide](CONTRIBUTING.md).
 
 ## Install and build
 
