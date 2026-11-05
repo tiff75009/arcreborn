@@ -257,7 +257,7 @@ struct BrowserSession: Codable, Equatable {
             && closedTabs.allSatisfy { tabsByID[$0.id] == nil }
             && spaces.allSatisfy { space in
                 guard let selected = space.selectedTabID else { return true }
-                return tabsByID[selected]?.spaceID == space.id
+                return canSelectTab(selected,in:space.id)
             }
     }
 
@@ -317,6 +317,7 @@ struct BrowserSession: Codable, Equatable {
             let peers = tabs.filter { $0.spaceID == tab.spaceID }
             spaces[spaceIndex].selectedTabID = peers.isEmpty ? nil : peers[min(position, peers.count - 1)].id
         }
+        repairTabSelections()
     }
 
     mutating func restoreTab() {
@@ -335,6 +336,7 @@ struct BrowserSession: Codable, Equatable {
 
     mutating func selectTab(id: String) {
         if tabs.contains(where: { $0.id == id && $0.favorite }) { _ = selectFavorite(id); return }
+        if let source = tabs.first(where: { $0.id == id })?.favoriteSourceID { _ = selectFavorite(source); return }
         guard let tab = tabs.first(where: { $0.id == id }), let index = spaces.firstIndex(where: { $0.id == tab.spaceID }) else { return }
         activeSpaceID = tab.spaceID
         spaces[index].selectedTabID = tab.id
@@ -343,14 +345,16 @@ struct BrowserSession: Codable, Equatable {
     mutating func removeSpace(id: String) {
         guard spaces.count > 1, spaces.contains(where: { $0.id == id }) else { return }
         let surviving = spaces.first { $0.id != id }!.id
-        for i in tabs.indices where tabs[i].spaceID == id && tabs[i].favorite {
-            tabs[i].spaceID = surviving; tabs[i].folderID = nil
+        let sameProfile = spaces.first { $0.id != id && $0.profileID == profile(forSpace:id)?.id }?.id
+        for i in tabs.indices where tabs[i].spaceID == id && (tabs[i].favorite || (tabs[i].favoriteSourceID != nil && sameProfile != nil)) {
+            tabs[i].spaceID = sameProfile ?? surviving; tabs[i].folderID = nil
         }
         spaces.removeAll { $0.id == id }
         tabs.removeAll { $0.spaceID == id }
         closedTabs.removeAll { $0.spaceID == id }
         folders.removeAll { $0.spaceID == id }
         if activeSpaceID == id { activeSpaceID = spaces[0].id }
+        normalizeFavoriteTabs()
     }
 }
 

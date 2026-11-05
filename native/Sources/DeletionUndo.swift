@@ -22,7 +22,8 @@ struct DeletionUndo {
         tabs = before.tabs.enumerated().compactMap { i,t in after.tabs.contains(where: { $0.id == t.id }) ? nil : (i,t) }
         history = before.closedTabs.enumerated().compactMap { i,t in after.closedTabs.contains(where: { $0.id == t.id }) ? nil : (i,t) }
         movedFavorites = before.tabs.compactMap { old in
-            guard old.favorite, let new = after.tabs.first(where: { $0.id == old.id }), old.spaceID != new.spaceID else { return nil }
+            guard old.favorite || old.favoriteSourceID != nil,
+                  let new = after.tabs.first(where: { $0.id == old.id }), old.spaceID != new.spaceID else { return nil }
             return (old,new)
         }
         selections = before.spaces.compactMap { old in
@@ -43,9 +44,14 @@ struct DeletionUndo {
             result.tabs.insert(tab,at:min(index,result.tabs.count))
         }
         for (old,new) in movedFavorites {
-            if let index = result.tabs.firstIndex(where: { $0.id == old.id && $0.favorite && $0.spaceID == new.spaceID }) {
+            if let index = result.tabs.firstIndex(where: { $0.id == old.id && ($0.favorite || $0.favoriteSourceID != nil) && $0.spaceID == new.spaceID }) {
                 result.tabs[index].spaceID = old.spaceID
                 result.tabs[index].folderID = old.folderID
+                // Consolidation can retain the other profile's current page.
+                // Undo restores the old page unless it has since been edited.
+                if result.tabs[index].url == new.url { result.tabs[index].url = old.url }
+                if result.tabs[index].title == new.title { result.tabs[index].title = old.title }
+                if result.tabs[index].lastViewedAt == new.lastViewedAt { result.tabs[index].lastViewedAt = old.lastViewedAt }
             }
         }
         let restoredIDs = removedTabIDs
@@ -56,7 +62,7 @@ struct DeletionUndo {
         result.closedTabs = BrowserSession.boundedArchive(result.closedTabs)
         for (id,old,new) in selections {
             if let index = result.spaces.firstIndex(where: { $0.id == id && $0.selectedTabID == new }),
-               old == nil || result.tabs.contains(where: { $0.id == old && $0.spaceID == id }) {
+               old == nil || old.map({ result.canSelectTab($0,in:id) }) == true {
                 result.spaces[index].selectedTabID = old
             }
         }

@@ -33,6 +33,14 @@ import Foundation
         let before = session
         expect(session.reserveExtensionTab(sourceTabID: "missing", active: true, pinned: false, index: 0) == nil && session == before,
                "Unknown sources must not mutate the session")
-        print("Extension tab state: 8 checks passed")
+        _ = session.moveToFavorites(source,spaceID:firstSpace,at:0)
+        session.selectTab(id:source)
+        let sharedPopup = session.reserveExtensionTab(sourceTabID:source,active:true,pinned:false,index:-1)!
+        expect(sharedPopup.spaceID == secondSpace && session.activeSpaceID == secondSpace,
+               "A link from a shared favorite belongs to the displaying space")
+        session.cancelExtensionTab(sharedPopup)
+        expect(session.spaces[1].selectedTabID == source && session.validated(),
+               "Failed creation restores the shared favorite selection")
+        print("Extension tab state: 10 checks passed")
     }
 }

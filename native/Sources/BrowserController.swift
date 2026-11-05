@@ -31,7 +31,13 @@ private final class BrowserWindow: NSWindow {
         item.action == #selector(undo(_:)) ? canUndoDeletion?() == true : super.validateMenuItem(item)
     }
     var pointerEvent: ((NSEvent) -> Void)?
+    var pointerTrackingEnded: (() -> Void)?
     override func sendEvent(_ event: NSEvent) {
+        // Buttons, favorite tiles, folder rows and window drags can consume the
+        // mouse-up in a nested tracking loop, without calling sendEvent again.
+        defer {
+            if event.type == .leftMouseDown { pointerTrackingEnded?() }
+        }
         switch event.type {
         case .mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp: pointerEvent?(event)
         default: break
@@ -867,6 +873,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     func windowDidResignKey(_ notification: Notification) { updateRecentPeekHover(); updateSidebarHover() }
     func windowDidBecomeKey(_ notification: Notification) { becameKey?(self); updateSidebarHover() }
     private func persist() {
+        session.repairTabSelections()
         session.normalizeSplits()
         guard !isQuitting else { return }
         saveTask?.cancel()
@@ -988,6 +995,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         window.acceptsMouseMovedEvents = true
         root.pointerChanged = { [weak self] event in self?.trackSidebarPointer(event); self?.trackSplitFocus(event) }
         (window as? BrowserWindow)?.pointerEvent = { [weak self] event in self?.trackSidebarPointer(event); self?.trackSplitFocus(event) }
+        (window as? BrowserWindow)?.pointerTrackingEnded = finishSidebarTracking
         spaceScrollMonitor = NSEvent.addLocalMonitorForEvents(matching:.scrollWheel) { [weak self] event in
             guard let self, event.window === self.window || (event.window == nil && NSApp.keyWindow === self.window) else { return event }
             return self.handleSpaceScroll(event) ? nil : event
@@ -1285,6 +1293,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         RunLoop.main.add(timer, forMode: .common)
     }
     private func sidebarHoverIntent() -> SidebarRevealIntent {
+        if NSEvent.pressedMouseButtons & 1 == 0 { sidebarMousePressed = false }
         let interacting = library != nil || trackingMenus > 0 || addMenu != nil || spaceCreation != nil || sheet != nil || window.attachedSheet != nil || commandPalette != nil || siteMenu?.isShown == true || iconPicker?.isShown == true || themeEditor != nil || sidebarMousePressed || sidebarDragActive || sidebarTitleEditor?.isEditingTitle == true
         return SidebarRevealState.intent(hidden: session.sidebarHidden, revealed: sidebarRevealed,
                                          active: window.isVisible && !window.isMiniaturized,
@@ -1338,6 +1347,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         DispatchQueue.main.asyncAfter(deadline: .now() + (intent == .reveal ? 0.08 : 0.18), execute: task)
     }
     private func render() {
+        session.repairTabSelections()
         session.normalizeSplits()
         if swipeTarget != nil { swipeNeedsRender = true; return }
         if !renderingSpaceSwitch { finishSpaceSwitch() }
@@ -2805,7 +2815,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func finishProfileReload(_ id: String) {
         guard let reload = profileReloads[id], reload.waiting.isEmpty else { return }
         profileReloads.removeValue(forKey:id)
-        if !reload.cancelled, let i = session.spaces.firstIndex(where: { $0.id == id }) { session.spaces[i].profileID = reload.profileID }
+        if !reload.cancelled, let i = session.spaces.firstIndex(where: { $0.id == id }) {
+            session.spaces[i].profileID = reload.profileID
+            let aliases = session.normalizeFavoriteTabs()
+            discardDeletedBrowsers(Set(aliases.keys))
+        }
         persist()
         DispatchQueue.main.async { [weak self] in self?.render(); self?.showSelectedTab() }
     }
@@ -2974,10 +2988,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if refresh { refreshTabVisual(tabID) }
     }
     private func favoriteIsLoaded(_ id: String) -> Bool {
-        guard let local = session.tabs.first(where: {
-            $0.spaceID == session.activeSpaceID && ($0.id == id || $0.favoriteSourceID == id)
-        }) else { return false }
-        return containers[local.id] != nil && status[local.id]?.hasLoaded == true && status[local.id]?.error == nil
+        guard let shared = session.favoriteTabID(id,spaceID:session.activeSpaceID) else { return false }
+        return containers[shared] != nil && status[shared]?.hasLoaded == true && status[shared]?.error == nil
     }
     private func favoriteImage(_ id: String) -> NSImage? {
         if let image = favicons[id] { return image }
@@ -3078,7 +3090,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     func browserRequestedNewTab(_ url: String, sourceTab: String) {
         guard !isQuitting else { return }
         guard let source = session.tabs.first(where: { $0.id == sourceTab }), let normalized = browserURL(url,engine:session.profile(forSpace:source.spaceID)?.engine ?? .google) else { return }
-        _ = session.createTab(url: normalized.absoluteString, spaceID: source.spaceID); render(); showSelectedTab(); persist()
+        _ = session.createTab(url: normalized.absoluteString, spaceID: session.browsingSpaceID(for:source)); render(); showSelectedTab(); persist()
     }
     func browserPrepareExtensionTab(_ sourceTab: String, active: Bool, pinned: Bool, index: Int) -> [String: Any]? {
         guard !isQuitting, let source = session.tabs.first(where: { $0.id == sourceTab }),
@@ -3116,11 +3128,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let value = url.isEmpty ? "about:blank" : url
         guard isAllowedBrowserURL(value) else { return nil }
         let previousSpace = session.activeSpaceID
-        let selected = session.spaces.first(where: { $0.id == source.spaceID })?.selectedTabID
-        let id = session.createTab(url: value, spaceID: source.spaceID)
+        let spaceID = session.browsingSpaceID(for:source)
+        let selected = session.spaces.first(where: { $0.id == spaceID })?.selectedTabID
+        let id = session.createTab(url: value, spaceID: spaceID)
         guard !id.isEmpty else { return nil }
         if !active {
-            if let index = session.spaces.firstIndex(where: { $0.id == source.spaceID }) { session.spaces[index].selectedTabID = selected }
+            if let index = session.spaces.firstIndex(where: { $0.id == spaceID }) { session.spaces[index].selectedTabID = selected }
             session.activeSpaceID = previousSpace
         }
         let container = NSView(frame: content.bounds); content.addSubview(container); containers[id] = container
@@ -3901,7 +3914,7 @@ extension BrowserController {
         if next.spaces.contains(where: { $0.id == previous.activeSpaceID }) { next.activeSpaceID = previous.activeSpaceID }
         for i in next.spaces.indices {
             if let local = previous.spaces.first(where: { $0.id == next.spaces[i].id }),
-               next.tabs.contains(where: { $0.id == local.selectedTabID && $0.spaceID == local.id }) { next.spaces[i].selectedTabID = local.selectedTabID }
+               let selected = local.selectedTabID, next.canSelectTab(selected,in:local.id) { next.spaces[i].selectedTabID = selected }
         }
         guard next != previous else { return }
         session = next

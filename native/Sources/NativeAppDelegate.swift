@@ -9,6 +9,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private var privateOrigins: [String:String] = [:] // ephemeral CEF context ID → originating regular profile
     private var publishTask: DispatchWorkItem?
     private var archiveTimer: Timer?
+    private var favoriteMigrationAliases: [String:String] = [:]
     let store: SessionStore
     var initial: BrowserSession
     private(set) var sharedSession: BrowserSession
@@ -17,6 +18,8 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     var observers: [NSObjectProtocol] = []
     init(store: SessionStore, initial: BrowserSession) {
         self.store = store; self.initial = initial; sharedSession = initial
+        favoriteMigrationAliases = sharedSession.normalizeFavoriteTabs()
+        self.initial = sharedSession
         super.init()
         let center = NotificationCenter.default
         for name in [BrowserCommands.changed, Notification.Name("BrowserLanguageChanged")] {
@@ -39,7 +42,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         }
         let records = WindowPersistence(directory:store.directory).load()
         for record in records {
-            guard let state = record.restoredSession(shared:sharedSession) else { continue }
+            guard let state = record.restoredSession(shared:sharedSession,favoriteAliases:favoriteMigrationAliases) else { continue }
             let window = makeController(state:state,kind:record.kind,privateWindow:false)
             if record.frame.count == 4, record.frame.allSatisfy(\.isFinite), record.frame[2] >= 760, record.frame[3] >= 540 {
                 let rect = NSRect(x:record.frame[0],y:record.frame[1],width:min(8000,record.frame[2]),height:min(8000,record.frame[3]))

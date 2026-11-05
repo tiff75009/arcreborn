@@ -49,6 +49,15 @@ import Foundation
         check(try store.load() == applied,"session and baseline persist together")
         let oldData = try JSONEncoder().encode(base)
         check(try JSONDecoder().decode(BrowserSession.self,from:oldData).cloudSyncState == nil,"old session without sync metadata remains readable")
+        var favorites = base
+        _ = favorites.moveToFavorites(tab,spaceID:favorites.activeSpaceID,at:0)
+        let sharedSpace = favorites.createSpace(name:"Shared",color:"#112233",icon:"✦")
+        favorites.selectTab(id:tab)
+        var updated = favorites; updated.tabs[0].title = "Shared favorite title"
+        let windowMerge = try BrowserSession.merging(base:favorites,incoming:updated,latest:favorites)
+        check(windowMerge.spaces.first { $0.id == sharedSpace }?.selectedTabID == tab && windowMerge.validated(),"window merging preserves shared favorite selections")
+        let syncedFavorites = ArcSyncCodec.applying(ArcSyncCodec.canonical(updated),to:favorites,checkpointKey:owner,checkpoint:checkpoint)
+        check(syncedFavorites.spaces.first { $0.id == sharedSpace }?.selectedTabID == tab && syncedFavorites.validated(),"sync restores same-profile shared favorite selections")
         print("PASS \(count) sync checks; real browser profile untouched")
     }
 }

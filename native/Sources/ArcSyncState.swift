@@ -76,7 +76,7 @@ enum ArcSyncCodec {
         if result.spaces.contains(where: { $0.id == latest.activeSpaceID }) { result.activeSpaceID = latest.activeSpaceID }
         for i in result.spaces.indices {
             let localSelected = latest.spaces.first(where: { $0.id == result.spaces[i].id })?.selectedTabID
-            result.spaces[i].selectedTabID = result.tabs.first(where: { $0.id == localSelected && $0.spaceID == result.spaces[i].id })?.id
+            result.spaces[i].selectedTabID = localSelected.flatMap { result.canSelectTab($0,in:result.spaces[i].id) ? $0 : nil }
                 ?? result.tabs.first(where: { $0.spaceID == result.spaces[i].id })?.id
         }
         result.cloudSyncState = latest.cloudSyncState ?? [:]

@@ -17,7 +17,7 @@ struct BrowserWindowRecord: Codable {
         sidebarHidden = state.sidebarHidden; sidebarWidth = state.sidebarWidth
         let rect = controller.window.frame; frame = [rect.minX,rect.minY,rect.width,rect.height]
     }
-    func restoredSession(shared:BrowserSession) -> BrowserSession? {
+    func restoredSession(shared:BrowserSession, favoriteAliases:[String:String] = [:]) -> BrowserSession? {
         guard kind == .normal || kind == .blank else { return nil }
         var state = kind == .normal ? shared : standalone ?? shared
         state.interfaceStyle = shared.interfaceStyle
@@ -34,10 +34,14 @@ struct BrowserWindowRecord: Codable {
         }
         if state.spaces.contains(where: { $0.id == activeSpaceID }) { state.activeSpaceID = activeSpaceID }
         for i in state.spaces.indices {
-            if let id = selections[state.spaces[i].id], state.tabs.contains(where: { $0.id == id && $0.spaceID == state.spaces[i].id }) { state.spaces[i].selectedTabID = id }
+            if let saved = selections[state.spaces[i].id] {
+                let id = favoriteAliases[saved] ?? saved
+                if state.canSelectTab(id,in:state.spaces[i].id) { state.spaces[i].selectedTabID = id }
+            }
         }
         state.sidebarHidden = state.currentInterface == .classic ? classicSidebarHidden ?? sidebarHidden : sidebarHidden
         state.sidebarWidth = SidebarSizing.clamp(sidebarWidth)
+        state.normalizeFavoriteTabs()
         return state.validated() ? state : nil
     }
 }

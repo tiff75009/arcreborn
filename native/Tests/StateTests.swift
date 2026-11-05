@@ -31,6 +31,7 @@ import CoreGraphics
         try collapsedSelectionTests()
         try favoriteTests()
         try sharedFavoriteTests()
+        try sharedFavoriteProfileTests()
         spaceNavigationTests()
         deletionUndoTests()
         var harmony = SpaceTheme.solid("#0086A6").preparedForColorWheel()
@@ -339,6 +340,69 @@ import CoreGraphics
         for i in 1..<BrowserSession.maximumSpaces { _ = full.createSpace(name:"Space \(i)",color:"#112233",icon:"✦") }
         let before = full
         check(full.createSpace(name:"Overflow",color:"#112233",icon:"✦").isEmpty && full == before && full.validated(),"100-space storage limit rejects creation atomically")
+    }
+    static func sharedFavoriteProfileTests() throws {
+        var state = BrowserSession.fresh()
+        let first = state.activeSpaceID, profile = state.profiles[0].id
+        let favorite = state.createTab(url:"https://example.com")
+        _ = state.moveToFavorites(favorite,spaceID:first,at:0)
+        let second = state.createSpace(name:"Second",color:"#112233",icon:"✦")
+        let ordinary = state.createTab(url:"https://example.org")
+        check(state.favoriteTabID(favorite,spaceID:second) == favorite,"loaded favorite resolves across spaces before clicking")
+        check(state.selectFavorite(favorite) == favorite && state.tabs.count == 2,"same-profile spaces share a single favorite tab")
+        check(state.activeSpaceID == second && state.spaces[1].selectedTabID == favorite && state.validated(),"shared selection stays in the current space")
+        check(state.browsingSpaceID(for:state.tabs[0]) == second,"links from shared favorites open in the displaying space")
+        let shared = state
+        state.activeSpaceID = first; state.selectTab(id:favorite); state.activeSpaceID = second
+        check(state.spaces[1].selectedTabID == favorite && state.tabs.count == 2,"switching spaces preserves the selected shared identity")
+        check(try JSONDecoder().decode(BrowserSession.self,from:JSONEncoder().encode(state)) == state && state.validated(),"shared selections survive persistence")
+        state.closeTab(id:favorite)
+        check(state.spaces.allSatisfy { $0.selectedTabID != favorite } && state.validated(),"closing shared favorite clears every referencing selection")
+        state = shared
+        state.folders.append(NativeFolder(id:"shared-folder",spaceID:second,name:"Folder",collapsed:false))
+        check(state.moveSidebarItem(.tab(favorite),spaceID:second,to:.init(parentID:"shared-folder",before:nil)),"shared favorite moves to another same-profile space's folder")
+        check(state.tabs.count == 2 && state.tabs.first { $0.id == favorite }?.spaceID == second && state.validated(),"unfavoriting moves the original tab without duplicating it")
+        state = shared
+        state.tabs.append(NativeTab(id:"legacy-copy",spaceID:second,url:"https://example.com/current",title:"Current",pinned:true,favorite:false,folderID:nil,favoriteSourceID:favorite))
+        state.spaces[1].selectedTabID = "legacy-copy"
+        check(state.validated(),"legacy per-space copies remain decodable")
+        let aliases = state.normalizeFavoriteTabs()
+        check(aliases["legacy-copy"] == favorite && state.tabs.count == 2 && state.spaces[1].selectedTabID == favorite,"migration collapses legacy copies and redirects selections")
+        check(state.tabs.first { $0.id == favorite }?.url == "https://example.com/current" && state.validated(),"migration preserves active favorite navigation")
+        check(state.normalizeFavoriteTabs().isEmpty,"favorite migration is idempotent")
+        var crossProfile = BrowserSession.fresh()
+        let sourceSpace = crossProfile.activeSpaceID
+        let sourceFavorite = crossProfile.createTab(url:"https://example.com/source")
+        _ = crossProfile.moveToFavorites(sourceFavorite,spaceID:sourceSpace,at:0)
+        crossProfile.profiles.append(NativeProfile(id:"isolated",name:"Isolated"))
+        _ = crossProfile.createSpace(name:"Other profile",color:"#112233",icon:"✦",profileID:"isolated")
+        let isolatedTab = crossProfile.selectFavorite(sourceFavorite)!
+        let isolatedIndex = crossProfile.tabs.firstIndex { $0.id == isolatedTab }!
+        crossProfile.tabs[isolatedIndex].url = "https://example.com/isolated"
+        crossProfile.tabs[isolatedIndex].title = "Isolated page"
+        let crossProfileBefore = crossProfile
+        crossProfile.removeSpace(id:sourceSpace)
+        check(crossProfile.validated() && crossProfile.tabs.count == 1,"removing the last source-profile space consolidates its surviving favorite")
+        check(DeletionUndo(kind:.space,before:crossProfileBefore,after:crossProfile).restoring(crossProfile) == crossProfileBefore,"undo restores isolated favorites and their individual navigation")
+
+        state.profiles.append(NativeProfile(id:"other",name:"Other"))
+        let third = state.createSpace(name:"Third",color:"#112233",icon:"✦",profileID:"other")
+        check(state.favoriteTabID(favorite,spaceID:third) == nil && !state.canSelectTab(favorite,in:third),"favorite resolution never crosses profile boundaries")
+        let other = state.selectFavorite(favorite)!
+        let fourth = state.createSpace(name:"Fourth",color:"#112233",icon:"✦",profileID:"other")
+        let count = state.tabs.count
+        check(state.selectFavorite(favorite) == other && state.tabs.count == count && state.activeSpaceID == fourth,"other-profile spaces also share one isolated favorite instance")
+        state.selectTab(id:other)
+        check(state.activeSpaceID == fourth && state.validated(),"selecting a profile-local favorite does not jump back to its owner space")
+        let beforeOwnerRemoval = state
+        state.removeSpace(id:third)
+        check(DeletionUndo(kind:.space,before:beforeOwnerRemoval,after:state).restoring(state) == beforeOwnerRemoval,"undo restores a profile-local favorite to its original owner space")
+        check(state.tabs.first { $0.id == other }?.spaceID == fourth && state.validated(),"deleting the owner space preserves its profile's shared favorite")
+        state.activeSpaceID = second
+        state.selectTab(id:ordinary)
+        check(state.spaces.first { $0.id == second }?.selectedTabID == ordinary,"ordinary tabs retain independent selection")
+        state.removeSpace(id:first)
+        check(state.profile(forSpace:state.tabs.first { $0.id == favorite }!.spaceID)?.id == profile && state.validated(),"deleting original space keeps favorite in the same profile when possible")
     }
     static func favoriteTests() throws {
         check(FavoriteGridLayout(count:1).frame(at:0,width:230).width == 230,"one favorite fills the row")

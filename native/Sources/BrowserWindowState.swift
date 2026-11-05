@@ -52,9 +52,7 @@ extension BrowserSession {
             if let folder = result.tabs[i].folderID, !result.folders.contains(where: { $0.id == folder && $0.spaceID == result.tabs[i].spaceID && $0.liveHost == nil }) { result.tabs[i].folderID = nil }
             if let source = result.tabs[i].favoriteSourceID, !result.tabs.contains(where: { $0.id == source && $0.favorite }) { result.tabs[i].favoriteSourceID = nil }
         }
-        for i in result.spaces.indices where !result.tabs.contains(where: { $0.id == result.spaces[i].selectedTabID && $0.spaceID == result.spaces[i].id }) {
-            result.spaces[i].selectedTabID = result.tabs.first(where: { $0.spaceID == result.spaces[i].id })?.id
-        }
+        result.repairTabSelections()
         if !spaces.contains(result.activeSpaceID), let first = result.spaces.first { result.activeSpaceID = first.id }
         for i in result.closedTabs.indices {
             if let folder = result.closedTabs[i].folderID, !result.folders.contains(where: { $0.id == folder && $0.spaceID == result.closedTabs[i].spaceID && $0.liveHost == nil }) { result.closedTabs[i].folderID = nil }
