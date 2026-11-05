@@ -67,6 +67,7 @@ final class SidebarPeekContent: NSView {
 }
 
 private final class RecentFileRow: NSView {
+    static let height: CGFloat = 39
     var open: (() -> Void)?
     let thumbnail = NSImageView(), nameLabel = NSTextField(labelWithString:""), dateLabel = NSTextField(labelWithString:"")
     private var hovered = false
@@ -77,9 +78,9 @@ private final class RecentFileRow: NSView {
     init(file: RecentLibraryFile, remove: @escaping () -> Void, language: String, ink: NSColor, open: @escaping () -> Void) {
         super.init(frame:.zero); self.open = open; setAccessibilityElement(true); setAccessibilityRole(.group)
         wantsLayer = true; layer?.cornerRadius = 10; focusRingType = .none
-        nameLabel.stringValue = file.url.lastPathComponent; nameLabel.font = .systemFont(ofSize:13,weight:.medium); nameLabel.textColor = ink; nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.stringValue = file.url.lastPathComponent; nameLabel.font = .systemFont(ofSize:12.5,weight:.medium); nameLabel.textColor = ink; nameLabel.lineBreakMode = .byTruncatingMiddle
         let formatter = RelativeDateTimeFormatter(); formatter.locale = Locale(identifier:language); formatter.unitsStyle = .full
-        dateLabel.stringValue = formatter.localizedString(for:file.date,relativeTo:Date()); dateLabel.font = .systemFont(ofSize:12); dateLabel.textColor = ink.withAlphaComponent(0.55)
+        dateLabel.stringValue = formatter.localizedString(for:file.date,relativeTo:Date()); dateLabel.font = .systemFont(ofSize:10.5); dateLabel.textColor = ink.withAlphaComponent(0.64)
         thumbnail.imageScaling = .scaleProportionallyUpOrDown; thumbnail.wantsLayer = true; thumbnail.layer?.cornerRadius = 7; thumbnail.layer?.masksToBounds = true
         thumbnail.image = NSWorkspace.shared.icon(forFile:file.url.path)
         revealButton.invoke = { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }; removeButton.invoke = remove
@@ -96,10 +97,11 @@ private final class RecentFileRow: NSView {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect:NSRect) {}
     override func layout() {
-        super.layout(); thumbnail.frame = NSRect(x:3,y:7,width:40,height:40)
-        nameLabel.frame = NSRect(x:54,y:11,width:max(20,bounds.width-62),height:19)
-        dateLabel.frame = NSRect(x:54,y:30,width:max(20,bounds.width-112),height:18)
-        revealButton.frame = NSRect(x:bounds.width-51,y:29,width:23,height:23); removeButton.frame = NSRect(x:bounds.width-26,y:29,width:23,height:23)
+        super.layout(); thumbnail.frame = NSRect(x:4,y:7,width:25,height:25)
+        let textWidth = max(0,bounds.width-33-(hovered ? 57 : 6))
+        nameLabel.frame = NSRect(x:33,y:4,width:textWidth,height:17)
+        dateLabel.frame = NSRect(x:33,y:20,width:textWidth,height:15)
+        revealButton.frame = NSRect(x:bounds.width-53,y:7,width:23,height:24); removeButton.frame = NSRect(x:bounds.width-27,y:7,width:23,height:24)
     }
     override var mouseDownCanMoveWindow: Bool { false }
     override func mouseDown(with event:NSEvent) {}
@@ -112,7 +114,7 @@ private final class RecentFileRow: NSView {
     }
     func refreshHover() { if let window { hover(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) } }
     private func hover(_ value:Bool) {
-        guard hovered != value else { return }; hovered = value
+        guard hovered != value else { return }; hovered = value; needsLayout = true
         layer?.backgroundColor = NSColor.white.withAlphaComponent(value ? 0.08 : 0).cgColor
         NSAnimationContext.runAnimationGroup { context in context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.14; revealButton.animator().alphaValue = value ? 1 : 0; removeButton.animator().alphaValue = value ? 1 : 0 }
     }
@@ -130,6 +132,8 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
     private var cards: [DownloadCard] = []
     private var downloadIDs: [String] = []
     private let allButton = ActionButton("",action:{})
+    private let surface = CALayer(), footerRule = CALayer()
+    private let inset:CGFloat = 4, footerHeight:CGFloat = 28
     var transferAction: ((String,String) -> Void)?
     var transferRemove: ((String) -> Void)?
     var removeRecent: ((URL) -> Void)?
@@ -138,10 +142,17 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
     private var previewURL: URL?
     private var animationToken = 0
     private let emptyLabel = NSTextField(wrappingLabelWithString:"")
-    var desiredHeight: CGFloat { cards.isEmpty ? CGFloat(max(1,rows.count))*56+4 : CGFloat(cards.count)*102+34 }
+    var desiredHeight: CGFloat {
+        let content = cards.isEmpty ? CGFloat(max(1,rows.count))*RecentFileRow.height : cards.reduce(footerHeight) { $0+$1.shelfHeight }
+        return content + 2*inset
+    }
     override var acceptsFirstResponder: Bool { true }
     override init(frame:NSRect) {
         super.init(frame:frame); wantsLayer = true; isHidden = true
+        surface.cornerRadius = 11; surface.cornerCurve = .continuous; surface.borderWidth = 0.5
+        layer?.addSublayer(surface); layer?.addSublayer(footerRule)
+        allButton.image = NSImage(systemSymbolName:"chevron.right",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:8.5,weight:.semibold))
+        allButton.imagePosition = .imageRight
         allButton.isHidden = true; allButton.invoke = { [weak self] in self?.showDownloads?() }; addSubview(allButton)
         emptyLabel.font = .systemFont(ofSize:12); emptyLabel.alignment = .center; addSubview(emptyLabel)
     }
@@ -151,7 +162,7 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
         if ids != downloadIDs {
             cards.forEach { $0.removeFromSuperview() }; downloadIDs = ids
             cards = downloads.map { _ in
-                let card = DownloadCard(frame:.zero)
+                let card = DownloadCard(frame:.zero,compact:true)
                 card.action = { [weak self] in self?.transferAction?($0,$1) }
                 card.removeRecord = { [weak self] in self?.transferRemove?($0) }
                 card.seen = { [weak self] in self?.transferSeen?($0) }
@@ -160,7 +171,16 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
             }
         }
         for (card,record) in zip(cards,downloads) { card.update(record,language:language,ink:ink) }
-        allButton.isHidden = cards.isEmpty; allButton.title = language == "fr" ? "Tous les téléchargements" : "All Downloads"; allButton.contentTintColor = ink
+        let allTitle = language == "fr" ? "Tous les téléchargements" : "All Downloads"
+        allButton.isHidden = cards.isEmpty; allButton.contentTintColor = ink.withAlphaComponent(0.64)
+        allButton.attributedTitle = NSAttributedString(string:allTitle,attributes:[.font:NSFont.systemFont(ofSize:11,weight:.medium),.foregroundColor:ink.withAlphaComponent(0.74)])
+        allButton.setAccessibilityLabel(allTitle)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        surface.backgroundColor = ink.withAlphaComponent(0.04).cgColor
+        surface.borderColor = ink.withAlphaComponent(0.075).cgColor
+        footerRule.backgroundColor = ink.withAlphaComponent(0.12).cgColor
+        footerRule.isHidden = cards.isEmpty
+        CATransaction.commit()
         rows.forEach { $0.isHidden = !cards.isEmpty }
         if !cards.isEmpty { emptyLabel.isHidden = true; needsLayout = true; return }
         emptyLabel.stringValue = L10n.text(loading ? "loadingMedia" : "nothingHere",language:language); emptyLabel.textColor = ink.withAlphaComponent(0.65); emptyLabel.isHidden = !files.isEmpty
@@ -171,9 +191,18 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
     }
     override func layout() {
         super.layout()
-        for (i,row) in rows.enumerated() { row.frame = NSRect(x:5,y:CGFloat(i)*56,width:bounds.width-10,height:54); row.layout() }
-        for (i,card) in cards.enumerated() { card.frame = NSRect(x:5,y:CGFloat(i)*102,width:bounds.width-10,height:98); card.layout() }
-        allButton.frame = NSRect(x:12,y:bounds.height-29,width:bounds.width-24,height:25)
+        let x:CGFloat = 8, width = max(0,bounds.width-2*x)
+        for (i,row) in rows.enumerated() { row.frame = NSRect(x:x,y:inset+CGFloat(i)*RecentFileRow.height,width:width,height:RecentFileRow.height); row.layout() }
+        var y = inset
+        for card in cards {
+            card.frame = NSRect(x:x,y:y,width:width,height:card.shelfHeight)
+            y += card.shelfHeight; card.layout()
+        }
+        allButton.frame = NSRect(x:x,y:y+1,width:width,height:footerHeight-1)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        surface.frame = bounds.insetBy(dx:4,dy:1)
+        footerRule.frame = NSRect(x:x+5,y:y,width:max(0,width-10),height:1/(window?.backingScaleFactor ?? 2))
+        CATransaction.commit()
         emptyLabel.frame = NSRect(x:12,y:10,width:bounds.width-24,height:40)
     }
     override func hitTest(_ point:NSPoint) -> NSView? {

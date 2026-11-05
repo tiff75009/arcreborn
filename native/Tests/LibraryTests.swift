@@ -25,12 +25,13 @@ import Foundation
         check(updated.last?.cacheKey != media.first(where: { $0.name == "Photo Été.png" })?.cacheKey,"modified file invalidates thumbnail identity")
         let store = LibraryStore(directory:root,downloadsDirectory:downloads)
         check(!store.mediaEnabled && store.media.isEmpty,"no directory read before Show Media")
-        store.updateDownload(id:"one",name:"First",path:"/tmp/a",source:"https://example.test/a",profileID:"personal",received:5,total:10,state:"progress")
-        store.updateDownload(id:"two",name:"Second",path:"/tmp/b",source:"https://example.test/b",profileID:"work",received:20,total:20,state:"complete")
+        check(!store.updateDownload(id:"one",name:"First",path:"",source:"https://example.test/a",profileID:"personal",received:0,total:10,state:"progress"),"no arrival before the destination is known")
+        check(store.updateDownload(id:"one",name:"First",path:"/tmp/a",source:"https://example.test/a",profileID:"personal",received:5,total:10,state:"progress"),"accepted transfer animates once")
+        check(store.updateDownload(id:"two",name:"Second",path:"/tmp/b",source:"https://example.test/b",profileID:"work",received:20,total:20,state:"complete"),"instant completion also signals an arrival")
         check(store.matchingDownloads(query:"",profiles:["work"]).map(\.id) == ["two"],"download profile isolation")
         check(store.matchingDownloads(query:"first",profiles:[]).map(\.id) == ["one"],"download search")
         check(store.downloads.first(where: { $0.id == "one" })?.fraction == 0.5,"download progress")
-        store.updateDownload(id:"one",name:"",path:"",source:"",profileID:"",received:7,total:10,state:"progress")
+        check(!store.updateDownload(id:"one",name:"",path:"",source:"",profileID:"",received:7,total:10,state:"progress"),"subsequent progress does not relaunch the animation")
         check(store.downloads.count == 2 && store.downloads.first(where: { $0.id == "one" })?.profileID == "personal","callbacks preserve original profile and do not duplicate")
         store.flush()
         let secondWindow = LibraryStore(directory:root,downloadsDirectory:downloads)
@@ -57,10 +58,10 @@ import Foundation
         }
         let recent = RecentLibraryFile.collect(media:recentFiles,downloads:[])
         check(recent.count == 4,"hover preview is limited to four files")
-        check(recent.map { $0.url.lastPathComponent } == ["recent-5.png","recent-4.png","recent-3.png","recent-2.png"],"hover files are newest first")
+        check(recent.map { $0.url.lastPathComponent } == ["recent-2.png","recent-3.png","recent-4.png","recent-5.png"],"the four most recent files put the newest nearest the footer")
         let duplicate = LibraryDownload(id:"duplicate",name:"duplicate",path:recentFiles[5].url.path,source:"",profileID:"p",date:Date(timeIntervalSince1970:20),received:1,total:1,state:"complete")
         let combined = RecentLibraryFile.collect(media:recentFiles,downloads:[duplicate])
-        check(combined.count == 4 && Set(combined.map(\.url)).count == 4 && combined.first?.date == duplicate.date,"media and download duplicates merge using latest date")
+        check(combined.count == 4 && Set(combined.map(\.url)).count == 4 && combined.last?.date == duplicate.date,"media and download duplicates merge using latest date")
         var incomplete = duplicate; incomplete.state = "progress"
         check(RecentLibraryFile.collect(media:[],downloads:[incomplete]).isEmpty,"unfinished downloads are not opened by hover preview")
         var missing = duplicate; missing.path = root.appendingPathComponent("missing.pdf").path
@@ -83,6 +84,7 @@ import Foundation
         check(controls.suffix(2) == ["one:resume","one:cancel"],"paused download supports resume and cancel")
         for i in 0..<10 { store.updateDownload(id:"multi-\(i)",name:"Transfer \(i)",path:"",source:"",profileID:"work",received:10,total:100,state:"progress",speed:50) }
         check(store.activeDownloads.count == 11 && store.peekDownloads.count == 4,"all active transfers retained, shelf limited to four")
+        check(store.peekDownloads.map(\.id) == ["multi-6","multi-7","multi-8","multi-9"],"newest active transfer sits at the bottom of the hover shelf")
         check(store.matchingDownloads(query:"Transfer",profiles:["work"]).count == 10,"full library contains all ten concurrent downloads")
         check(store.downloads.first(where: { $0.id == "multi-0" })?.speed == 50,"engine throughput is retained")
         store.updateDownload(id:"multi-0",name:"",path:"",source:"",profileID:"",received:100,total:100,state:"complete")

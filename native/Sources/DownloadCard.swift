@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import UniformTypeIdentifiers
 
 /// The same transfer card is used by the compact shelf and the virtualized library.
 final class DownloadCard: NSView {
@@ -11,6 +12,9 @@ final class DownloadCard: NSView {
     private var pause: ActionButton!, cancel: ActionButton!
     private var reveal: ActionButton!, remove: ActionButton!
     private var hovered = false
+    private let compact: Bool
+    private var ink = NSColor.white
+    private var fileType: UTType?
     var removeRecord: ((String) -> Void)?
     private var record: LibraryDownload?
     private var tracking: NSTrackingArea?
@@ -19,9 +23,11 @@ final class DownloadCard: NSView {
     var seen: ((String) -> Void)?
     var open: ((URL) -> Void)?
     override var isFlipped: Bool { true }
-    override init(frame:NSRect) {
-        super.init(frame:frame); wantsLayer = true; layer?.cornerRadius = 12; layer?.backgroundColor = NSColor.white.withAlphaComponent(0.035).cgColor
-        nameLabel.font = .systemFont(ofSize:12.5,weight:.semibold); nameLabel.lineBreakMode = .byTruncatingMiddle
+    var shelfHeight: CGFloat { record?.isActive == true ? 48 : 33 }
+    init(frame:NSRect, compact:Bool = false) {
+        self.compact = compact
+        super.init(frame:frame); wantsLayer = true; layer?.cornerRadius = compact ? 7 : 12
+        nameLabel.font = .systemFont(ofSize:12.5,weight:compact ? .medium : .semibold); nameLabel.lineBreakMode = .byTruncatingMiddle
         for label in [sizeLabel,statusLabel] { label.font = .systemFont(ofSize:10.5); label.lineBreakMode = .byTruncatingTail }
         pause = TransferActionButton("",symbol:"pause.fill") { [weak self] in guard let self, let record = self.record else { return }; self.action?(record.id,record.state == "paused" ? "resume" : "pause") }
         cancel = TransferActionButton("",symbol:"xmark") { [weak self] in guard let self, let record = self.record else { return }; self.action?(record.id,"cancel") }
@@ -31,17 +37,23 @@ final class DownloadCard: NSView {
         }
         remove = TransferActionButton("",symbol:"xmark") { [weak self] in guard let self, let record = self.record else { return }; self.removeRecord?(record.id) }
         for button in [pause!,cancel!,reveal!,remove!] { button.wantsLayer = true; button.layer?.cornerRadius = 7; button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor }
+        if compact {
+            sizeLabel.alignment = .right
+            glyph.imageScaling = .scaleProportionallyUpOrDown
+        }
         for child in [glyph,nameLabel,sizeLabel,statusLabel,pause!,cancel!,reveal!,remove!] { addSubview(child) }
         fill.anchorPoint = CGPoint(x:0,y:0); track.cornerRadius = 2; fill.cornerRadius = 2; track.masksToBounds = true; track.addSublayer(fill); layer?.addSublayer(track)
         setAccessibilityElement(true); setAccessibilityRole(.group)
     }
     required init?(coder:NSCoder) { fatalError() }
     func update(_ value:LibraryDownload, language:String, ink:NSColor = .white) {
+        self.ink = ink
         if record?.id != value.id { seenTask?.cancel(); seenTask = nil }
         record = value; let fr = language == "fr"
         nameLabel.stringValue = value.name.isEmpty ? (fr ? "Téléchargement" : "Download") : value.name
         nameLabel.textColor = ink.withAlphaComponent(0.94); sizeLabel.textColor = ink.withAlphaComponent(0.63); statusLabel.textColor = ink.withAlphaComponent(0.74)
-        let bytes = { (n:Int64) in ByteCountFormatter.string(fromByteCount:max(0,n),countStyle:.file) }
+        let byteFormat = ByteCountFormatStyle(style:.file,spellsOutZero:false,locale:Locale(identifier:fr ? "fr_FR" : "en_US"))
+        let bytes = { (n:Int64) in byteFormat.format(max(0,n)) }
         sizeLabel.stringValue = value.total > 0 ? "\(bytes(value.received)) / \(bytes(value.total))" : bytes(value.received)
         switch value.state {
         case "progress": statusLabel.stringValue = "\(bytes(value.speed ?? 0))/s" + (value.total > 0 ? "  ·  \(Int(value.fraction*100)) %" : "  ·  " + (fr ? "En cours" : "Downloading"))
@@ -50,7 +62,23 @@ final class DownloadCard: NSView {
         case "cancelled": statusLabel.stringValue = fr ? "Annulé" : "Cancelled"
         default: statusLabel.stringValue = fr ? "Interrompu" : "Interrupted"
         }
-        glyph.image = NSImage(systemSymbolName:value.state == "complete" ? "checkmark.circle.fill" : value.state == "paused" ? "pause.circle" : value.isActive ? "arrow.down.circle" : "doc",accessibilityDescription:nil); glyph.contentTintColor = ink.withAlphaComponent(0.75)
+        let description = [nameLabel.stringValue,sizeLabel.stringValue,statusLabel.stringValue].joined(separator:", ")
+        if compact && value.state == "complete" {
+            let type = UTType(filenameExtension:(nameLabel.stringValue as NSString).pathExtension) ?? .data
+            if fileType != type { glyph.image = NSWorkspace.shared.icon(for:type); fileType = type }
+            glyph.contentTintColor = nil
+            sizeLabel.stringValue = bytes(value.received)
+        } else {
+            fileType = nil
+            glyph.image = NSImage(systemSymbolName:value.state == "complete" ? "checkmark.circle.fill" : value.state == "paused" ? "pause.circle" : value.isActive ? "arrow.down.circle" : "doc",accessibilityDescription:nil)
+            glyph.contentTintColor = ink.withAlphaComponent(0.75)
+        }
+        if compact && value.state == "progress" {
+            let amount = value.total > 0 ? "\(Int(value.fraction*100)) %" : bytes(value.received)
+            statusLabel.stringValue = (value.speed ?? 0) > 0 ? amount+" · "+bytes(value.speed ?? 0)+"/s" : amount
+        } else if compact && value.state == "paused" && value.total > 0 {
+            statusLabel.stringValue += " · \(Int(value.fraction*100)) %"
+        }
         pause.isHidden = !value.isActive; cancel.isHidden = !value.isActive
         pause.image = NSImage(systemSymbolName:value.state == "paused" ? "play.fill" : "pause.fill",accessibilityDescription:nil)
         pause.toolTip = value.state == "paused" ? (fr ? "Reprendre" : "Resume") : (fr ? "Mettre en pause" : "Pause")
@@ -61,8 +89,9 @@ final class DownloadCard: NSView {
         reveal.alphaValue = hovered ? 1 : 0; remove.alphaValue = hovered ? 1 : 0
         for button in [pause!,cancel!,reveal!,remove!] { button.contentTintColor = ink; button.setAccessibilityLabel(button.toolTip) }
         track.backgroundColor = ink.withAlphaComponent(0.12).cgColor; fill.backgroundColor = ink.withAlphaComponent(value.state == "paused" ? 0.4 : 0.85).cgColor
-        track.isHidden = !value.isActive; toolTip = value.name
-        setAccessibilityLabel(nameLabel.stringValue + ", " + sizeLabel.stringValue + ", " + statusLabel.stringValue)
+        track.isHidden = !value.isActive; toolTip = compact ? description : value.name
+        layer?.backgroundColor = rowColor.cgColor
+        setAccessibilityLabel(description)
         needsLayout = true; layout()
         scheduleSeen()
     }
@@ -79,16 +108,36 @@ final class DownloadCard: NSView {
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); scheduleSeen() }
     override func layout() {
         super.layout(); let w = bounds.width
-        glyph.frame = NSRect(x:10,y:12,width:21,height:21)
-        nameLabel.frame = NSRect(x:39,y:11,width:max(20,w-49-53),height:19)
-        pause.frame = NSRect(x:w-57,y:9,width:24,height:25); cancel.frame = NSRect(x:w-29,y:9,width:24,height:25)
+        let progressFrame: NSRect
+        if compact {
+            let active = record?.isActive == true
+            let complete = record?.state == "complete"
+            let textX:CGFloat = 33
+            let actionsY = floor((bounds.height-24)/2)
+            pause.frame = NSRect(x:w-53,y:actionsY,width:23,height:24)
+            cancel.frame = NSRect(x:w-27,y:actionsY,width:23,height:24)
+            let sizeWidth = min(ceil(sizeLabel.attributedStringValue.size().width)+8,w*0.33)
+            let trailing = active || hovered ? pause.frame.minX-4 : w-7-(complete ? sizeWidth+5 : 0)
+            glyph.frame = NSRect(x:6,y:floor((bounds.height-20)/2),width:20,height:20)
+            nameLabel.frame = NSRect(x:textX,y:active ? 4 : floor((bounds.height-17)/2),width:max(0,trailing-textX),height:17)
+            sizeLabel.frame = NSRect(x:w-7-sizeWidth,y:floor((bounds.height-15)/2),width:sizeWidth,height:15)
+            sizeLabel.isHidden = !complete || hovered
+            statusLabel.isHidden = !active
+            statusLabel.frame = NSRect(x:textX,y:22,width:max(0,trailing-textX),height:15)
+            progressFrame = NSRect(x:textX+2,y:40,width:max(0,trailing-textX-2),height:2)
+        } else {
+            glyph.frame = NSRect(x:10,y:12,width:21,height:21)
+            nameLabel.frame = NSRect(x:39,y:11,width:max(20,w-49-53),height:19)
+            pause.frame = NSRect(x:w-57,y:9,width:24,height:25); cancel.frame = NSRect(x:w-29,y:9,width:24,height:25)
+            sizeLabel.frame = NSRect(x:12,y:39,width:max(0,w-24),height:16)
+            statusLabel.frame = NSRect(x:12,y:60,width:max(0,w-24),height:17)
+            progressFrame = NSRect(x:12,y:84,width:max(0,w-24),height:3)
+        }
         reveal.frame = pause.frame; remove.frame = cancel.frame
-        sizeLabel.frame = NSRect(x:12,y:39,width:w-24,height:16)
-        statusLabel.frame = NSRect(x:12,y:60,width:w-24,height:17)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        track.frame = CGRect(x:12,y:84,width:max(0,w-24),height:3)
+        track.frame = progressFrame
         let old = fill.presentation()?.bounds.width ?? fill.bounds.width
-        fill.frame = CGRect(x:0,y:0,width:track.bounds.width * (record?.fraction ?? 0),height:3)
+        fill.frame = CGRect(x:0,y:0,width:track.bounds.width * (record?.fraction ?? 0),height:track.bounds.height)
         CATransaction.commit()
         if abs(old-fill.bounds.width) > 0.5, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let animation = CABasicAnimation(keyPath:"bounds.size.width"); animation.fromValue = old; animation.toValue = fill.bounds.width; animation.duration = 0.22; fill.add(animation,forKey:"progress")
@@ -106,13 +155,17 @@ final class DownloadCard: NSView {
         if let window { setHovered(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) }
     }
     func refreshHover() { if let window { setHovered(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) } }
+    private var rowColor:NSColor {
+        compact ? ink.withAlphaComponent(hovered ? 0.08 : 0) : NSColor.white.withAlphaComponent(hovered ? 0.09 : 0.035)
+    }
     private func setHovered(_ value:Bool) {
         guard hovered != value else { return }; hovered = value
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.14
             reveal.animator().alphaValue = value ? 1 : 0; remove.animator().alphaValue = value ? 1 : 0
         }
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(value ? 0.09 : 0.035).cgColor
+        layer?.backgroundColor = rowColor.cgColor
+        if compact { needsLayout = true }
     }
     override func mouseEntered(with event:NSEvent) { setHovered(true); scheduleSeen() }
     override func mouseExited(with event:NSEvent) { setHovered(window.map { visibleRect.contains(convert($0.mouseLocationOutsideOfEventStream,from:nil)) } ?? false) }

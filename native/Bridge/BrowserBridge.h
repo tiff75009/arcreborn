@@ -33,6 +33,10 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)runMessageLoop;
 + (NSString *)chromiumVersion;
 + (NSApplication *)createApplication;
++ (NSString *)currentDownloadDirectory NS_SWIFT_NAME(currentDownloadDirectory());
++ (BOOL)asksForDownloadLocation NS_SWIFT_NAME(asksForDownloadLocation());
++ (BOOL)changeDownloadDirectory:(NSString *)path NS_SWIFT_NAME(changeDownloadDirectory(_:));
++ (BOOL)changeDownloadPrompt:(BOOL)ask NS_SWIFT_NAME(changeDownloadPrompt(_:));
 - (BOOL)registerPrivateProfile:(NSString *)profileID;
 - (void)releasePrivateProfile:(NSString *)profileID;
 - (void)updateLanguages;

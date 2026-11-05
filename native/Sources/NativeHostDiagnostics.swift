@@ -10,7 +10,7 @@ func startNativeHostDiagnostics() {
         func views(_ v: NSView) -> [[String: Any]] {
             var result: [[String: Any]] = []
             let name = NSStringFromClass(type(of: v))
-            if name.contains("WebContents") || name.contains("RenderWidget") || name.contains("TabCell") || v is NSButton {
+            if name.contains("WebContents") || name.contains("RenderWidget") || name.contains("TabCell") || v is NSButton || v is DownloadFlightView {
                 result.append(["class": name, "window": v.window?.windowNumber ?? -1,
                                "hidden": v.isHiddenOrHasHiddenAncestor,
                                "label": v.accessibilityLabel() ?? "",

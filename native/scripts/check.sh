@@ -9,6 +9,8 @@ xcrun swiftc -O Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTr
 build/checks/favicon-cache-tests
 xcrun swiftc -O Sources/TabSoundButton.swift Tests/TabSoundButtonTests.swift -o build/checks/tab-sound-tests
 build/checks/tab-sound-tests
+xcrun swiftc -O Sources/{LibraryStore,Localization,ActionButton,DownloadCard,RecentMediaPeek}.swift Tests/DownloadShelfTests.swift -o build/checks/download-shelf-tests
+build/checks/download-shelf-tests
 xcrun clang++ -fobjc-arc -framework Foundation Tests/TestKeychainPolicyTests.mm -o build/checks/test-keychain-policy
 build/checks/test-keychain-policy
 /usr/bin/python3 scripts/release.py check

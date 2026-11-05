@@ -36,6 +36,9 @@ records the effective GN arguments, PGO profile and validated V8 configuration.
 Engine `arcreborn.6` adds `browser_observe_tab_sound_v1` on top of that build.
 It reports audibility and mute changes from each tab's Chromium WebContents
 on the UI thread. The observer lives for the lifetime of the WebContents.
+In `arcreborn.7`, the shell passes `--arc-reborn-sidebar-downloads` to let
+AppKit draw the transfer animation and completion feedback. Chromium handles
+download destinations, collision resolution and explicit security dialogs.
 A macOS SDK is obtained through the developer's Xcode installation.
 
 Before changing the patch stack, update its hashes and increment the engine

@@ -705,6 +705,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let resizeStrip = ResizeStrip()
     private let sidebarItems = SidebarPeekContent(frame:.zero)
     private let recentPeek = RecentMediaPeek(frame:.zero)
+    private weak var downloadFlight: DownloadFlightView?
+    private var lastPagePress: (tab:String, point:NSPoint, time:TimeInterval)?
     private var recentPeekVisible = false
     private var recentPeekTask: DispatchWorkItem?
     private var recentPeekPending: Bool?
@@ -713,7 +715,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var libraryClosing = false
     private static let downloadRunID = UUID().uuidString
     private var downloadRun:String { Self.downloadRunID }
-    private lazy var libraryStore = LibraryStore(directory:store.directory,downloadsDirectory:ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DOWNLOADS"].map { URL(fileURLWithPath:$0) },persistent:!isPrivateWindow)
+    private lazy var libraryStore = LibraryStore(directory:store.directory,downloadsDirectory:URL(fileURLWithPath:BrowserEngine.currentDownloadDirectory(),isDirectory:true),persistent:!isPrivateWindow)
     private var rows: [SidebarRow] = []
     private var sidebarCollapse = SidebarCollapseState()
     private var treeRows: [SidebarTreeRow] = []
@@ -792,6 +794,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             }
         }
         buildInterface()
+        sidebarObservers.append(NotificationCenter.default.addObserver(forName:Notification.Name("BrowserDownloadPreferencesChanged"),object:nil,queue:.main) { [weak self] _ in
+            self?.libraryStore.useDownloadsDirectory(URL(fileURLWithPath:BrowserEngine.currentDownloadDirectory(),isDirectory:true))
+            self?.preferencesWindow?.refreshDownloadSettings()
+        })
         libraryStore.control = { [weak self] id,action in
             guard let self, id.hasPrefix(self.downloadRun+"-"), let number = UInt(id.dropFirst(self.downloadRun.count+1)) else { return }
             self.engine.controlDownload(number,action:action)
@@ -891,6 +897,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { requestWindowClose(); return false }
     func windowDidResize(_ notification: Notification) {
+        downloadFlight?.removeFromSuperview(); downloadFlight = nil
         dismissSidebarTip()
         dismissFolderPeek(animated:false)
         finishSpaceSwitch()
@@ -1347,6 +1354,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func sidebarHoverIntent() -> SidebarRevealIntent {
         if NSEvent.pressedMouseButtons & 1 == 0 { sidebarMousePressed = false }
+        if downloadFlight != nil && sidebarRevealed { return .keep }
         let interacting = folderPeek != nil || library != nil || trackingMenus > 0 || addMenu != nil || spaceCreation != nil || sheet != nil || window.attachedSheet != nil || commandPalette != nil || siteMenu?.isShown == true || iconPicker?.isShown == true || themeEditor != nil || sidebarMousePressed || sidebarDragActive || sidebarTitleEditor?.isEditingTitle == true
         return SidebarRevealState.intent(hidden: session.sidebarHidden, revealed: sidebarRevealed,
                                          active: window.isVisible && !window.isMiniaturized,
@@ -1400,6 +1408,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
 
     private func trackSidebarPointer(_ event: NSEvent) {
         guard siteMenu?.isShown != true else { clearSidebarPointerFeedback(); return }
+        if event.type == .leftMouseDown, event.window === window, let tab = activeTab,
+           content.visibleRect.contains(content.convert(event.locationInWindow,from:nil)) {
+            lastPagePress = (tab.id,root.convert(event.locationInWindow,from:nil),ProcessInfo.processInfo.systemUptime)
+        }
         updateSidebarPointerFeedback(event)
         if event.window === window && [.mouseMoved,.mouseEntered,.leftMouseUp].contains(event.type) {
             trackSidebarTip(at:event.locationInWindow)
@@ -1891,7 +1903,29 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     func browserDownloadUpdated(_ tabID: String, values: [String:Any]) {
         guard let id = values["id"] as? NSNumber else { return }
         let profile = session.tabs.first(where: { $0.id == tabID }).flatMap { tab in session.spaces.first(where: { $0.id == tab.spaceID })?.profileID } ?? ""
-        libraryStore.updateDownload(id:downloadRun+"-"+id.stringValue,name:values["name"] as? String ?? "",path:values["path"] as? String ?? "",source:values["url"] as? String ?? "",profileID:profile,received:(values["received"] as? NSNumber)?.int64Value ?? 0,total:(values["total"] as? NSNumber)?.int64Value ?? 0,state:values["state"] as? String ?? "progress",speed:(values["speed"] as? NSNumber)?.int64Value ?? 0)
+        let started = libraryStore.updateDownload(id:downloadRun+"-"+id.stringValue,name:values["name"] as? String ?? "",path:values["path"] as? String ?? "",source:values["url"] as? String ?? "",profileID:profile,received:(values["received"] as? NSNumber)?.int64Value ?? 0,total:(values["total"] as? NSNumber)?.int64Value ?? 0,state:values["state"] as? String ?? "progress",speed:(values["speed"] as? NSNumber)?.int64Value ?? 0)
+        if started { animateDownload(fromTab:tabID) }
+    }
+    private func animateDownload(fromTab id:String) {
+        guard downloadFlight == nil, window.isVisible, !window.isMiniaturized, window.occlusionState.contains(.visible),
+              !closingWindow, !isQuitting, windowKind != .compact, library == nil, spaceCreation == nil else { return }
+        let overlay = DownloadFlightView(frame:root.bounds)
+        root.addSubview(overlay,positioned:.above,relativeTo:nil); downloadFlight = overlay
+        if session.sidebarHidden { setSidebarRevealed(true) }
+        // The sidebar may still be sliding. Aim at the footer's resting position.
+        let center = sidebarHost.convert(NSPoint(x:downloadButton.bounds.midX,y:downloadButton.bounds.midY),from:downloadButton)
+        let end = NSPoint(x:sidebarFrame.minX+center.x,y:sidebarFrame.minY+center.y)
+        let page = content.frame
+        let start: NSPoint
+        if let press = lastPagePress, press.tab == id, ProcessInfo.processInfo.systemUptime-press.time < 3, page.contains(press.point) {
+            start = press.point
+        } else {
+            start = NSPoint(x:page.minX+page.width*0.42,y:page.midY)
+        }
+        overlay.play(from:start,into:end,ink:sidebarInk,paper:tint()) { [weak self, weak overlay] in
+            guard let self, self.downloadFlight === overlay else { return }
+            self.downloadFlight = nil; self.refreshSidebarPointer()
+        }
     }
     private func showAddMenu() {
         if let addMenu { addMenu.close(); return }
@@ -2414,7 +2448,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let index = session.tabs.firstIndex { $0.id == command.id }
         if ["pin","favorite","folder","unfolder"].contains(command.kind) { session.detachSplitTab(command.id) }
         switch command.kind {
-        case "downloads": if let url = FileManager.default.urls(for:.downloadsDirectory,in:.userDomainMask).first { NSWorkspace.shared.open(url) }; return
+        case "downloads": NSWorkspace.shared.open(libraryStore.downloadsDirectory); return
         case "settings": settingsAction(nil); return
         case "restore": restoreTabAction(nil); return
         case "newWindow": newWindowRequested?(.normal)

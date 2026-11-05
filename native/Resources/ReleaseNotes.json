@@ -1,36 +1,47 @@
 {
-  "version": "0.8.1",
-  "build": 21,
-  "showOnLaunch": false,
+  "version": "0.9.0",
+  "build": 22,
+  "showOnLaunch": true,
   "title": {
-    "en": "Tab audio controls",
-    "fr": "Le son dans la barre latérale"
+    "en": "Downloads in the sidebar",
+    "fr": "Les téléchargements dans la barre latérale"
   },
   "subtitle": {
-    "en": "A clearer speaker button for tabs and favorites.",
-    "fr": "Un bouton de son plus facile à repérer dans les onglets et les favoris."
+    "en": "Follow your transfers in the library at the bottom left and choose where your files are saved.",
+    "fr": "Retrouve tes transferts dans la bibliothèque en bas à gauche et choisis où enregistrer tes fichiers."
   },
   "highlights": [
     {
-      "symbol": "speaker.wave.2",
+      "symbol": "arrow.down",
       "title": {
-        "en": "See what a click will do",
-        "fr": "Le son au survol"
+        "en": "Follow the download arrow",
+        "fr": "Suis la flèche de téléchargement"
       },
       "detail": {
-        "en": "The speaker has a softer tint and a rounded highlight on hover. Its tooltip tells you whether clicking will mute or unmute that tab.",
-        "fr": "Le haut-parleur est légèrement atténué. Au survol, un fond arrondi le souligne et une infobulle indique si un clic va couper ou réactiver le son de cet onglet."
+        "en": "When a download starts, an arrow moves to the library button. Hover there to see its progress, pause it, resume it or cancel it. This also works when the sidebar hides automatically.",
+        "fr": "Au début d’un téléchargement, une flèche rejoint le bouton de la bibliothèque. Survole-le pour suivre la progression, mettre en pause, reprendre ou annuler le transfert. Cela fonctionne aussi en masquage automatique."
       }
     },
     {
-      "symbol": "star",
+      "symbol": "list.bullet",
       "title": {
-        "en": "A centered speaker in favorites",
-        "fr": "Un haut-parleur centré dans les favoris"
+        "en": "A more compact list",
+        "fr": "Un aperçu plus compact"
       },
       "detail": {
-        "en": "The speaker now sits just above the favicon. The favicon slides down to make room and returns to the center when the button disappears.",
-        "fr": "Le haut-parleur se place juste au-dessus du favicon. Le favicon descend pour lui laisser de la place et se recentre quand le bouton disparaît."
+        "en": "Completed files each take one line, with the size beside the name. The newest file sits at the bottom, nearest the library button. Active transfers also show progress and speed.",
+        "fr": "Chaque fichier terminé tient sur une ligne, avec sa taille à côté du nom. Le plus récent se trouve en bas, au plus près du bouton. Les transferts en cours affichent aussi leur progression et leur débit."
+      }
+    },
+    {
+      "symbol": "folder",
+      "title": {
+        "en": "Choose your download folder",
+        "fr": "Choisis ton dossier de téléchargement"
+      },
+      "detail": {
+        "en": "Open Settings → General → Downloads to choose a folder for future downloads. You can also ask for a location each time you save a file.",
+        "fr": "Dans Réglages → Général → Téléchargements, choisis le dossier des prochains fichiers. Tu peux aussi demander où enregistrer chaque téléchargement."
       }
     }
   ]

@@ -56,7 +56,7 @@ final class LibraryStore {
     private var saved: Saved
     private let file: URL
     private let persistent: Bool
-    let downloadsDirectory: URL
+    private(set) var downloadsDirectory: URL
     let capturesDirectory: URL
     private var captures: [LibraryMedia] = []
     private let queue = DispatchQueue(label:"Browser.Library.scan",qos:.utility)
@@ -71,7 +71,7 @@ final class LibraryStore {
     var unreadCount: Int { saved.downloads.filter { $0.state == "complete" && $0.unread == true }.count }
     var activeDownloads: [LibraryDownload] { downloads.filter(\.isActive) }
     var peekDownloads: [LibraryDownload] {
-        Array((activeDownloads + downloads.filter { $0.state == "complete" }).prefix(4))
+        (activeDownloads + downloads.filter { $0.state == "complete" }).prefix(4).sorted { $0.date < $1.date }
     }
     func acknowledge(_ ids: Set<String>) {
         var modified = false
@@ -119,6 +119,13 @@ final class LibraryStore {
         Self.instances.removeAll { $0.value == nil }; Self.instances.append(WeakStore(self))
     }
     func enableMedia() { saved.mediaEnabled = true; persist(); refreshMedia() }
+    func useDownloadsDirectory(_ directory:URL) {
+        guard directory != downloadsDirectory else { return }
+        downloadsDirectory = directory
+        generation += 1; scanning = false; scanAgain = false; loading = false
+        scannedMedia = []; mediaError = nil
+        if mediaEnabled { refreshMedia() } else { changed?() }
+    }
     @discardableResult func saveCapture(_ data: Data) throws -> URL {
         try FileManager.default.createDirectory(at:capturesDirectory,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
         let date = DateFormatter(); date.locale = Locale(identifier:"en_US_POSIX"); date.dateFormat = "yyyy-MM-dd HH.mm.ss"
@@ -154,9 +161,14 @@ final class LibraryStore {
             }
         }
     }
-    func updateDownload(id: String, name: String, path: String, source: String, profileID: String, received: Int64, total: Int64, state: String, speed: Int64 = 0) {
-        let completed = state == "complete" && saved.downloads.first(where: { $0.id == id })?.state != "complete"
-        if let i = saved.downloads.firstIndex(where: { $0.id == id }) {
+    /// Returns true once a new transfer has a destination, including tiny files
+    /// whose first update is already complete. A cancelled save dialog has none.
+    @discardableResult func updateDownload(id: String, name: String, path: String, source: String, profileID: String, received: Int64, total: Int64, state: String, speed: Int64 = 0) -> Bool {
+        let index = saved.downloads.firstIndex(where: { $0.id == id })
+        let previous = index.map { saved.downloads[$0] }
+        let started = (previous?.path ?? "").isEmpty && !path.isEmpty && (state == "progress" || state == "paused" || state == "complete")
+        let completed = state == "complete" && previous?.state != "complete"
+        if let i = index {
             saved.downloads[i].name = name.isEmpty ? saved.downloads[i].name : name
             saved.downloads[i].path = path.isEmpty ? saved.downloads[i].path : path
             saved.downloads[i].speed = max(0,speed)
@@ -169,6 +181,7 @@ final class LibraryStore {
         if completed { saved.hiddenRecents?.removeAll { $0 == URL(fileURLWithPath:path).standardizedFileURL.path } }
         persist(); downloadsChanged?(); changed?()
         if completed { refreshMedia() }
+        return started
     }
     func matchingDownloads(query: String, profiles: Set<String>) -> [LibraryDownload] {
         downloads.filter { (profiles.isEmpty || profiles.contains($0.profileID)) && (query.isEmpty || $0.name.localizedStandardContains(query)) }
@@ -202,7 +215,7 @@ struct RecentLibraryFile: Equatable {
             let path = $0.url.standardizedFileURL.resolvingSymlinksInPath().path
             var directory: ObjCBool = false
             return !excluding.contains($0.url.standardizedFileURL.path) && FileManager.default.fileExists(atPath:path,isDirectory:&directory) && !directory.boolValue && seen.insert(path).inserted
-        }.prefix(4))
+        }.prefix(4).reversed())
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "156.0.8078.80-arcreborn.6",
+  "version": "156.0.8078.80-arcreborn.7",
   "platform": "macos-arm64",
   "cefCommit": "cf671c072925b27823a61181152f4f288e8e4306",
   "chromiumCommit": "fb096c0011f9d50f0a264a9376420cdea9c421e3",
@@ -38,13 +38,17 @@
     {
       "file": "patches/appkit-tab-sound.patch",
       "sha256": "bd8934c1c3b0cd2bc86955335e532a6ae9e23e9cf501b43c41d8617d3ab6c883"
+    },
+    {
+      "file": "patches/appkit-download-feedback.patch",
+      "sha256": "d9e161165ea37e802d6f6286fbdbbf5d877b543402b6b5a17e41ae2033b547cd"
     }
   ],
   "gnDefines": "use_system_xcode=true is_official_build=true is_component_build=false symbol_level=0 use_remoteexec=false proprietary_codecs=true ffmpeg_branding=\"Chrome\" media_use_openh264=false rtc_use_h264=false rtc_use_h265=false enable_hevc_parser_and_hw_decoder=true enable_platform_hevc=true is_debug=false dcheck_always_on=false enable_expensive_dchecks=false chrome_pgo_phase=2 use_thin_lto=false disable_fieldtrial_testing_config=true",
   "buildTarget": "cef_framework",
   "archive": {
-    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.6-macos-arm64.tar.gz",
-    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.6/ArcReborn-Engine-156.0.8078.80-arcreborn.6-macos-arm64.tar.gz",
-    "sha256": "d0067a5535767b000f8f94aeb1cc3fe525d6a0732e19a9e958238503ab2fd0c0"
+    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.7-macos-arm64.tar.gz",
+    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.7/ArcReborn-Engine-156.0.8078.80-arcreborn.7-macos-arm64.tar.gz",
+    "sha256": "0d544007f428fce03f5bb4602983caacb016dc89f8fc60a224c45be3ee9bffe0"
   }
 }

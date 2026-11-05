@@ -42,7 +42,7 @@ static std::map<std::string, CefRefPtr<CefBrowser>> browsers;
 struct NativeTabOwner { __weak BrowserEngine *engine = nil; };
 static std::map<std::string, NativeTabOwner> nativeTabOwners;
 static std::set<std::string> discardedBrowsers;
-static std::map<uint32_t, CefRefPtr<CefDownloadItemCallback>> downloadControls;
+static std::map<uint64_t, CefRefPtr<CefDownloadItemCallback>> downloadControls;
 static std::map<std::string, CefRefPtr<CefRequestContext>> profiles;
 static std::set<std::string> privateProfiles;
 // Resolve only in the CEF image already loaded by CefScopedLibraryLoader.
@@ -242,12 +242,40 @@ static bool ApplySearchProvider(CefRefPtr<CefRequestContext> context, const Prof
   CefString error;
   return context->SetPreference(pref, value, error);
 }
+static constexpr char kDownloadDirectory[] = "download.default_directory";
+static constexpr char kDownloadPrompt[] = "download.prompt_for_download";
+static void ApplyDownloadLocation(CefRefPtr<CefRequestContext> context) {
+  CefString error;
+  // The global Chromium profile persists these Mac-specific settings. Mirror
+  // them into each browsing context, including contexts created later.
+  auto global = CefRequestContext::GetGlobalContext();
+  if (context->IsSame(global)) {
+    NSString *testRoot = NSProcessInfo.processInfo.environment[@"BROWSER_NATIVE_TEST_DATA"];
+    if (testRoot) {
+      // New isolated runs must never save into the user's real Downloads.
+      // A later explicit choice in the same fixture survives relaunch.
+      auto preferences = global->GetAllPreferences(false);
+      auto settings = preferences->GetDictionary("download");
+      if (!settings || !settings->HasKey("default_directory")) {
+        NSString *folder = NSProcessInfo.processInfo.environment[@"BROWSER_NATIVE_TEST_DOWNLOADS"] ?: [testRoot stringByAppendingPathComponent:@"Downloads"];
+        auto directory = CefValue::Create(); directory->SetString(folder.UTF8String);
+        global->SetPreference(kDownloadDirectory, directory, error);
+      }
+    }
+  } else {
+    for (const char* key : {kDownloadDirectory, kDownloadPrompt}) {
+      auto setting = global->GetPreference(key);
+      if (setting && context->CanSetPreference(key)) context->SetPreference(key, setting, error);
+    }
+  }
+}
 class ThemeContextHandler : public CefRequestContextHandler {
  public:
   explicit ThemeContextHandler(std::string profile) : profile_(std::move(profile)) {}
   void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override {
     CEF_REQUIRE_UI_THREAD();
     ApplyWebLanguage(context);
+    ApplyDownloadLocation(context);
     ApplyCredentialPreferences(context);
     auto search = searchProviders.find(profile_);
     if (search != searchProviders.end() && !ApplySearchProvider(context, search->second))
@@ -326,7 +354,7 @@ static void Notify(NSString *name) { [[NSNotificationCenter defaultCenter] postN
 class NativeApp : public CefApp, public CefBrowserProcessHandler {
  public:
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
-  void OnContextInitialized() override { BrowserTrace(@"cef.ready"); ApplyCredentialPreferences(CefRequestContext::GetGlobalContext()); ApplyWebLanguage(CefRequestContext::GetGlobalContext()); RegisterNativeExtensionTabs(true); Notify(@"BrowserEngineReady"); }
+  void OnContextInitialized() override { BrowserTrace(@"cef.ready"); ApplyCredentialPreferences(CefRequestContext::GetGlobalContext()); ApplyWebLanguage(CefRequestContext::GetGlobalContext()); ApplyDownloadLocation(CefRequestContext::GetGlobalContext()); RegisterNativeExtensionTabs(true); Notify(@"BrowserEngineReady"); }
   CefRefPtr<CefClient> GetDefaultClient() override { BrowserTrace(@"cef.default-client"); return NewExtensionClient(); }
   void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command) override {
     // Chromium provides a fake keychain specifically for disposable tests.
@@ -336,6 +364,7 @@ class NativeApp : public CefApp, public CefBrowserProcessHandler {
     // AppKit restores its own tabs. CEF keeps session cookies by enabling
     // Chrome session restore, which must not open an extra browser window.
     command->AppendSwitch("no-startup-window");
+    command->AppendSwitch("arc-reborn-sidebar-downloads");
     // Our CEF helpers initialize the sandbox through CefScopedSandboxContext.
     // Chromium's experimental Aperitif helper bundles are not shipped by CEF.
     auto disabled = command->GetSwitchValue("disable-features").ToString();
@@ -858,26 +887,29 @@ class NativeClient : public CefClient,
   }
   void OnDownloadUpdated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item, CefRefPtr<CefDownloadItemCallback> callback) override {
     CEF_REQUIRE_UI_THREAD();
+    if (!item->IsValid()) return;
+    // Chromium allocates download IDs per profile. Include the originating
+    // browser so simultaneous transfers never share a row or a control.
+    const uint64_t key = (uint64_t(browser->GetIdentifier()) << 32) | item->GetId();
     // CRX transfers belong to Chromium's extension installer, not the library.
     if (chrome_ && item->GetMimeType().ToString() == "application/x-chrome-extension") {
-      downloadControls.erase(item->GetId());
+      downloadControls.erase(key);
       return;
     }
-    if (!item->IsValid() || ![engine_.delegate respondsToSelector:@selector(browserDownloadUpdated:values:)]) return;
+    if (![engine_.delegate respondsToSelector:@selector(browserDownloadUpdated:values:)]) return;
     NSString *path = [NSString stringWithUTF8String:item->GetFullPath().ToString().c_str()];
     NSString *url = [NSString stringWithUTF8String:item->GetURL().ToString().c_str()];
     NSString *name = path.lastPathComponent;
     if (!name.length) name = [NSString stringWithUTF8String:item->GetSuggestedFileName().ToString().c_str()];
-    if (item->IsInProgress()) downloadControls[item->GetId()] = callback;
-    else downloadControls.erase(item->GetId());
+    if (item->IsInProgress()) downloadControls[key] = callback;
+    else downloadControls.erase(key);
     NSString *state = item->IsComplete() ? @"complete" : item->IsCanceled() ? @"cancelled" : item->IsInProgress() ? (item->IsPaused() ? @"paused" : @"progress") : @"interrupted";
-    [engine_.delegate browserDownloadUpdated:tabID_ values:@{@"id":@(item->GetId()),@"path":path ?: @"",@"url":url ?: @"",@"name":name ?: @"",@"received":@(item->GetReceivedBytes()),@"total":@(item->GetTotalBytes()),@"state":state,@"speed":@(item->GetCurrentSpeed())}];
+    [engine_.delegate browserDownloadUpdated:tabID_ values:@{@"id":@(key),@"path":path ?: @"",@"url":url ?: @"",@"name":name ?: @"",@"received":@(item->GetReceivedBytes()),@"total":@(item->GetTotalBytes()),@"state":state,@"speed":@(item->GetCurrentSpeed())}];
   }
   bool OnBeforeDownload(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item, const CefString& name, CefRefPtr<CefBeforeDownloadCallback> callback) override {
-    // Delegate CRX downloads without invoking the callback. Forcing a save
-    // dialog also makes Chromium classify them as ordinary file downloads,
-    // bypassing its normal extension installation and permission flow.
-    if (chrome_ && item->GetMimeType().ToString() == "application/x-chrome-extension") return false;
+    // Let Chrome use its configured Downloads directory or prompt when the
+    // user requests Save As. This also preserves the extension install flow.
+    if (chrome_) return false;
     callback->Continue(name, true);
     return true;
   }
@@ -944,7 +976,52 @@ static void QuitNext() {
 #include "NativePageMenus.inc"
 #include "NativeExtensionTabs.inc"
 
+static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value) {
+  if (!running || quitting) return false;
+  std::vector<CefRefPtr<CefRequestContext>> contexts{CefRequestContext::GetGlobalContext()};
+  for (const auto& entry : profiles)
+    if (readyProfiles.count(entry.first)) contexts.push_back(entry.second);
+  std::vector<CefRefPtr<CefValue>> previous;
+  for (const auto& ctx : contexts) {
+    if (!ctx->CanSetPreference(key)) return false;
+    previous.push_back(ctx->GetPreference(key));
+  }
+  CefString error;
+  for (size_t i = 0; i < contexts.size(); ++i) {
+    if (contexts[i]->SetPreference(key, value, error)) continue;
+    for (size_t j = 0; j < i; ++j) contexts[j]->SetPreference(key, previous[j], error);
+    return false;
+  }
+  Notify(@"BrowserDownloadPreferencesChanged");
+  return true;
+}
+
 @implementation BrowserEngine
++ (NSString *)currentDownloadDirectory {
+  if (running && !quitting) {
+    auto value = CefRequestContext::GetGlobalContext()->GetPreference(kDownloadDirectory);
+    if (value && !value->GetString().empty()) return Str(value->GetString());
+  }
+  return [NSFileManager.defaultManager URLsForDirectory:NSDownloadsDirectory inDomains:NSUserDomainMask].firstObject.path;
+}
++ (BOOL)asksForDownloadLocation {
+  if (!running || quitting) return NO;
+  auto value = CefRequestContext::GetGlobalContext()->GetPreference(kDownloadPrompt);
+  return value && value->GetBool();
+}
++ (BOOL)changeDownloadDirectory:(NSString *)path {
+  if (!running || quitting) return NO;
+  BOOL directory = NO;
+  if (!path.isAbsolutePath || ![NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] || !directory ||
+      ![NSFileManager.defaultManager isWritableFileAtPath:path]) return NO;
+  auto value = CefValue::Create(); value->SetString(CefStr(path));
+  return ChangeDownloadPreference(kDownloadDirectory, value);
+}
++ (BOOL)changeDownloadPrompt:(BOOL)ask {
+  if (!running || quitting) return NO;
+  auto value = CefValue::Create(); value->SetBool(ask);
+  return ChangeDownloadPreference(kDownloadPrompt, value);
+}
 - (BOOL)registerPrivateProfile:(NSString *)profileID {
   CEF_REQUIRE_UI_THREAD();
   if (!profileID.length || profileID.length > 100 ||
@@ -962,7 +1039,7 @@ static void QuitNext() {
 }
 - (void)controlDownload:(NSUInteger)identifier action:(NSString *)action {
   CEF_REQUIRE_UI_THREAD();
-  auto found = downloadControls.find((uint32_t)identifier);
+  auto found = downloadControls.find(identifier);
   if (found == downloadControls.end()) return;
   auto callback = found->second;
   if ([action isEqualToString:@"pause"]) callback->Pause();

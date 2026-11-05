@@ -360,7 +360,41 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         link(tr("Nouveautés de la version","Release notes"),symbol:"sparkles",frame:NSRect(x:2,y:165,width:w-4,height:43),parent:updates) { BrowserUpdates.shared.showNews() }
         text(tr("Après un changement de langue, rechargez vos pages. Certains menus changent au prochain lancement.","Reload pages after changing the language. Some menus update on the next launch."),NSRect(x:x+3,y:479,width:w-6,height:52),size:11,color:.secondaryLabelColor)
         if !BrowserUpdates.shared.isAvailable { text(tr("Mises à jour désactivées en développement.","Updates are disabled in development builds."),NSRect(x:r+3,y:522,width:w-6,height:20),size:10.5,color:.secondaryLabelColor) }
-        pageContent.frame.size.height = max(scroll.bounds.height,550)
+        sectionLabel(tr("Téléchargements","Downloads"),x:x,y:546,width:w)
+        let transfers = card(NSRect(x:x,y:567,width:w,height:102))
+        let path = BrowserEngine.currentDownloadDirectory()
+        let choose = link(tr("Dossier de téléchargement…","Download folder…"),
+                          detail:(path as NSString).abbreviatingWithTildeInPath,symbol:"folder",
+                          frame:NSRect(x:2,y:2,width:w-4,height:52),parent:transfers) { [weak self] in self?.chooseDownloadFolder() }
+        choose.toolTip = path
+        line(transfers,y:54)
+        let askLabel = tr("Demander où enregistrer chaque fichier","Ask where to save each file")
+        text(askLabel,NSRect(x:17,y:67,width:w-80,height:23),size:12,weight:.medium,in:transfers)
+        let ask = PreferenceSwitch(value:BrowserEngine.asksForDownloadLocation()) { [weak self] enabled in
+            if !BrowserEngine.changeDownloadPrompt(enabled) { self?.downloadSettingFailed() }
+        }
+        ask.frame = NSRect(x:w-56,y:66,width:40,height:24); ask.setAccessibilityLabel(askLabel); transfers.addSubview(ask)
+        pageContent.frame.size.height = max(scroll.bounds.height,686)
+    }
+    func refreshDownloadSettings() { if section == 1 { rebuild() } }
+    private func chooseDownloadFolder() {
+        guard let window else { return }
+        let picker = NSOpenPanel()
+        picker.canChooseDirectories = true; picker.canChooseFiles = false
+        picker.allowsMultipleSelection = false; picker.canCreateDirectories = true
+        picker.prompt = tr("Choisir","Choose")
+        picker.directoryURL = URL(fileURLWithPath:BrowserEngine.currentDownloadDirectory(),isDirectory:true)
+        picker.beginSheetModal(for:window) { [weak self] result in
+            guard result == .OK, let url = picker.url else { return }
+            if !BrowserEngine.changeDownloadDirectory(url.path) { self?.downloadSettingFailed() }
+        }
+    }
+    private func downloadSettingFailed() {
+        refreshDownloadSettings()
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = tr("Impossible de modifier ce réglage de téléchargement.","This download setting could not be changed.")
+        alert.beginSheetModal(for:window)
     }
     private func drawInterface() {
         heading(tr("Disposition du navigateur","Browser layout"),

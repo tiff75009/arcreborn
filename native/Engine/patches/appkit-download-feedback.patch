@@ -1,0 +1,45 @@
+diff --git a/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc b/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc
+--- a/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc
++++ b/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc
+@@ -11,6 +11,7 @@
+ #include <optional>
+ #include <string>
+ 
++#include "base/command_line.h"
+ #include "base/functional/bind.h"
+ #include "base/i18n/number_formatting.h"
+ #include "base/location.h"
+@@ -82,6 +83,13 @@
+ 
+ namespace {
+ 
++// The AppKit host shows transfer feedback in its own sidebar. Explicit
++// download commands and security dialogs still use the normal Chromium path.
++bool HasNativeDownloadFeedback() {
++  return base::CommandLine::ForCurrentProcess()->HasSwitch(
++      "arc-reborn-sidebar-downloads");
++}
++
+ using GetBadgeTextCallback = base::RepeatingCallback<gfx::RenderText&()>;
+ 
+ constexpr int kProgressRingRadius = 9;
+@@ -510,7 +518,8 @@
+   // Whether to update the icon after processing any changes.
+   bool update_icon = false;
+ 
+-  if (updates.show_animation && show_download_started_animation_) {
++  if (updates.show_animation && show_download_started_animation_ &&
++      !HasNativeDownloadFeedback()) {
+     has_pending_download_started_animation_ = true;
+     if (auto* container = GetPinnedToolbarActions(browser_view_)) {
+       container->PostOrQueueActionAfterAnimation(base::BindOnce(
+@@ -618,6 +627,9 @@
+ // we do not show the partial view. If the partial view is already showing,
+ // there is nothing to do here, the controller should update the partial view.
+ void DownloadToolbarUIController::ShowDetails() {
++  if (HasNativeDownloadFeedback()) {
++    return;
++  }
+   if (bubble_delegate_ || pending_bubble_) {
+     return;
+   }
