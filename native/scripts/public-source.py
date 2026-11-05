@@ -14,8 +14,8 @@ import shutil
 ROOT = Path(__file__).resolve().parents[2]
 DIRECTORIES = ['native/Sources','native/Bridge','native/Tests','native/Resources','native/Signing',
                'native/Demo','native/Engine/patches','native/Engine/licenses','design/app-icon/ArcReborn.icon',
-               '.github/workflows','.github/ISSUE_TEMPLATE','docs/development']
-FILES = ['README.md','LICENSE','NOTICE.md','CONTRIBUTING.md','SECURITY.md','.gitignore','Makefile',
+               '.github/workflows','.github/ISSUE_TEMPLATE','docs/development','docs/showcase']
+FILES = ['README.md','README.fr.md','LICENSE','NOTICE.md','CONTRIBUTING.md','SECURITY.md','.gitignore','Makefile',
          '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json','native/Engine/performance-candidate.gn','native/Engine/monitor.html']
 SCRIPTS = ['test-extension-placement.sh','build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
            'engine.py','performance-engine.py','monitor-engine.py','check-performance-candidate.sh','engine-framework-fingerprint.py','check-engine-patches.py',

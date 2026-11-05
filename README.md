@@ -1,17 +1,52 @@
 # Arc Reborn
 
-A native macOS browser built with **Swift, AppKit and a customized Chromium
-Embedded Framework (CEF)**. Spaces, pinned tabs, split views, extensions and
-native developer tools live in a macOS interface. This is a project in development,
-not a production security guarantee or an official continuation of Arc.
+**English** · [Français](README.fr.md)
 
-## Download for macOS
+![Arc Reborn on macOS: the default tab, the first-launch welcome screen, and a Space changing from magenta to teal as the theme handle moves.](docs/showcase/tour.gif)
 
-Install the DMG for Apple Silicon from the [latest browser release](https://github.com/tiff75009/arcreborn/releases/latest). The first launch lets you bring over supported data from another browser and optionally set up encrypted sync.
+[Download for Apple silicon](https://github.com/tiff75009/arcreborn/releases/latest) · [Website](https://www.arc-reborn.com/) · [View the stills](#a-closer-look)
 
-## Start contributing
+Arc Reborn is an independent, open-source browser for Mac. I’m building it for people who want to keep using Arc the way they already do. My aim is to recreate its look, motion and everyday behavior as faithfully as possible. I want you to recognize your Space by its color and know where a pinned tab will land before you let go of it.
 
-On an Apple Silicon Mac with Xcode and CMake (`brew install cmake`):
+I used Codex and Claude to reverse-engineer parts of Arc’s behavior. The implementation pairs a native **Swift and AppKit** interface with a customized **Chromium Embedded Framework (CEF)**. This is an independent project in active development, unaffiliated with Arc or The Browser Company.
+
+## A closer look
+
+| A fresh tab | First launch |
+| :--- | :--- |
+| [![Default tab with the sidebar and the “Where to next?” prompt](docs/showcase/home.jpg)](docs/showcase/home.jpg) | [![The native welcome screen, with its folded ribbon and Arc Reborn mark](docs/showcase/welcome.jpg)](docs/showcase/welcome.jpg) |
+| Open the command bar to find a tab or enter an address. | Bring over supported browser data and choose whether to set up encrypted sync. |
+
+| Color a Space | Work side by side |
+| :--- | :--- |
+| [![The Space theme editor open over the Studio sidebar](docs/showcase/theme.jpg)](docs/showcase/theme.jpg) | [![A mountain photograph and a field guide open in Split View](docs/showcase/split.jpg)](docs/showcase/split.jpg) |
+| Drag a color handle and watch the sidebar update as you move it. | Keep two live pages in view, with the sidebar still within reach. |
+
+**In the sidebar.** Keep everyday sites in Favorites, pin tabs inside a Space, and group related tabs into folders. Assign a Space to a separate profile when work and personal sites need different sign-ins. The command bar lets you switch tabs without having to remember which folder they’re in.
+
+**In motion.** Watch a folder icon as it opens: the front flap folds away from the back. Switching Spaces slides the sidebar into place. These details help you see what opened and where you landed. Both movements respect the Mac’s Reduce Motion setting.
+
+## Developer Mode and Capture
+
+| Developer Mode | Capture an element |
+| :--- | :--- |
+| [![Developer toolbar above a local Field Notes page](docs/showcase/developer.jpg)](docs/showcase/developer.jpg) | [![Capture highlighting the illustration while the rest of the page is dimmed](docs/showcase/capture.jpg)](docs/showcase/capture.jpg) |
+
+Enable **Developer Mode** on a tab to bring its tools above the page. Copy the current URL, open the Chromium console or network panel, inspect an element, or take a portrait capture. The goal is the same working rhythm as Arc: inspect the page you’re building and keep your reference open beside it.
+
+Press **⇧⌘2** to start a capture. Move over the page to highlight an element and click to capture it, or drag to select a rectangle. Choose **Capture Full Page** for the entire loaded document. Then annotate with arrows, text, shapes or freehand drawing, copy the PNG, save it, or share it through macOS.
+
+## Languages and translators
+
+The browser and this guide are available in **English and French**. I’d love to bring the same experience to more languages, including the small things like menu verbs, shortcut hints and the welcome screens.
+
+**Want to translate Arc Reborn into your language?** [Open a translation request](https://github.com/tiff75009/arcreborn/issues/new?title=Translation%3A%20) and tell me the language or regional variant and which part you’d like to help with. Reviewing a handful of interface labels is a good place to start. For code contributions, see the [current UI strings](native/Sources/Localization.swift) and the [contribution guide](CONTRIBUTING.md).
+
+## Install and build
+
+The public DMG runs on **Apple silicon Macs with macOS 13 or later**. You can browse locally without an account. Official builds receive signed updates through Sparkle. Check manually in **Preferences → General**. [Latest release and checksums](https://github.com/tiff75009/arcreborn/releases/latest)
+
+To build locally, install Xcode and CMake on an Apple silicon Mac, then run:
 
 ```sh
 git clone https://github.com/tiff75009/arcreborn.git
@@ -19,55 +54,8 @@ cd arcreborn
 make dev
 ```
 
-The first build downloads the exact engine archive and Sparkle, verifies their
-checksums, then compiles the native shell. Later builds reuse the engine.
-No paid Apple Developer account, Node, React or Electron is needed.
-Development uses `native/build/development/profile`, never your everyday profile.
+The first build downloads and verifies the pinned engine and Sparkle. It launches with a separate development profile. Use `make build` to compile, `make check` for focused checks, or `make demo-onboarding` to open the standalone welcome demo. Press **⌘R** in the demo to replay it with music.
 
-The [pinned engine archive](https://github.com/tiff75009/arcreborn/releases/tag/engine-156.0.8078.80-arcreborn.1) is available separately. To build it from source, follow [the engine build instructions](docs/development/engine.md).
+[Architecture and current limits](docs/development/architecture.md) · [Rebuild the engine and Chromium patches](docs/development/engine.md) · [Signing and releases](docs/development/releases.md) · [Report a security issue](SECURITY.md)
 
-```sh
-make build         # compile without launching
-make check         # focused state/release checks
-make demo-onboarding # build and open the standalone welcome demo
-```
-
-For another presentation, double-click `native/build/demo/Arc Reborn Onboarding.app` or press ⌘R in the demo to start again with music. The three screens use an in-memory session and run independently of Chromium.
-
-The runtime target is macOS 13+ / arm64. Liquid Glass icon sources are included;
-normal builds reuse compiled assets, while icon changes require Xcode 27.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the code map and PR workflow.
-
-## Sources and engine
-
-All browser source and engine modifications live on the **same branch**, with
-immutable upstream CEF/Chromium revisions and ordered patches. We do not copy
-Chromium's full Git history or compiled frameworks into this repository.
-The engine is an independently versioned GitHub Release asset with SHA-256
-verification. Anyone can rebuild it from upstream source and the included patches.
-
-- [Architecture and current limits](docs/development/architecture.md)
-- [Engine build and versioning](docs/development/engine.md)
-- [Signing, updates and releases](docs/development/releases.md)
-- [Security reporting](SECURITY.md)
-
-## Updates
-
-Official builds use Sparkle. Check for updates from the Arc Reborn menu or
-Preferences → General. By default the browser checks periodically, downloads signed
-updates in the background and installs them when you quit. Curated release
-notes appear once after an upgrade and remain accessible from Help.
-
-GitHub Releases host the DMG, signed appcast and checksums. An ordinary push runs
-CI. Maintainers can prepare a signed release locally or enable the protected release
-workflow for version tags. Publishing the release makes it available to the updater. Contributor builds and
-forks do not install official updates over their local modifications.
-
-## Open source
-
-Arc Reborn's original code is **MPL-2.0**. Upstream components keep their own
-licences; see [NOTICE.md](NOTICE.md). Accounts and encrypted synchronization are
-optional. The hosted account API is maintained separately and is not required
-for local browsing or development.
-
-Independent project; not affiliated with The Browser Company, Arc, Apple or Google.
+Arc Reborn’s original code is licensed under [MPL-2.0](LICENSE). Upstream components retain their [own licenses](NOTICE.md).
