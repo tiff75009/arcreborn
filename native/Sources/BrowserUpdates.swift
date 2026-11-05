@@ -4,10 +4,14 @@ import Sparkle
 
 /// Sparkle owns scheduling, verification, download and installation. The native
 /// application keeps its normal CEF shutdown path (including beforeunload).
-final class BrowserUpdates: NSObject {
+final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
     static let shared = BrowserUpdates()
     private var controller: SPUStandardUpdaterController?
     private var news: ReleaseNotesWindow?
+    private override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshVisibleNews), name: Notification.Name("BrowserLanguageChanged"), object: nil)
+    }
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     static let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
     private var disabled: Bool {
@@ -30,7 +34,13 @@ final class BrowserUpdates: NSObject {
         // Defaults live in Info.plist, so Sparkle preserves explicit user choices.
         // Its scheduler resumes overdue checks at launch; no competing timer or
         // unconditional launch check (which would ignore the six-hour cadence).
-        controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+    }
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        guard let base = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+              let url = URL(string: base) else { return nil }
+        let feed = "appcast-" + ReleaseNotes.Language.current.rawValue + ".xml"
+        return url.deletingLastPathComponent().appendingPathComponent(feed).absoluteString
     }
     func check() { guard canCheck else { return }; controller?.checkForUpdates(nil) }
 
@@ -60,21 +70,40 @@ final class BrowserUpdates: NSObject {
               notes.version == Self.version, String(notes.build) == Self.build else { return nil }
         return notes
     }()
-    @discardableResult func showNews() -> Bool {
-        if news == nil {
-            guard let notes = releaseNotes else { return false }
-            news = ReleaseNotesWindow(notes: notes)
+    private func localizedNews() -> ReleaseNotesWindow? {
+        let language = ReleaseNotes.Language.current
+        if news?.language != language, let notes = releaseNotes {
+            let previous = news?.window
+            news = ReleaseNotesWindow(notes: notes, language: language)
+            if let previous, previous.isVisible, let window = news?.window {
+                window.setFrameTopLeftPoint(NSPoint(x: previous.frame.minX, y: previous.frame.maxY))
+                window.order(.above, relativeTo: previous.windowNumber)
+                if previous.isKeyWindow { window.makeKey() }
+            }
+            previous?.close()
         }
-        news?.showWindow(nil); news?.window?.makeKeyAndOrderFront(nil)
+        return news
+    }
+    @objc private func refreshVisibleNews() { if news?.window?.isVisible == true { _ = localizedNews() } }
+    @discardableResult func showNews() -> Bool {
+        guard let news = localizedNews() else { return false }
+        news.showWindow(nil); news.window?.makeKeyAndOrderFront(nil)
         return true
     }
 }
 
 struct ReleaseNotes: Decodable {
+    enum Language: String {
+        case fr, en
+        static var current: Self {
+            let tag = UserDefaults.standard.string(forKey: "BrowserLanguage") ?? Locale.preferredLanguages.first ?? "en"
+            return Locale(identifier: tag).language.languageCode?.identifier == "fr" ? .fr : .en
+        }
+    }
     struct Text: Decodable {
         let fr: String
         let en: String
-        var localized: String { UserDefaults.standard.string(forKey: "BrowserLanguage") == "en" ? en : fr }
+        func localized(_ language: Language) -> String { language == .fr ? fr : en }
     }
     struct Highlight: Decodable { let symbol: String; let title: Text; let detail: Text }
     let version: String
@@ -102,11 +131,11 @@ private final class ReleaseNotesCanvas: ReleaseNotesSurface {
 private final class ReleaseHighlightRow: ReleaseNotesSurface {
     private let tint: NSColor
     private let separator: Bool
-    init(item: ReleaseNotes.Highlight, width: CGFloat, tint: NSColor, separator: Bool) {
+    init(item: ReleaseNotes.Highlight, language: ReleaseNotes.Language, width: CGFloat, tint: NSColor, separator: Bool) {
         self.tint = tint; self.separator = separator
-        let title = NSTextField(wrappingLabelWithString: item.title.localized)
+        let title = NSTextField(wrappingLabelWithString: item.title.localized(language))
         title.font = .systemFont(ofSize: 13, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: item.detail.localized)
+        let detail = NSTextField(wrappingLabelWithString: item.detail.localized(language))
         detail.font = .systemFont(ofSize: 12)
         detail.textColor = .secondaryLabelColor
         let textWidth = width - 60
@@ -135,11 +164,13 @@ private final class ReleaseHighlightRow: ReleaseNotesSurface {
 }
 
 private final class ReleaseNotesWindow: NSWindowController {
+    let language: ReleaseNotes.Language
     private var entranceViews: [NSView] = []
     private var hasAppeared = false
 
-    init(notes: ReleaseNotes) {
-        let english = UserDefaults.standard.string(forKey: "BrowserLanguage") == "en"
+    init(notes: ReleaseNotes, language: ReleaseNotes.Language) {
+        self.language = language
+        let english = language == .en
         let width: CGFloat = 520, margin: CGFloat = 38
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 610),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -168,8 +199,8 @@ private final class ReleaseNotesWindow: NSWindowController {
         header.addSubview(icon)
         _ = label("ARC REBORN  ·  \(notes.version)", y: 129, size: 10, weight: .semibold,
                   color: .secondaryLabelColor, parent: header)
-        let title = label(notes.title.localized, y: 155, size: 27, weight: .semibold, parent: header)
-        let subtitle = label(notes.subtitle.localized, y: title.frame.maxY + 9, size: 12.5,
+        let title = label(notes.title.localized(language), y: 155, size: 27, weight: .semibold, parent: header)
+        let subtitle = label(notes.subtitle.localized(language), y: title.frame.maxY + 9, size: 12.5,
                              color: .secondaryLabelColor, parent: header)
         header.frame.size.height = subtitle.frame.maxY + 22
         root.addSubview(header)
@@ -179,7 +210,7 @@ private final class ReleaseNotesWindow: NSWindowController {
         let colors: [NSColor] = [.systemIndigo, .systemTeal, .systemOrange]
         var y: CGFloat = 0
         for (index, item) in notes.highlights.enumerated() {
-            let row = ReleaseHighlightRow(item: item, width: contentWidth,
+            let row = ReleaseHighlightRow(item: item, language: language, width: contentWidth,
                                           tint: colors[index % colors.count], separator: index < notes.highlights.count - 1)
             row.frame.origin.y = y; y += row.frame.height; list.addSubview(row)
         }

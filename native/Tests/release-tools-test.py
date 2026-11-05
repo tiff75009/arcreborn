@@ -4,8 +4,11 @@ import importlib.util
 import json
 from pathlib import Path
 import plistlib
+import shutil
+import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,6 +19,45 @@ def module(name):
 release = module('release'); public = module('public-source'); engine = module('engine')
 
 class ReleaseTests(unittest.TestCase):
+    def test_github_notes_keep_both_complete_translations(self):
+        notes,_ = release.metadata()
+        english,french = release.github_notes(notes).split('<summary>Français</summary>')
+        for lang,section in [('en',english),('fr',french)]:
+            self.assertIn(notes['subtitle'][lang],section)
+            for row in notes['highlights']:
+                self.assertIn(row['title'][lang],section)
+                self.assertIn(row['detail'][lang],section)
+
+    @unittest.skipUnless((ROOT/'vendor/sparkle-2.10.1/bin/generate_appcast').exists(), 'requires the pinned Sparkle tools')
+    def test_language_feeds_share_one_signed_archive(self):
+        # Test-only bundle and signing seed: no network, production keys or Keychain.
+        notes,info = release.metadata()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); app = root/'Notes.app'; contents = app/'Contents'
+            (contents/'MacOS').mkdir(parents=True); assets = root/'assets'; assets.mkdir()
+            subprocess.run(['swift','-e',
+                'import Foundation; import CryptoKit; let k = Curve25519.Signing.PrivateKey(); '
+                'try k.rawRepresentation.base64EncodedData().write(to:URL(fileURLWithPath:CommandLine.arguments[1])); '
+                'try k.publicKey.rawRepresentation.base64EncodedData().write(to:URL(fileURLWithPath:CommandLine.arguments[2]))',
+                root/'key',root/'public'],check=True)
+            info.update(CFBundleIdentifier='local.arcreborn.test.release-notes',CFBundleExecutable='Notes',
+                        SUPublicEDKey=(root/'public').read_text())
+            (contents/'Info.plist').write_bytes(plistlib.dumps(info))
+            shutil.copy('/usr/bin/true',contents/'MacOS/Notes')
+            subprocess.run(['codesign','--force','--sign','-',app],check=True)
+            archive = assets/'Notes.zip'
+            subprocess.run(['ditto','-ck','--keepParent',app,archive],check=True)
+            release.prepare_feeds(notes,archive,ROOT/'vendor/sparkle-2.10.1',['--ed-key-file',root/'key'])
+            subprocess.run(['xcrun','swift',ROOT/'scripts/verify-release.swift',contents/'Info.plist',assets],check=True)
+            legacy = ET.parse(assets/'appcast.xml').find('./channel/item')
+            translations = {n.attrib['{http://www.w3.org/XML/1998/namespace}lang']:n.text for n in legacy.findall('description')}
+            self.assertEqual(set(translations),{'en','fr'})
+            for lang in translations:
+                item = ET.parse(assets/f'appcast-{lang}.xml').find('./channel/item')
+                self.assertEqual(item.find('enclosure').attrib,legacy.find('enclosure').attrib)
+                self.assertEqual(item.findtext('description'),translations[lang])
+                self.assertIn(release.html.escape(notes['subtitle'][lang]),translations[lang])
+
     def test_bundle_and_changelog_versions_must_match(self):
         original = release.NATIVE
         with tempfile.TemporaryDirectory() as folder:

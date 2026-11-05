@@ -15,11 +15,15 @@ import plistlib
 import re
 import shutil
 import subprocess
+import tempfile
 import time
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE = ROOT/'native'
 REPO = 'tiff75009/arcreborn'
+LANGUAGES = ('en', 'fr')
+FEEDS = ('appcast.xml', *(f'appcast-{lang}.xml' for lang in LANGUAGES))
 
 def run(*args, capture=False, **kwargs):
     result = subprocess.run(list(map(str,args)),check=True,text=True,
@@ -51,9 +55,46 @@ def metadata():
         raise ValueError('showOnLaunch must be a boolean')
     if not 1 <= len(notes['highlights']) <= 12: raise ValueError('Provide 1–12 curated release highlights')
     for item in [notes['title'],notes['subtitle'],*[t for row in notes['highlights'] for t in [row['title'],row['detail']]]]:
-        if any(not isinstance(item.get(lang),str) or not item[lang].strip() for lang in ['fr','en']):
+        if any(not isinstance(item.get(lang),str) or not item[lang].strip() for lang in LANGUAGES):
             raise ValueError('French and English release copy required')
     return notes,info
+
+def github_notes(notes):
+    def section(lang):
+        return notes['subtitle'][lang]+'\n\n'+'\n'.join(
+            '- **'+row['title'][lang]+'** — '+row['detail'][lang] for row in notes['highlights'])
+    return ('# Arc Reborn '+notes['version']+'\n\n'+section('en')+
+            '\n\nmacOS 13+ · Apple Silicon · Developer ID · Notarized by Apple\n\n'
+            '<details>\n<summary>Français</summary>\n\n'+section('fr')+
+            '\n\nmacOS 13+ · Apple Silicon · Developer ID · Notarisation Apple\n\n</details>\n')
+
+def prepare_feeds(notes, dmg, sparkle, key):
+    prefix = f'https://github.com/{REPO}/releases/download/v{notes["version"]}/'
+    for lang in LANGUAGES:
+        # A fresh input directory prevents Sparkle from reusing the previous
+        # language's embedded notes when resuming a partially prepared release.
+        with tempfile.TemporaryDirectory(dir=dmg.parent) as folder:
+            stage = Path(folder)
+            os.link(dmg, stage/dmg.name)
+            body = '<h2>'+html.escape(notes['title'][lang])+'</h2><p>'+html.escape(notes['subtitle'][lang])+'</p><ul>'
+            body += ''.join('<li><b>'+html.escape(row['title'][lang])+'</b> — '+html.escape(row['detail'][lang])+'</li>' for row in notes['highlights'])+'</ul>'
+            (stage/(dmg.stem+'.html')).write_text(body+'\n',encoding='utf-8')
+            run(sparkle/'bin/generate_appcast',*key,'--download-url-prefix',prefix,
+                '--embed-release-notes','--maximum-deltas','0',stage)
+            (stage/'appcast.xml').replace(dmg.parent/f'appcast-{lang}.xml')
+    # Installed versions through 0.7.1 only know appcast.xml. Sparkle picks
+    # its preferred xml:lang description there; newer clients explicitly use
+    # the Arc Reborn language even if macOS has a different preference.
+    ET.register_namespace('sparkle','http://www.andymatuschak.org/xml-namespaces/sparkle')
+    tree = ET.parse(dmg.parent/'appcast-en.xml')
+    item = tree.find('./channel/item')
+    lang_attr = '{http://www.w3.org/XML/1998/namespace}lang'
+    item.find('description').set(lang_attr,'en')
+    french = ET.parse(dmg.parent/'appcast-fr.xml').find('./channel/item/description')
+    french.set(lang_attr,'fr'); item.append(french)
+    legacy = dmg.parent/'appcast.xml'
+    tree.write(legacy,encoding='utf-8',xml_declaration=True)
+    run(sparkle/'bin/sign_update',*key,legacy)
 
 def authentication():
     env = os.environ
@@ -126,21 +167,14 @@ def prepare(args,notes,info):
     if not valid:
         notarize(dmg,out); run('xcrun','stapler','staple',dmg)
     run('xcrun','stapler','validate',dmg); run('codesign','--verify','--strict',dmg)
-    body = '<h2>'+html.escape(notes['title']['fr'])+'</h2><p>'+html.escape(notes['subtitle']['fr'])+'</p><ul>'
-    body += ''.join('<li><b>'+html.escape(row['title']['fr'])+'</b> — '+html.escape(row['detail']['fr'])+'</li>' for row in notes['highlights'])+'</ul>'
-    (assets/(name+'.html')).write_text(body+'\n')
     sparkle = Path(run('/usr/bin/python3',NATIVE/'scripts/fetch-sparkle.py',capture=True))
     key = ['--ed-key-file',os.environ['SPARKLE_PRIVATE_KEY_FILE']] if os.environ.get('SPARKLE_PRIVATE_KEY_FILE') else ['--account','arc-reborn']
-    run(sparkle/'bin/generate_appcast',*key,'--download-url-prefix',f'https://github.com/{REPO}/releases/download/v{notes["version"]}/',
-        '--embed-release-notes','--maximum-deltas','0',assets)
+    prepare_feeds(notes,dmg,sparkle,key)
     run('xcrun','swift',NATIVE/'scripts/verify-release.swift',NATIVE/'Resources/Info.plist',assets)
     release = {'version':notes['version'],'build':notes['build'],'engine':json.loads((NATIVE/'Engine/engine.lock.json').read_text())['version']}
     (assets/'release.json').write_text(json.dumps(release,indent=2)+'\n')
-    markdown = '# Arc Reborn '+notes['version']+'\n\n'+notes['subtitle']['fr']+'\n\n'
-    markdown += '\n'.join('- **'+row['title']['fr']+'** — '+row['detail']['fr'] for row in notes['highlights'])
-    markdown += '\n\nmacOS 13+ · Apple Silicon · Developer ID · Notarisation Apple\n'
-    (out/'CHANGELOG.md').write_text(markdown)
-    paths = [dmg,assets/'appcast.xml',assets/'release.json']
+    (out/'CHANGELOG.md').write_text(github_notes(notes),encoding='utf-8')
+    paths = [dmg,*(assets/f for f in FEEDS),assets/'release.json']
     (assets/'SHA256SUMS').write_text(''.join(digest(p)+'  '+p.name+'\n' for p in paths))
     print('Prepared: '+str(assets))
 
@@ -171,7 +205,7 @@ def draft(args,notes):
         expected,name = line.split('  ',1)
         if Path(name).name != name or digest(assets/name) != expected: raise ValueError('Release checksum mismatch')
     run('gh','release','create',tag,'--repo',REPO,'--verify-tag','--draft','--title','Arc Reborn '+notes['version'],
-        '--notes-file',out/'CHANGELOG.md',assets/('ArcReborn-'+notes['version']+'-macos-arm64.dmg'),assets/'appcast.xml',assets/'release.json',assets/'SHA256SUMS')
+        '--notes-file',out/'CHANGELOG.md',assets/('ArcReborn-'+notes['version']+'-macos-arm64.dmg'),*(assets/f for f in FEEDS),assets/'release.json',assets/'SHA256SUMS')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

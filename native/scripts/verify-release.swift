@@ -22,7 +22,17 @@ do {
         throw VerificationError.invalid("Missing public key")
     }
     let key = try Curve25519.Signing.PublicKey(rawRepresentation: rawKey)
-    let feedData = try Data(contentsOf: assets.appendingPathComponent("appcast.xml"))
+    for name in ["appcast.xml", "appcast-en.xml", "appcast-fr.xml"] {
+        try verifyFeed(assets.appendingPathComponent(name), assets: assets, key: key)
+    }
+    print("PASS: all three feeds and update archive verified using only the public key")
+} catch {
+    fputs("Release verification failed: \(error)\n", stderr)
+    exit(1)
+}
+
+func verifyFeed(_ file: URL, assets: URL, key: Curve25519.Signing.PublicKey) throws {
+    let feedData = try Data(contentsOf: file)
     guard let xml = String(data: feedData, encoding: .utf8) else { throw VerificationError.invalid("Invalid XML encoding") }
     let pattern = "<!-- sparkle-signatures:\\nedSignature: ([A-Za-z0-9+/=]+)\\nlength: ([0-9]+)\\n-->\\s*$"
     let regex = try NSRegularExpression(pattern: pattern)
@@ -46,8 +56,4 @@ do {
     }
     let archive = try Data(contentsOf: assets.appendingPathComponent(url.lastPathComponent), options: .mappedIfSafe)
     try require(archive.count == size && key.isValidSignature(archiveSignature, for: archive), "Invalid update archive signature or size")
-    print("PASS: feed and update archive verified using only the public key")
-} catch {
-    fputs("Release verification failed: \(error)\n", stderr)
-    exit(1)
 }

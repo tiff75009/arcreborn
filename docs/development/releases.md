@@ -61,7 +61,7 @@ export BROWSER_RELEASE_BUILD=1
 
 `prepare` can resume a pending notarization; use a new output directory for a new
 build. `draft` requires a clean reviewed Git checkout with its version tag already
-pushed. It uploads only DMG, appcast.xml, release.json and SHA256SUMS, never the
+pushed. It uploads only the DMG, the three signed appcasts, release.json and SHA256SUMS, never the
 working directory, signing credentials or server code.
 
 For local signing, the prepared draft can be verified and published by GitHub
@@ -111,9 +111,13 @@ CEF shutdown and session persistence. A canceled page unload can postpone the up
 
 `ReleaseNotes.json` ships inside the signed app. The native highlights window is
 shown once per higher build after onboarding and launch sheets. First installations
-establish a baseline; the Help menu can always reopen the notes. No remote HTML or
-JavaScript drives this native window. Sparkle's update dialog also shows the release
-notes before installation.
+establish a baseline; the Help menu can always reopen the notes. The window follows
+the language set in Arc Reborn, including when the language changes while it is open.
+No remote HTML or JavaScript drives this window. Before installation, Sparkle uses
+`appcast-en.xml` or `appcast-fr.xml` according to the same setting. Both feeds
+point to the same signed DMG. Clients through 0.7.1 still use `appcast.xml`, which
+provides both descriptions for Sparkle to select using the Mac’s language preferences.
+GitHub release pages show English first and the full French translation in a disclosure.
 
 Every published update needs a new Apple signature and notarization, but the same
 valid certificate and API key automate them. No repeated Apple portal wizard is

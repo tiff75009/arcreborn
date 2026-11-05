@@ -129,7 +129,7 @@ private final class PreferencePicker: NSPopUpButton {
     @objc private func selectValue() { changed?(indexOfSelectedItem) }
 }
 
-final class BrowserPreferencesWindow: NSWindowController {
+final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
     var commandBindings: [String:SplitKeyBinding] = [:]
     var onCommandBindings: (([String:SplitKeyBinding])->Void)?
     var onLanguage: ((String)->Void)?
@@ -150,6 +150,7 @@ final class BrowserPreferencesWindow: NSWindowController {
     var onWelcome: (()->Void)?
     var onImport: ((String)->Void)?
     var onDefaultBrowser: (()->Void)?
+    private weak var defaultBrowserRow: PreferenceRow?
     private(set) var language: String
     private var profiles: [PreferenceProfile]
     private(set) var selectedProfileID: String
@@ -176,7 +177,7 @@ final class BrowserPreferencesWindow: NSWindowController {
         savePasswords = save; automaticSignIn = signIn; formSuggestions = suggestions
         let window = NSWindow(contentRect:NSRect(x:0,y:0,width:908,height:638),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
         super.init(window:window)
-        window.isReleasedWhenClosed = false; window.title = tr("Préférences","Preferences")
+        window.isReleasedWhenClosed = false; window.title = tr("Préférences","Preferences"); window.delegate = self
         window.titlebarAppearsTransparent = true
         window.contentMinSize = NSSize(width:858,height:535); window.contentMaxSize = NSSize(width:1240,height:1000)
         window.backgroundColor = .windowBackgroundColor; window.contentView = canvas
@@ -191,6 +192,12 @@ final class BrowserPreferencesWindow: NSWindowController {
         window.center(); layoutPage()
     }
     required init?(coder:NSCoder) { fatalError() }
+    func windowDidBecomeKey(_ notification:Notification) { refreshDefaultBrowser() }
+    func refreshDefaultBrowser() {
+        guard let row = defaultBrowserRow else { return }
+        row.isEnabled = !DefaultBrowser.isCurrent
+        row.needsDisplay = true
+    }
     private func tr(_ fr:String,_ en:String)->String { language == "en" ? en : fr }
     private func buildNavigation() {
         nav.subviews.forEach { $0.removeFromSuperview() }; tabButtons.removeAll()
@@ -322,7 +329,8 @@ final class BrowserPreferencesWindow: NSWindowController {
         line(quick,y:49)
         link(tr("Raccourcis clavier","Keyboard shortcuts"),symbol:"keyboard",frame:NSRect(x:2,y:50,width:w-4,height:44),parent:quick) { [weak self] in self?.select(5) }
         line(quick,y:95)
-        link(tr("Utiliser par défaut…","Make default…"),symbol:"globe",frame:NSRect(x:2,y:96,width:w-4,height:45),parent:quick) { [weak self] in self?.onDefaultBrowser?() }
+        defaultBrowserRow = link(tr("Utiliser par défaut…","Make default…"),symbol:"globe",frame:NSRect(x:2,y:96,width:w-4,height:45),parent:quick) { [weak self] in self?.onDefaultBrowser?() }
+        refreshDefaultBrowser()
         sectionLabel(tr("Langue et accueil","Language and welcome"),x:x,y:284,width:w)
         let setup = card(NSRect(x:x,y:305,width:w,height:163))
         text(tr("Langue","Language"),NSRect(x:18,y:15,width:90,height:23),weight:.medium,in:setup)

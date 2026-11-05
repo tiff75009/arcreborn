@@ -79,7 +79,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/arc-release-assets"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/arc-release-assets" \
-            --pattern 'ArcReborn-*-macos-arm64.dmg' --pattern appcast.xml --pattern release.json --pattern SHA256SUMS
+            --pattern 'ArcReborn-*-macos-arm64.dmg' --pattern 'appcast*.xml' --pattern release.json --pattern SHA256SUMS
       - name: Verify checksums and version
         run: |
           /usr/bin/python3 - <<'PY'
@@ -90,7 +90,7 @@ jobs:
           release=json.loads((assets/'release.json').read_text())
           engine=json.loads(Path('native/Engine/engine.lock.json').read_text())
           assert release == {'version':notes['version'],'build':notes['build'],'engine':engine['version']}
-          expected={f"ArcReborn-{notes['version']}-macos-arm64.dmg",'appcast.xml','release.json'}
+          expected={f"ArcReborn-{notes['version']}-macos-arm64.dmg",'appcast.xml','appcast-en.xml','appcast-fr.xml','release.json'}
           checked=set()
           for line in (assets/'SHA256SUMS').read_text().splitlines():
               digest,name=line.split('  ',1)

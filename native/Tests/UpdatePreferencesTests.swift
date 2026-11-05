@@ -31,5 +31,39 @@ struct UpdatePreferencesTests {
         restored.updater.automaticallyDownloadsUpdates = true
         precondition(controller().updater.automaticallyDownloadsUpdates)
         print("PASS: Sparkle defaults and persistent opt-outs (no network or Keychain)")
+        _ = NSApplication.shared
+        let updates = BrowserUpdates.shared
+        let resource = Bundle.main.url(forResource:"ReleaseNotes",withExtension:"json")!
+        let notes = try! JSONDecoder().decode(ReleaseNotes.self,from:Data(contentsOf:resource))
+        if notes.showOnLaunch == false {
+            let key = "ArcRebornLastNewsBuild"
+            defaults.set(notes.build - 1, forKey: key)
+            for _ in 0..<2 { // Upgrade, then relaunch on the same build.
+                updates.presentNewsAfterUpgrade { fatalError("Silent update scheduled a news window") }
+                precondition(defaults.integer(forKey:key) == notes.build)
+            }
+            RunLoop.main.run(until:Date(timeIntervalSinceNow:2.2))
+            precondition(!NSApp.windows.contains(where:{ $0.isVisible }))
+            print("PASS: silent update and subsequent launch leave release notes closed")
+        }
+        func fields(_ view:NSView) -> [String] {
+            (view as? NSTextField).map { [$0.stringValue] } ?? view.subviews.flatMap(fields)
+        }
+        for (index, lang) in ["fr", "en", "fr"].enumerated() {
+            defaults.set(lang,forKey:"BrowserLanguage")
+            NotificationCenter.default.post(name:Notification.Name("BrowserLanguageChanged"),object:lang)
+            if index != 1 { precondition(updates.showNews()) } // English must refresh an already visible window.
+            let isFrench = lang == "fr"
+            let title = isFrench ? "Nouveautés d’Arc Reborn" : "What’s new in Arc Reborn"
+            guard let window = NSApp.windows.first(where:{ $0.isVisible && $0.title == title }) else {
+                fatalError("No visible release notes for "+lang)
+            }
+            let text = fields(window.contentView!)
+            precondition(text.contains(isFrench ? notes.title.fr : notes.title.en))
+            for row in notes.highlights { precondition(text.contains(isFrench ? row.detail.fr : row.detail.en)) }
+            precondition(updates.feedURLString(for:first.updater)?.hasSuffix("/appcast-"+lang+".xml") == true)
+            if index == 1 { window.close() }
+        }
+        print("PASS: open, live and reopened release notes and update feeds follow the browser language")
     }
 }

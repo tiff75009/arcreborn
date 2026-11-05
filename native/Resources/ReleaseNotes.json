@@ -1,25 +1,47 @@
 {
-  "version": "0.7.1",
-  "build": 17,
+  "version": "0.7.2",
+  "build": 18,
   "showOnLaunch": false,
   "title": {
-    "fr": "Un nouvel onglet en deux clics",
-    "en": "Open a new tab with a double-click"
+    "fr": "Des onglets plus stables",
+    "en": "More reliable tabs"
   },
   "subtitle": {
-    "fr": "Double-clique dans une zone vide de la barre latérale pour ouvrir un nouvel onglet.",
-    "en": "Double-click an empty area of the sidebar to open a new tab."
+    "fr": "Cliquer rapidement sur le titre d’un onglet ne fait plus quitter le navigateur.",
+    "en": "Rapid clicks on a tab title no longer crash the browser."
   },
   "highlights": [
     {
-      "symbol": "plus.square",
+      "symbol": "cursorarrow.click",
       "title": {
-        "fr": "Le même geste dans chaque espace",
-        "en": "A shortcut in every space"
+        "fr": "Renommer un onglet",
+        "en": "Rename a tab"
       },
       "detail": {
-        "fr": "Comme le bouton « Nouvel onglet », le double-clic ouvre la recherche ou la page d’accueil de ton profil. Le geste fonctionne aussi quand la barre latérale est en masquage automatique.",
-        "en": "Just like the New Tab button, a double-click opens search or your profile’s home page. It also works when the sidebar is set to hide automatically."
+        "fr": "Un clic sélectionne un onglet en arrière-plan. Un clic sur le titre de l’onglet actif permet de le modifier. Les clics répétés pendant la saisie ne provoquent plus de plantage.",
+        "en": "Click a background tab to select it, then click its title to edit it. You can keep clicking to place the cursor or select text without crashing the browser."
+      }
+    },
+    {
+      "symbol": "globe",
+      "title": {
+        "fr": "Navigateur par défaut",
+        "en": "Default browser"
+      },
+      "detail": {
+        "fr": "Si Arc Reborn ouvre déjà les liens HTTP et HTTPS sur ton Mac, la commande pour le définir par défaut est grisée dans le menu et les réglages.",
+        "en": "If Arc Reborn already opens both HTTP and HTTPS links on your Mac, the option to make it your default browser is disabled in the app menu and settings."
+      }
+    },
+    {
+      "symbol": "text.bubble",
+      "title": {
+        "fr": "Les nouveautés dans ta langue",
+        "en": "Release notes in your language"
+      },
+      "detail": {
+        "fr": "Les notes suivent la langue du navigateur : français ou anglais. Sur GitHub, l’anglais apparaît en premier ; déplie « Français » pour lire la traduction.",
+        "en": "Release notes follow your browser’s language: English or French. On GitHub, English comes first; expand “Français” to read the French translation."
       }
     }
   ]

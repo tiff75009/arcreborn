@@ -26,6 +26,7 @@ import AppKit
         check(legacy.commandShortcuts == nil,"old session decodes without migration")
         let first = session.createTab(url:address)
         _ = session.createTab(url:address+"?second")
+        _ = session.renameTab(id:first,name:"Première page")
         session.selectTab(id:first)
         session.splitShortcuts = ["add":custom]
         session.commandShortcuts = ["captureFull":.init(key:"9",modifiers:NSEvent.ModifierFlags([.command,.shift]).rawValue)]
@@ -58,6 +59,54 @@ import AppKit
             check(find("captureFull")?.keyEquivalent == "9","literal custom shortcut preserved on AZERTY")
             check(BrowserCommands.displayedBindings(controller.commandOverrides)["capture"]?.key == find("capture")?.keyEquivalent,"preferences match localized default shortcuts")
             check(!controller.browserCommandState("split.close").enabled && !controller.browserCommandState("back").enabled,"contextual actions disabled correctly")
+            // Exercise the real row, field editor and window event routing. In
+            // 0.7.1 a click on the title's inset could bounce from the text field
+            // back into the table until the main thread overflowed its stack.
+            let window = controller.window
+            func click(_ point:NSPoint, _ count:Int, forwardedTo table:NSTableView? = nil) {
+                func event(_ type:NSEvent.EventType)->NSEvent {
+                    NSEvent.mouseEvent(with:type,location:point,modifierFlags:[],timestamp:ProcessInfo.processInfo.systemUptime,
+                                       windowNumber:window.windowNumber,context:nil,eventNumber:count,clickCount:count,pressure:0)!
+                }
+                // Both the table and the field editor may track until mouse-up.
+                NSApp.postEvent(event(.leftMouseUp),atStart:true)
+                if let table { table.mouseDown(with:event(.leftMouseDown)) }
+                else { window.sendEvent(event(.leftMouseDown)) }
+                while let up = NSApp.nextEvent(matching:.leftMouseUp,until:.distantPast,inMode:.default,dequeue:true) { window.sendEvent(up) }
+            }
+            func firstTitle(in view:NSView) -> NSTextField? {
+                if let label = view as? NSTextField, label.stringValue == "Première page" { return label }
+                return view.subviews.lazy.compactMap { firstTitle(in:$0) }.first
+            }
+            controller.performBrowserCommand("tabNext")
+            for count in 1...2 {
+                window.contentView?.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until:Date(timeIntervalSinceNow:0.04))
+                guard let title = firstTitle(in:window.contentView!) else { check(false,"first tab title is visible"); return }
+                click(title.convert(NSPoint(x:title.bounds.midX,y:title.bounds.midY),to:nil),count)
+                RunLoop.main.run(until:Date(timeIntervalSinceNow:0.04))
+                if count == 1 { check(controller.selectedWindowTabID == first && title.currentEditor() == nil,"first click activates an inactive tab without renaming") }
+            }
+            guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+                  let field = editor.delegate as? NSTextField else { check(false,"click on active title starts editing"); return }
+            var ancestor: NSView? = field.superview
+            while ancestor != nil && !(ancestor is NSTableView) { ancestor = ancestor?.superview }
+            guard let table = ancestor as? NSTableView else { fatalError("missing sidebar table") }
+            func clickTitle(_ x:CGFloat, _ count:Int, atInset:Bool = false) {
+                let point = field.convert(NSPoint(x:x,y:atInset ? 0.2 : field.bounds.midY),to:nil)
+                click(point,count,forwardedTo:atInset ? table : nil)
+            }
+            for count in 1...50 {
+                clickTitle(count.isMultiple(of:2) ? 0.5 : field.bounds.midX, (count-1)%5+1)
+                clickTitle(0.5, (count-1)%5+1, atInset:true)
+            }
+            check(window.firstResponder === editor && controller.windowSession.tabs.count == 2,"repeated title clicks keep the same editor and tabs")
+            clickTitle(10,1)
+            check(editor.selectedRange().length == 0,"clicking the text still places the caret")
+            clickTitle(10,2)
+            check(editor.selectedRange().length > 0,"double-click still selects text")
+            editor.selectAll(nil); editor.insertText("Onglet vérifié",replacementRange:editor.selectedRange()); editor.doCommand(by:#selector(NSResponder.insertNewline(_:)))
+            check(controller.windowSession.tabs.first(where:{ $0.id == first })?.customTitle == "Onglet vérifié","renaming still commits after rapid clicks")
             let bridge = BrowserEngine()
             controller.performBrowserCommand("zoomIn")
             check(abs(bridge.zoomLevel(controller.rendererID(for:first))-1)<0.01,"zoom command reaches Chromium")

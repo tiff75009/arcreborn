@@ -263,10 +263,10 @@ private final class SidebarTable: NSTableView {
         }
         let cell = hitRow >= 0 ? view(atColumn: 0, row: hitRow, makeIfNecessary: false) as? TabCell : nil
         clickedTitle = cell.map { $0.titleLabel.frame.contains($0.convert(event.locationInWindow, from: nil)) } ?? false
-        if clickedTitle, let cell, cell.isEditingTitle {
-            cell.titleLabel.mouseDown(with: event)
-            return
-        }
+        // AppKit delivers clicks inside the text to the field editor itself.
+        // If a click bubbles up from the field (e.g. its inset), it ends here:
+        // sending it back to NSTextField creates a responder-chain cycle.
+        if clickedTitle, cell?.isEditingTitle == true { return }
         let pressesTab = cell?.rename != nil && cell?.isEditingTitle == false
         if pressesTab { cell?.setPressed(true); CATransaction.flush() }
         super.mouseDown(with:event)
@@ -3828,7 +3828,8 @@ extension BrowserController {
         if isPrivateWindow && ["history","manageExtensions","addExtension","newProfile","importBrowser"].contains(id) { return .init(enabled:false) }
         if windowKind == .compact && ["sidebar","collapsePinned","newSpace","spaceTheme","spaceRename","newFolder","manageSpaces","split.add"].contains(id) { return .init(enabled:false) }
         if id == "updates" { return .init(enabled:session.onboardingComplete && BrowserUpdates.shared.canCheck) }
-        if ["preferences","shortcuts","logs","defaultBrowser","whatsNew"].contains(id) { return .init(enabled:session.onboardingComplete) }
+        if id == "defaultBrowser" { return .init(enabled:session.onboardingComplete && !DefaultBrowser.isCurrent) }
+        if ["preferences","shortcuts","logs","whatsNew"].contains(id) { return .init(enabled:session.onboardingComplete) }
         guard window.isKeyWindow, window.attachedSheet == nil, session.onboardingComplete else { return .init(enabled:false) }
         let page = activeTab.map { containers[$0.id] != nil && !$0.url.isEmpty && $0.url != "about:blank" } ?? false
         let web = activeTab.flatMap { URL(string:$0.url)?.scheme }.map { ["http","https"].contains($0) } ?? false
@@ -4016,19 +4017,19 @@ extension BrowserController {
         window.setFrame(frame,display:true,animate:!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
     private func setDefaultBrowser() {
-        let applicationURL = Bundle.main.bundleURL
-        NSWorkspace.shared.setDefaultApplication(at:applicationURL,toOpenURLsWithScheme:"http") { [weak self] error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if let error { self.showError(self.splitText("Navigateur par défaut","Default Browser"),detail:error.localizedDescription); return }
-                NSWorkspace.shared.setDefaultApplication(at:applicationURL,toOpenURLsWithScheme:"https") { [weak self] error in
-                    DispatchQueue.main.async {
-                        guard let self, let error else { return }
+        func register(_ remaining: ArraySlice<String>) {
+            guard let scheme = remaining.first else { preferencesWindow?.refreshDefaultBrowser(); return }
+            if DefaultBrowser.owns(scheme) { register(remaining.dropFirst()); return }
+            NSWorkspace.shared.setDefaultApplication(at:Bundle.main.bundleURL,toOpenURLsWithScheme:scheme) { error in
+                DispatchQueue.main.async {
+                    if let error {
+                        self.preferencesWindow?.refreshDefaultBrowser()
                         self.showError(self.splitText("Navigateur par défaut","Default Browser"),detail:error.localizedDescription)
-                    }
+                    } else { register(remaining.dropFirst()) }
                 }
             }
         }
+        register(DefaultBrowser.webSchemes[...])
     }
 }
 

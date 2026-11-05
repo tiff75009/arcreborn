@@ -212,7 +212,10 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         defaults.set(state.savePasswords ?? true,forKey:"BrowserSavePasswords")
         defaults.set(state.automaticSignIn ?? true,forKey:"BrowserAutomaticSignIn")
         defaults.set(state.formSuggestions ?? true,forKey:"BrowserFormSuggestions")
-        if previous.language != state.language { BrowserEngine().updateLanguages() }
+        if previous.language != state.language {
+            BrowserEngine().updateLanguages()
+            NotificationCenter.default.post(name: Notification.Name("BrowserLanguageChanged"), object: state.language)
+        }
         if previous.savePasswords != state.savePasswords || previous.automaticSignIn != state.automaticSignIn || previous.formSuggestions != state.formSuggestions {
             _ = BrowserEngine().updateCredentialPreferences()
         }
