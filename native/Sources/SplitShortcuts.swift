@@ -18,9 +18,14 @@ enum SplitShortcutAction: String, CaseIterable {
 }
 extension SplitKeyBinding {
     var caption:String {
-        guard !key.isEmpty else { return "—" }
+        key.isEmpty ? "—" : keycaps.joined()
+    }
+    var keycaps:[String] {
+        guard !key.isEmpty else { return [] }
         let flags = NSEvent.ModifierFlags(rawValue:modifiers)
-        return (flags.contains(.control) ? "⌃" : "")+(flags.contains(.option) ? "⌥" : "")+(flags.contains(.shift) ? "⇧" : "")+(flags.contains(.command) ? "⌘" : "")+(["\u{F700}":"↑","\u{F701}":"↓","\u{F702}":"←","\u{F703}":"→","\t":"⇥"," ":"Espace" ][key] ?? key.uppercased())
+        let mods:[(NSEvent.ModifierFlags,String)] = [(.control,"⌃"),(.option,"⌥"),(.shift,"⇧"),(.command,"⌘")]
+        let keys = ["\u{F700}":"↑","\u{F701}":"↓","\u{F702}":"←","\u{F703}":"→","\t":"⇥"," ":"Espace"]
+        return mods.compactMap { flags.contains($0.0) ? $0.1 : nil } + [keys[key] ?? key.uppercased()]
     }
 }
 private final class SplitShortcutRecorder: NSButton {

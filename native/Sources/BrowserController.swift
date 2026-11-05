@@ -61,7 +61,7 @@ private final class PointerRootView: FlippedView {
     override func mouseExited(with event: NSEvent) { pointerChanged?(event) }
     override func mouseMoved(with event: NSEvent) { pointerChanged?(event) }
 }
-final class FooterSpaceButton: ActionButton {
+private final class LibraryFooterButton: ActionButton {
     var hoverChanged: (() -> Void)?
     private let progressRing = CAShapeLayer(), progressTrack = CAShapeLayer()
     private var transfersActive = false
@@ -93,8 +93,6 @@ final class FooterSpaceButton: ActionButton {
         progressRing.strokeColor = ink.cgColor; progressTrack.strokeColor = ink.withAlphaComponent(0.18).cgColor
         CATransaction.commit()
     }
-    var dotDiameter: CGFloat = 8 { didSet { needsDisplay = true } }
-    var dot = false { didSet { needsDisplay = true } }
     var ink = NSColor.labelColor { didSet { needsDisplay = true; refreshHover() } }
     private var hovered = false
     private var tracking: NSTrackingArea?
@@ -109,10 +107,9 @@ final class FooterSpaceButton: ActionButton {
             ink.setStroke(); let arrow = NSBezierPath(); arrow.lineWidth = 1.5; arrow.lineCapStyle = .round
             let direction: CGFloat = isFlipped ? 1 : -1
             arrow.move(to:NSPoint(x:bounds.midX,y:bounds.midY-5*direction)); arrow.line(to:NSPoint(x:bounds.midX,y:bounds.midY+5*direction)); arrow.move(to:NSPoint(x:bounds.midX-3,y:bounds.midY+2*direction)); arrow.line(to:NSPoint(x:bounds.midX,y:bounds.midY+5*direction)); arrow.line(to:NSPoint(x:bounds.midX+3,y:bounds.midY+2*direction)); arrow.stroke()
-        } else if dot {
-            ink.withAlphaComponent(0.55).setFill()
-            NSBezierPath(ovalIn:NSRect(x:bounds.midX-dotDiameter/2,y:bounds.midY-dotDiameter/2,width:dotDiameter,height:dotDiameter)).fill()
-        } else if SpaceIcon.symbol(title) != nil { SpaceIcon.draw(title,in:NSRect(x:bounds.midX-9,y:bounds.midY-9,width:18,height:18),color:ink) } else { super.draw(dirtyRect) }
+        } else {
+            FooterControlArtwork.drawLibrary(in:bounds,flipped:isFlipped,color:ink.withAlphaComponent(hovered ? 0.9 : 0.65))
+        }
         if !transfersActive && unreadTransfers > 0 {
             let badge = NSRect(x:bounds.maxX-15,y:isFlipped ? bounds.minY : bounds.maxY-15,width:15,height:15)
             NSColor.systemRed.setFill(); NSBezierPath(ovalIn:badge).fill()
@@ -495,7 +492,7 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
         titleEditingBackground.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
         layer?.insertSublayer(titleEditingBackground, at: 0)
         titleLabel.font = .systemFont(ofSize: 14); titleLabel.lineBreakMode = .byTruncatingTail; titleLabel.maximumNumberOfLines = 1
-        titleLabel.isEditable = false; titleLabel.isSelectable = false
+        titleLabel.isEditable = false; titleLabel.isSelectable = false; titleLabel.allowsExpansionToolTips = false
         titleLabel.isBordered = false; titleLabel.isBezeled = false; titleLabel.drawsBackground = false
         titleLabel.cell?.usesSingleLineMode = true
         titleLabel.delegate = self; titleLabel.focusRingType = .none
@@ -503,6 +500,10 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
         layer?.addSublayer(developerOutline)
     }
     required init?(coder: NSCoder) { fatalError() }
+    func setTabHint(_ text:String) {
+        setAccessibilityHelp(text); titleLabel.setAccessibilityHelp(text)
+        toolTip = nil; titleLabel.toolTip = nil
+    }
     func beginTitleEditing() {
         guard rename != nil, !isEditingTitle else { return }
         originalTitle = titleLabel.stringValue; isEditingTitle = true
@@ -612,6 +613,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var sidebarRevealed = false
     private var sidebarTransition = 0
     private var sidebarAnimating = false
+    private var folderPeek: FolderPeek?
+    private var folderHoverTask: DispatchWorkItem?
+    private var folderHoverTarget: String?
+    private var folderHoverSuppressed: String?
     private var sidebarHoverTask: DispatchWorkItem?
     private var backgroundSidebarTimer: Timer?
     private var sidebarPendingIntent: SidebarRevealIntent?
@@ -643,6 +648,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let rowsScroll = NSScrollView()
     private let table = SidebarTable()
     private weak var sidebarTitleEditor: TabCell?
+    private lazy var sidebarTip = SidebarHoverTip(parent:window)
     private let favorites = FavoritesGrid(frame:.zero)
     private let favoritesHint = FavoritesHint(frame: .zero)
     private let addressBackground = FlippedView()
@@ -665,7 +671,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let spacesFooter = FlippedView()
     private let spaceIndicators = HorizontalSpaceScrollView()
     private var spaceScrollMonitor: Any?
-    private let spaceIndicatorContent = FlippedView()
+    private let spaceIndicatorContent = SpaceDockView()
     private var spaceSwipe = SpaceSwipeState()
     private var swipeTarget: String?
     private var swipeProgress: CGFloat = 0
@@ -789,6 +795,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     deinit {
         if let spaceScrollMonitor { NSEvent.removeMonitor(spaceScrollMonitor) }
         if let observer = quitCancellationObserver { NotificationCenter.default.removeObserver(observer) }
+        folderHoverTask?.cancel(); folderPeek?.close(animated:false)
         sidebarHoverTask?.cancel(); recentPeekTask?.cancel()
         backgroundSidebarTimer?.invalidate()
         sidebarObservers.forEach(NotificationCenter.default.removeObserver)
@@ -848,6 +855,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         else if profiles { preferencesWindow?.showProfiles() } else { preferencesWindow?.showAccount() }
     }
     func prepareToQuit() -> Bool {
+        sidebarTip.dismiss()
+        dismissFolderPeek(animated:false)
         pageCapture?.close()
         finishSpaceSwitch()
         preferencesWindow?.close()
@@ -861,12 +870,21 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { requestWindowClose(); return false }
     func windowDidResize(_ notification: Notification) {
+        sidebarTip.dismiss()
+        dismissFolderPeek(animated:false)
         finishSpaceSwitch()
         sidebarTransition += 1; sidebarAnimating = false
         sidebarHost.layer?.removeAllAnimations()
         layout()
     }
-    func windowDidResignKey(_ notification: Notification) { updateRecentPeekHover(); updateSidebarHover() }
+    func windowDidResignKey(_ notification: Notification) {
+        spaceIndicatorContent.clearHover(); sidebarTip.dismiss()
+        updateRecentPeekHover(); updateSidebarHover()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.window.isKeyWindow, self.folderPeek?.isKey != true else { return }
+            self.dismissFolderPeek(animated:false)
+        }
+    }
     func windowDidBecomeKey(_ notification: Notification) { becameKey?(self); updateSidebarHover() }
     private func persist() {
         session.repairTabSelections()
@@ -915,8 +933,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         addButton.invoke = { [weak self] in self?.showAddMenu() }
         addressButton = FadingAddressButton(t("address")) { [weak self] in self?.openLocationAction(nil) }; addressButton.font = .systemFont(ofSize: 14); addressButton.alignment = .left; addressButton.lineBreakMode = .byClipping
         sidebarHost.addSubview(recentPeek)
-        downloadButton = FooterSpaceButton(t("library"), symbol: "archivebox.fill") { [weak self] in self?.showLibrary() }; downloadButton.title = ""
-        (downloadButton as? FooterSpaceButton)?.hoverChanged = { [weak self] in
+        downloadButton = LibraryFooterButton(t("library")) { [weak self] in self?.showLibrary() }; downloadButton.title = ""
+        (downloadButton as? LibraryFooterButton)?.hoverChanged = { [weak self] in
             guard let self else { return }
             self.sidebarPointer = self.root.convert(self.window.mouseLocationOutsideOfEventStream,from:nil)
             self.updateRecentPeekHover()
@@ -982,6 +1000,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarClip.drawsBackground = false
         sidebarClip.dragFinished = finishSidebarTracking
         rowsScroll.contentView = sidebarClip
+        sidebarClip.postsBoundsChangedNotifications = true
+        sidebarObservers.append(NotificationCenter.default.addObserver(forName:NSView.boundsDidChangeNotification,object:sidebarClip,queue:.main) { [weak self] _ in
+            self?.sidebarTip.dismiss()
+            self?.dismissFolderPeek(animated:false)
+        })
         rowsScroll.scrollerStyle = .overlay; rowsScroll.automaticallyAdjustsContentInsets = false; rowsScroll.contentInsets = .init(); rowsScroll.documentView = table; rowsScroll.drawsBackground = false; rowsScroll.hasVerticalScroller = true; rowsScroll.autohidesScrollers = true; rowsScroll.borderType = .noBorder
         resizeStrip.width = { [weak self] in self?.session.sidebarWidth ?? SidebarSizing.standard }
         resizeStrip.begin = { [weak self] in self?.finishSpaceSwitch() }
@@ -996,12 +1019,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let self, event.window === self.window || (event.window == nil && NSApp.keyWindow === self.window) else { return event }
             return self.handleSpaceScroll(event) ? nil : event
         }
+        spaceIndicatorContent.receivesWindowEvents = true
+        spaceIndicators.pointerAfterScroll = { [weak self] event in
+            self?.spaceIndicatorContent.trackPointer(event); self?.trackSidebarTip(at:event.locationInWindow)
+        }
         spaceIndicators.drawsBackground = false; spaceIndicators.borderType = .noBorder
         spaceIndicators.hasHorizontalScroller = false; spaceIndicators.documentView = spaceIndicatorContent
         spacesFooter.addSubview(spaceIndicators)
         for name in [NSMenu.didBeginTrackingNotification, NSMenu.didEndTrackingNotification] {
             sidebarObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 guard let self else { return }
+                if name == NSMenu.didBeginTrackingNotification { self.dismissFolderPeek(animated:false); self.spaceIndicatorContent.clearHover(); self.sidebarTip.dismiss() }
                 self.trackingMenus = max(0, self.trackingMenus + (name == NSMenu.didBeginTrackingNotification ? 1 : -1))
                 self.updateSidebarHover()
             })
@@ -1021,6 +1049,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         })
         sidebarObservers.append(NotificationCenter.default.addObserver(forName:Notification.Name("BrowserDeveloperToolsChanged"),object:nil,queue:.main) { [weak self] _ in self?.updateDeveloperBars() })
         sidebarObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.dismissFolderPeek(animated:false)
             self?.engine.closeExtensionPopup()
             self?.finishSpaceSwitch()
             self?.addMenu?.close()
@@ -1241,8 +1270,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
     }
     private func setSidebarRevealed(_ revealed: Bool) {
+        if !revealed { spaceIndicatorContent.clearHover(); sidebarTip.dismiss() }
         guard session.sidebarHidden, sidebarRevealed != revealed else { return }
         cancelSidebarHover()
+        if !revealed { dismissFolderPeek(animated:false) }
         sidebarRevealed = revealed
         updateBackgroundSidebarTracking()
         sidebarTransition += 1
@@ -1260,6 +1291,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let self, self.sidebarTransition == transition else { return }
             self.sidebarAnimating = false
             self.layoutSidebarPresentation(); self.layoutWindowButtons()
+            if revealed { self.updateFolderHover() }
         }
     }
     private func cancelSidebarHover() {
@@ -1268,7 +1300,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func refreshSidebarPointer() {
         sidebarPointer = SidebarRevealState.pointer(at: NSEvent.mouseLocation, in: root)
         if NSEvent.pressedMouseButtons & 1 == 0 { sidebarMousePressed = false }
-        updateRecentPeekHover()
+        trackSidebarTip(at:window.mouseLocationOutsideOfEventStream)
+        updateFolderHover(); updateRecentPeekHover()
         updateSidebarHover()
     }
     private func updateBackgroundSidebarTracking() {
@@ -1290,13 +1323,14 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func sidebarHoverIntent() -> SidebarRevealIntent {
         if NSEvent.pressedMouseButtons & 1 == 0 { sidebarMousePressed = false }
-        let interacting = library != nil || trackingMenus > 0 || addMenu != nil || spaceCreation != nil || sheet != nil || window.attachedSheet != nil || commandPalette != nil || siteMenu?.isShown == true || iconPicker?.isShown == true || themeEditor != nil || sidebarMousePressed || sidebarDragActive || sidebarTitleEditor?.isEditingTitle == true
+        let interacting = folderPeek != nil || library != nil || trackingMenus > 0 || addMenu != nil || spaceCreation != nil || sheet != nil || window.attachedSheet != nil || commandPalette != nil || siteMenu?.isShown == true || iconPicker?.isShown == true || themeEditor != nil || sidebarMousePressed || sidebarDragActive || sidebarTitleEditor?.isEditingTitle == true
         return SidebarRevealState.intent(hidden: session.sidebarHidden, revealed: sidebarRevealed,
                                          active: window.isVisible && !window.isMiniaturized,
                                          pointer: sidebarPointer, height: root.bounds.height,
                                          sidebarWidth: CGFloat(SidebarSizing.clamp(session.sidebarWidth)), protected: interacting)
     }
     private func clearSidebarPointerFeedback() {
+        sidebarTip.dismiss()
         guard let outside = NSEvent.mouseEvent(with:.mouseMoved,location:NSPoint(x:-10000,y:-10000),modifierFlags:[],timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:0,context:nil,eventNumber:0,clickCount:0,pressure:0) else { return }
         updateSidebarPointerFeedback(outside)
     }
@@ -1307,12 +1341,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         copyLinkButton?.trackPointer(event); siteMenuButton?.trackPointer(event)
         reloadButton?.trackPointer(event)
         addButton.trackPointer(event)
-        (downloadButton as? FooterSpaceButton)?.trackPointer(event)
-        spaceIndicatorContent.subviews.compactMap { $0 as? FooterSpaceButton }.forEach { $0.trackPointer(event) }
+        (downloadButton as? LibraryFooterButton)?.trackPointer(event)
+        if spaceCreation == nil && library == nil && trackingMenus == 0 && addMenu == nil {
+            spaceIndicatorContent.trackPointer(event)
+        } else { spaceIndicatorContent.clearHover() }
     }
     private func trackSidebarPointer(_ event: NSEvent) {
         guard siteMenu?.isShown != true else { clearSidebarPointerFeedback(); return }
         updateSidebarPointerFeedback(event)
+        if event.window === window && [.mouseMoved,.mouseEntered,.leftMouseUp].contains(event.type) {
+            trackSidebarTip(at:event.locationInWindow)
+        } else { sidebarTip.dismiss() }
         if event.type == .leftMouseDown || event.type == .leftMouseDragged {
             sidebarMousePressed = true
             let point = sidebarHost.convert(event.locationInWindow,from:nil)
@@ -1321,8 +1360,123 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if event.type == .leftMouseUp { sidebarMousePressed = false }
         let location = root.convert(event.locationInWindow, from:nil)
         sidebarPointer = event.type != .mouseExited && event.window === window && root.bounds.contains(location) ? location : nil
-        updateRecentPeekHover()
+        updateFolderHover(); updateRecentPeekHover()
         updateSidebarHover()
+    }
+    private func tipTarget(at p:NSPoint) -> SidebarHoverTip.Target? {
+        guard window.isKeyWindow, canPreviewFolder, folderPeek == nil, !sidebarAnimating,
+              !sidebarMousePressed, NSEvent.pressedMouseButtons == 0 else { return nil }
+        if let slot = spaceIndicatorContent.slot(at:p) { return .space(slot.id) }
+        let point = table.convert(p,from:nil)
+        guard table.visibleRect.contains(point) else { return nil }
+        let row = table.row(at:point)
+        guard rows.indices.contains(row), case .tab(let id) = rows[row] else { return nil }
+        let view = table.view(atColumn:0,row:row,makeIfNecessary:false)
+        if let cell = view as? TabCell {
+            if !cell.closeButton.isHidden && cell.closeButton.bounds.contains(cell.closeButton.convert(p,from:nil)) { return nil }
+            return .tab(id)
+        }
+        if let cell = view as? SplitGroupCell, let chip = cell.chips.first(where:{ $0.bounds.contains($0.convert(p,from:nil)) }) { return .tab(chip.id) }
+        return nil
+    }
+    private func trackSidebarTip(at point:NSPoint) {
+        let target = tipTarget(at:point)
+        sidebarTip.track(target) { [weak self] in
+            guard let self, let target else { return nil }
+            let p = self.window.mouseLocationOutsideOfEventStream
+            guard self.tipTarget(at:p) == target else { return nil }
+            switch target {
+            case .space(let id):
+                guard let i = self.session.spaces.firstIndex(where:{ $0.id == id }),
+                      let slot = self.spaceIndicatorContent.slot(at:p) else { return nil }
+                let key = BrowserCommands.displayedBindings(self.commandOverrides)["space."+String(i+1)]
+                let keys = key?.keycaps ?? []
+                return .init(content:.space(name:self.session.spaces[i].name,keys:keys),
+                             anchor:self.window.convertToScreen(slot.view.convert(slot.view.bounds,to:nil)))
+            case .tab(let id):
+                guard let tab = self.session.tabs.first(where:{ $0.id == id }) else { return nil }
+                return .init(content:.tab(title:tab.hoverTitle(untitled:self.t("newTab")),hint:self.renameHint(for:id)),
+                             anchor:NSRect(origin:self.window.convertPoint(toScreen:p),size:.zero))
+            }
+        }
+    }
+    private var canPreviewFolder: Bool {
+        (window.isKeyWindow || folderPeek?.isKey == true) && !isQuitting && !closingWindow &&
+        !sidebarHost.isHidden && (!session.sidebarHidden || sidebarRevealed) &&
+        library == nil && commandPalette == nil && sheet == nil && window.attachedSheet == nil &&
+        spaceCreation == nil && swipeTarget == nil && addMenu == nil && siteMenu?.isShown != true &&
+        iconPicker?.isShown != true && themeEditor == nil && trackingMenus == 0 &&
+        !sidebarDragActive && sidebarTitleEditor?.isEditingTitle != true
+    }
+    private func collapsedFolderForPeek(_ id:String) -> NativeFolder? {
+        session.folders.first { $0.id == id && $0.spaceID == session.activeSpaceID && $0.collapsed }
+    }
+    private func hoveredFolder(at screen:NSPoint) -> (folder:NativeFolder,anchor:NSRect)? {
+        let point = table.convert(window.convertPoint(fromScreen:screen),from:nil)
+        guard table.visibleRect.contains(point) else { return nil }
+        let row = table.row(at:point)
+        guard rows.indices.contains(row), case .folder(let id) = rows[row], let folder = collapsedFolderForPeek(id) else { return nil }
+        var rect = table.convert(table.rect(ofRow:row).intersection(table.visibleRect),to:nil)
+        rect.size.width = sidebarHost.convert(sidebarHost.bounds,to:nil).maxX-rect.minX
+        return (folder,window.convertToScreen(rect))
+    }
+    private func dismissFolderPeek(animated:Bool) {
+        folderHoverTask?.cancel(); folderHoverTask = nil; folderHoverTarget = nil
+        guard let peek = folderPeek else { return }
+        folderHoverSuppressed = hoveredFolder(at:NSEvent.mouseLocation)?.folder.id
+        folderPeek = nil; peek.close(animated:animated)
+        updateSidebarHover()
+    }
+    private func updateFolderHover() {
+        guard canPreviewFolder else { dismissFolderPeek(animated:false); return }
+        let point = NSEvent.mouseLocation
+        if let peek = folderPeek, peek.containsPointer(point) {
+            folderHoverTask?.cancel(); folderHoverTask = nil; folderHoverTarget = nil
+            return
+        }
+        let hit = hoveredFolder(at:point)
+        let target = hit?.folder.id
+        if target != folderHoverSuppressed { folderHoverSuppressed = nil }
+        if let target, target == folderPeek?.folderID || target == folderHoverSuppressed {
+            folderHoverTask?.cancel(); folderHoverTask = nil; folderHoverTarget = nil; return
+        }
+        guard NSEvent.pressedMouseButtons == 0 else { dismissFolderPeek(animated:false); return }
+        if target == nil && folderPeek == nil {
+            folderHoverTask?.cancel(); folderHoverTask = nil; folderHoverTarget = nil; return
+        }
+        if folderHoverTask != nil && target == folderHoverTarget { return }
+        folderHoverTask?.cancel(); folderHoverTarget = target
+        let task = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.folderHoverTask = nil; self.folderHoverTarget = nil
+            guard let target else { self.dismissFolderPeek(animated:true); return }
+            let point = NSEvent.mouseLocation
+            guard self.canPreviewFolder, NSEvent.pressedMouseButtons == 0,
+                  NSWindow.windowNumber(at:point,belowWindowWithWindowNumber:0) == self.window.windowNumber,
+                  let hit = self.hoveredFolder(at:point), hit.folder.id == target else { return }
+            let folder = hit.folder
+            let available = self.window.convertToScreen(self.root.convert(self.root.bounds,to:nil))
+            if let peek = self.folderPeek {
+                if !peek.replace(with:folder,session:self.session,anchor:hit.anchor,available:available) {
+                    self.dismissFolderPeek(animated:true); self.folderHoverSuppressed = target
+                }
+                return
+            }
+            guard let peek = FolderPeek(session:self.session,folder:folder,artwork:{ [weak self] id in
+                guard let self, let tab = self.session.tabs.first(where:{ $0.id == id }) else { return nil }
+                return self.tabFavicon(tab)
+            },open:{ [weak self] id in
+                guard let self else { return }
+                self.dismissFolderPeek(animated:false)
+                if self.session.canSelectTab(id,in:self.session.activeSpaceID) { self.selectTab(id) }
+            }) else { self.folderHoverSuppressed = target; return }
+            self.folderPeek = peek; self.cancelSidebarHover()
+            peek.dismiss = { [weak self] in self?.dismissFolderPeek(animated:false) }
+            peek.pointerChanged = { [weak self] in self?.updateFolderHover() }
+            peek.show(parent:self.window,anchor:hit.anchor,available:available)
+        }
+        folderHoverTask = task
+        DispatchQueue.main.asyncAfter(deadline:.now() + (target == nil ? 0.18 : (folderPeek == nil ? 0.26 : 0.14)),execute:task)
     }
     private func updateSidebarHover() {
         updateBackgroundSidebarTracking()
@@ -1360,7 +1514,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         renderSpaceContent()
         table.insertionColor = sidebarInk
         table.reloadData(); renderSpacesFooter(); updateToolbar(); buildHome(); layoutFavorites(animated:true); style(spaceButton, opacity: 0.7); style(downloadButton, opacity: 0.8)
-        library?.update(session:session)
+        library?.update(session:session); sidebarTip.refreshIfVisible()
     }
     /// Updates only the movable part of the sidebar; previewing never opens a Chromium tab.
     private func renderSpaceContent() {
@@ -1376,6 +1530,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             return visibleGroups.insert(group.id).inserted
         }
         treeRows = treeRows.filter { entry in if case .tab(let id) = entry.item { return includeTab(id) }; return true }
+        if let id = folderPeek?.folderID,
+           collapsedFolderForPeek(id) == nil || !treeRows.contains(where: { $0.item == .folder(id) }) {
+            dismissFolderPeek(animated:false)
+        }
         rows = treeRows.map { switch $0.item { case .tab(let id): return .tab(id); case .folder(let id): return .folder(id) } }
         rows.append(.heading("")); rows.append(.newTab)
         rows += session.sidebarChildren(spaceID:session.activeSpaceID,parentID:nil,temporary:true).compactMap {
@@ -1385,29 +1543,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         table.reloadData(); style(spaceButton,opacity:0.7)
     }
     private func renderSpacesFooter() {
-        spaceIndicatorContent.subviews.forEach { $0.removeFromSuperview() }
         if addButton.superview == nil { spacesFooter.addSubview(addButton) }
-        for space in session.spaces {
-            let button = FooterSpaceButton(space.id == session.activeSpaceID ? space.icon : "") { [weak self] in self?.selectSpace(space.id) }
-            button.toolTip = space.name; button.setAccessibilityLabel(space.name)
-            button.dot = space.id != session.activeSpaceID; button.ink = sidebarInk
-            button.font = .systemFont(ofSize:14); style(button,opacity:0.85); button.menu = spaceMenu(space)
-            spaceIndicatorContent.addSubview(button)
-        }
-        (downloadButton as? FooterSpaceButton)?.ink = sidebarInk
+        spaceIndicatorContent.update(session.spaces.map { .init(id:$0.id,name:$0.name,icon:$0.icon) },
+                                     selectedID:session.activeSpaceID,ink:sidebarInk,
+                                     select:{ [weak self] in self?.selectSpace($0) },
+                                     menu:{ self.spaceMenu(self.session.spaces[$0]) })
+        (downloadButton as? LibraryFooterButton)?.ink = sidebarInk
         addButton.ink = sidebarInk; addButton.toolTip = t("add"); addButton.setAccessibilityLabel(t("add"))
     }
     private func layoutSpacesFooter() {
-        let width = max(1,spacesFooter.bounds.width-37)
+        let width = max(1,spacesFooter.bounds.width-31)
         spaceIndicators.frame = NSRect(x:0,y:0,width:width,height:32)
-        let active = session.spaces.firstIndex(where: { $0.id == session.activeSpaceID }) ?? 0
-        let metrics = SpaceIndicatorLayout(count:session.spaces.count,available:width,activeIndex:active)
-        spaceIndicatorContent.frame = NSRect(x:0,y:0,width:max(width,metrics.width),height:32)
-        for (i,view) in spaceIndicatorContent.subviews.enumerated() {
-            let item = metrics.frame(i); view.frame = NSRect(x:item.x,y:0,width:item.width,height:32)
-            (view as? FooterSpaceButton)?.dotDiameter = metrics.dotDiameter
-        }
-        if spaceIndicatorContent.subviews.indices.contains(active) { spaceIndicatorContent.scrollToVisible(spaceIndicatorContent.subviews[active].frame) }
+        spaceIndicatorContent.fit(width:width)
         addButton.frame = NSRect(x:spacesFooter.bounds.width-31,y:0,width:33,height:32)
     }
     private func handleSpaceScroll(_ event: NSEvent) -> Bool {
@@ -1526,7 +1673,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         recentPeek.layoutSubtreeIfNeeded(); recentPeek.layout()
     }
     private func updateDownloadIndicator() {
-        (downloadButton as? FooterSpaceButton)?.updateTransfers(libraryStore.downloads,unread:libraryStore.unreadCount)
+        (downloadButton as? LibraryFooterButton)?.updateTransfers(libraryStore.downloads,unread:libraryStore.unreadCount)
     }
     private var peekShowsDownloads = false
     private func updateRecentPeekContents() {
@@ -1551,7 +1698,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                 self.updateRecentPeekContents(); self.libraryStore.startObserving()
                 self.sidebarItems.setDownloadsPresented(true)
                 self.recentPeek.setPresented(true)
-                (self.downloadButton as? FooterSpaceButton)?.animateLibraryPeek(true)
+                (self.downloadButton as? LibraryFooterButton)?.animateLibraryPeek(true)
             } else { self.dismissRecentPeek() }
         }
         recentPeekTask = task; DispatchQueue.main.asyncAfter(deadline:.now()+(inside ? 0.32 : 0.18),execute:task)
@@ -1562,7 +1709,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         libraryStore.changed = nil; libraryStore.stopObserving()
         sidebarItems.setDownloadsPresented(false, animated:animated)
         recentPeek.setPresented(false,animated:animated)
-        (downloadButton as? FooterSpaceButton)?.animateLibraryPeek(false)
+        (downloadButton as? LibraryFooterButton)?.animateLibraryPeek(false)
     }
     private func showLibrary() {
         dismissRecentPeek(animated:false)
@@ -1811,6 +1958,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard !isQuitting, spaceCreation == nil, !spaceCreationClosing,
               id != session.activeSpaceID,
               let next = session.spaces.firstIndex(where: { $0.id == id }) else { return }
+        dismissFolderPeek(animated:false)
         let previous = session.spaces.firstIndex(where: { $0.id == session.activeSpaceID }) ?? next
         finishSpaceSwitch()
         let animate = window.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -1844,6 +1992,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         render(); showSelectedTab(); persist()
     }
     private func displayTitle(_ tab: NativeTab) -> String { !tab.displayTitle.isEmpty ? tab.displayTitle : (URL(string: tab.url)?.host ?? t("newTab")) }
+
+    private func tabHoverHint(_ tab:NativeTab) -> String {
+        tab.hoverTitle(untitled:t("newTab")) + "\n" + renameHint(for:tab.id)
+    }
+    private func renameHint(for id:String) -> String {
+        t(activeTab?.id == id ? "tabRenameActiveHint" : "tabRenameInactiveHint")
+    }
 
     // NSTableView owns scrolling, accessibility and row recycling; page views never enter the UI process.
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
@@ -1880,13 +2035,14 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let cell = (copyingSpaceRows ? nil : tableView.makeView(withIdentifier: NSUserInterfaceItemIdentifier("tabCell"), owner: self) as? TabCell) ?? TabCell(frame: .zero)
         cell.identifier = NSUserInterfaceItemIdentifier("tabCell"); cell.active = false; cell.canClose = false; cell.isFolder = false
         cell.developerMode = false
-        cell.rename = nil
+        cell.rename = nil; cell.titleLabel.toolTip = nil; cell.titleLabel.setAccessibilityHelp(nil); cell.setAccessibilityHelp(nil)
         cell.ink = sidebarInk; cell.depth = treeRows.indices.contains(row) ? treeRows[row].depth : 0
         cell.titleLabel.font = .systemFont(ofSize:14)
         switch rows[row] {
         case .tab(let id):
             guard let tab = session.tabs.first(where: { $0.id == id }) else { return cell }
-            cell.titleLabel.stringValue = displayTitle(tab); cell.toolTip = tab.url; cell.active = id == activeTab?.id && commandPalette?.isNewTab != true
+            cell.titleLabel.stringValue = displayTitle(tab); cell.active = id == activeTab?.id && commandPalette?.isNewTab != true
+            cell.setTabHint(tabHoverHint(tab))
             cell.icon.image = splitTabIcon(tab)
             cell.developerMode = tab.developerMode == true && id == activeTab?.id
             cell.canClose = true; cell.closeButton.toolTip = t("closeTab"); cell.closeButton.setAccessibilityLabel(t("closeTab"))
@@ -2269,6 +2425,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func setSidebarHidden(_ hidden:Bool) {
         guard windowKind != .compact, session.sidebarHidden != hidden else { return }
+        dismissFolderPeek(animated:false)
         cancelSidebarHover()
         sidebarTransition += 1; sidebarAnimating = false
         session.sidebarHidden = hidden
@@ -2534,6 +2691,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func label(_ text: String, font: NSFont = .systemFont(ofSize: 12), color: NSColor = .labelColor) -> NSTextField { let l = NSTextField(labelWithString: text); l.font = font; l.textColor = color; return l }
     private func showCommand(newTab: Bool) {
+        dismissFolderPeek(animated:false)
         guard !isQuitting, session.onboardingComplete else { return }
         commandPalette?.close(); dismissSheet()
         let initial = newTab || activeTab?.url == "about:blank" ? "" : activeTab.map { browserDisplayAddress($0.url) } ?? ""
@@ -3004,7 +3162,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                 cell.icon.image = splitTabIcon(item)
                 if id == tabID {
                     if !cell.isEditingTitle { cell.titleLabel.stringValue = displayTitle(tab) }
-                    cell.toolTip = tab.url
+                    cell.setTabHint(tabHoverHint(tab))
+                    if sidebarTip.target == .tab(tabID) { sidebarTip.refreshIfVisible() }
                 }
             }
         }
@@ -3374,6 +3533,8 @@ extension BrowserController {
             chip.select = { [weak self] in
                 guard let self else { return }; if self.activeSplit?.id == group.id { self.focusSplitPane(id) } else { self.selectTab(id) }
             }
+            chip.setAccessibilityHelp(tabHoverHint(tab))
+            if id == activeTab?.id { chip.rename = { [weak self] in self?.beginTabRename(id) } }
             chip.context = { [weak self] in self?.splitGroupMenu(group) ?? NSMenu() }
             chip.dragChanged = { [weak self] active in self?.sidebarDragActive = active; if !active { self?.clearDropProposal(); self?.updateSidebarHover() } }
             return chip
@@ -3506,6 +3667,7 @@ extension BrowserController {
         }
     }
     private func beginSidebarTitleEditing(_ cell:TabCell, cleanup:(() -> Void)? = nil) {
+        sidebarTip.dismiss()
         sidebarTitleEditor = cell
         cell.titleEditingEnded = { [weak self] in
             cleanup?(); self?.sidebarTitleEditor = nil; self?.updateSidebarHover()
@@ -3850,6 +4012,7 @@ extension BrowserController {
         guard !isQuitting, !closingWindow, window.attachedSheet == nil else { return }
         saveTask?.cancel()
         do { try store.save(session) } catch { showError(t("saveError"),detail:error.localizedDescription); return }
+        dismissFolderPeek(animated:false)
         closingWindow = true; windowCloseCancelled = false
         closeParticipants = Set(containers.keys); closeWaiting = closeParticipants
         pageCapture?.close(); portraitCapture?.close(); commandPalette?.close(); siteMenu?.close()

@@ -1,36 +1,47 @@
 {
-  "version": "0.6.2",
-  "build": 15,
-  "showOnLaunch": false,
+  "version": "0.7.0",
+  "build": 16,
+  "showOnLaunch": true,
   "title": {
-    "fr": "Les onglets gardent leur icône",
-    "en": "Tabs keep their icons"
+    "fr": "La barre latérale au survol",
+    "en": "Explore the sidebar on hover"
   },
   "subtitle": {
-    "fr": "Les icônes des onglets restent visibles quand l’adresse change sur un même site, y compris sur X.",
-    "en": "Tab icons stay visible when the address changes within a site, including on X."
+    "fr": "Survole un dossier, un espace ou un onglet pour en voir davantage.",
+    "en": "Hover over a folder, space, or tab to see more."
   },
   "highlights": [
     {
-      "symbol": "globe",
+      "symbol": "folder",
       "title": {
-        "fr": "De l’accueil aux notifications",
-        "en": "From home to notifications"
+        "fr": "Cherche dans un dossier replié",
+        "en": "Search a collapsed folder"
       },
       "detail": {
-        "fr": "L’onglet conserve son icône même si tu changes de page pendant son chargement.",
-        "en": "A tab keeps its icon even if you navigate within the site while the icon is loading."
+        "fr": "Survole un dossier contenant des liens pour parcourir ses sous-dossiers, rechercher un onglet et l’ouvrir. La barre latérale reste visible pendant ta recherche.",
+        "en": "Hover over a folder with links to browse its subfolders, find a tab, and open it. The sidebar stays visible while you search."
       }
     },
     {
-      "symbol": "arrow.clockwise",
+      "symbol": "circle.grid.3x3.fill",
       "title": {
-        "fr": "Les icônes reviennent à la réouverture",
-        "en": "Icons return when you reopen the browser"
+        "fr": "Repère tes espaces",
+        "en": "Find your spaces"
       },
       "detail": {
-        "fr": "Un onglet restauré peut reprendre l’icône déjà connue du même site dans son profil, sans recharger la page.",
-        "en": "A restored tab can reuse a known icon for the same site in its profile without reloading the page."
+        "fr": "Glisse la souris sur les points pour révéler les icônes. Marque une pause sur un espace pour voir son nom et son raccourci clavier, s’il en a un.",
+        "en": "Move across the dots to reveal space icons. Pause over a space to see its name and keyboard shortcut, if assigned."
+      }
+    },
+    {
+      "symbol": "text.cursor",
+      "title": {
+        "fr": "Lis le titre complet d’un onglet",
+        "en": "See the full tab title"
+      },
+      "detail": {
+        "fr": "L’infobulle précise aussi comment renommer l’onglet. Clique sur son titre s’il est actif, ou double-clique s’il est en arrière-plan.",
+        "en": "The tooltip also tells you how to rename the tab. Click its title if it’s active, or double-click if it’s in the background."
       }
     }
   ]

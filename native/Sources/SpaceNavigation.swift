@@ -4,14 +4,38 @@ struct SpaceIndicatorLayout {
     let count: Int
     let available: Double
     let activeIndex: Int
-    var activeWidth: Double { min(34,max(24,available / Double(max(1,count)))) }
-    var inactiveWidth: Double { count <= 1 ? 34 : min(34,max(12,(available-activeWidth)/Double(count-1))) }
-    var width: Double { count == 0 ? 0 : activeWidth+Double(count-1)*inactiveWidth }
+    // The highlighted marker borrows the same amount of room wherever it is.
+    // Moving focus therefore leaves the strip's outer edges fixed.
+    var inactiveWidth: Double { min(26, max(15.5, 139.5 / Double(max(1,count))),
+                                    max(12,(available-6.5)/Double(max(1,count)))) }
+    var activeWidth: Double { inactiveWidth+6.5 }
+    var width: Double { count == 0 ? 0 : Double(count)*inactiveWidth+6.5 }
     var start: Double { max(0,(available-width)/2) }
-    var dotDiameter: Double { max(4,min(8,inactiveWidth*8/34)) }
     func frame(_ index: Int) -> (x: Double, width: Double) {
-        (start+Double(index)*inactiveWidth+(index > activeIndex ? activeWidth-inactiveWidth : 0),index == activeIndex ? activeWidth : inactiveWidth)
+        (start+Double(index)*inactiveWidth+(index > activeIndex ? 6.5 : 0),index == activeIndex ? activeWidth : inactiveWidth)
     }
+    func index(at x: Double) -> Int? {
+        let u = x-start, left = Double(activeIndex)*inactiveWidth
+        guard count > 0, u >= 0, u < width else { return nil }
+        if u >= left && u < left+activeWidth { return activeIndex }
+        return min(count-1,Int((u-(u < left ? 0 : 6.5))/inactiveWidth))
+    }
+}
+
+/// A critically damped spring with an exact solution. Carry velocity across target
+/// changes: a fast sweep or reversal doesn't restart a sequence of easing curves.
+struct SpaceDockSpring {
+    private(set) var value: Double
+    private(set) var velocity = 0.0
+    init(_ value: Double) { self.value = value }
+    mutating func advance(to target: Double, dt: Double) {
+        let omega = 34.0, offset = value-target, slope = velocity+omega*offset
+        let decay = exp(-omega*dt)
+        value = target+(offset+slope*dt)*decay
+        velocity = (velocity-omega*slope*dt)*decay
+        if abs(value-target) < 0.001 && abs(velocity) < 0.03 { self = Self(target) }
+    }
+    func isAt(_ target: Double) -> Bool { value == target && velocity == 0 }
 }
 
 /// Own the gesture from its first horizontal delta, including its release and momentum.
@@ -67,11 +91,12 @@ import AppKit
 
 /// The footer is a horizontal strip, never a vertically scrolling list.
 final class HorizontalSpaceScrollView: NSScrollView {
+    var pointerAfterScroll: ((NSEvent) -> Void)?
     override func scrollWheel(with event: NSEvent) {
         guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let documentView else { return }
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 12
         let x = min(max(0,contentView.bounds.minX-event.scrollingDeltaX*scale),max(0,documentView.bounds.width-contentView.bounds.width))
-        contentView.scroll(to:NSPoint(x:x,y:0)); reflectScrolledClipView(contentView)
+        contentView.scroll(to:NSPoint(x:x,y:0)); reflectScrolledClipView(contentView); pointerAfterScroll?(event)
     }
 }
 #endif

@@ -12,7 +12,7 @@ final class AddMenuButton: NSButton {
         super.init(frame:frame)
         title = ""; isBordered = false; wantsLayer = true
         layer?.cornerRadius = 8
-        mark.fillColor = nil; mark.lineWidth = 1.8; mark.lineCap = .round
+        mark.fillColor = nil; mark.lineWidth = 2; mark.lineCap = .round
         layer?.addSublayer(mark)
         target = self; action = #selector(activate)
         refresh()
@@ -26,8 +26,8 @@ final class AddMenuButton: NSButton {
         mark.bounds = CGRect(x:0,y:0,width:18,height:18)
         mark.position = CGPoint(x:bounds.midX,y:bounds.midY)
         let path = CGMutablePath()
-        path.move(to:CGPoint(x:2,y:9)); path.addLine(to:CGPoint(x:16,y:9))
-        path.move(to:CGPoint(x:9,y:2)); path.addLine(to:CGPoint(x:9,y:16))
+        path.move(to:CGPoint(x:3,y:9)); path.addLine(to:CGPoint(x:15,y:9))
+        path.move(to:CGPoint(x:9,y:3)); path.addLine(to:CGPoint(x:9,y:15))
         mark.path = path
         CATransaction.commit()
     }
@@ -54,7 +54,7 @@ final class AddMenuButton: NSButton {
         let color = ink.withAlphaComponent(hovered || expanded ? 0.09 : 0).cgColor
         let previous = layer?.presentation()?.backgroundColor ?? layer?.backgroundColor
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        mark.strokeColor = ink.withAlphaComponent(0.8).cgColor; layer?.backgroundColor = color
+        mark.strokeColor = ink.withAlphaComponent(hovered || expanded ? 0.9 : 0.65).cgColor; layer?.backgroundColor = color
         CATransaction.commit()
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let animation = CABasicAnimation(keyPath:"backgroundColor")

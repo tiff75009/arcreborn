@@ -100,6 +100,13 @@ struct NativeTab: Codable, Equatable {
     var lastViewedAt: Date? = nil
     var autoArchivedAt: Date? = nil
     var displayTitle: String { customTitle ?? title }
+    func hoverTitle(untitled: String) -> String {
+        if let customTitle, !customTitle.isEmpty { return customTitle }
+        let caption = title.trimmingCharacters(in:.whitespacesAndNewlines)
+        // Chromium can temporarily report the address as the title during navigation.
+        if !caption.isEmpty, caption != url, !(["https://","http://"].contains { caption.lowercased().hasPrefix($0) }) { return caption }
+        return URL(string:url)?.host ?? untitled
+    }
 }
 struct NativeFolder: Codable, Equatable {
     var id: String

@@ -163,6 +163,7 @@ final class SplitTabChip: NSView, NSDraggingSource {
     let icon = NSImageView()
     let label = NSTextField(labelWithString:"")
     var select:(() -> Void)?
+    var rename:(() -> Void)?
     var context:(() -> NSMenu)?
     var dragChanged:((Bool) -> Void)?
     override var mouseDownCanMoveWindow:Bool { false }
@@ -171,7 +172,7 @@ final class SplitTabChip: NSView, NSDraggingSource {
         layer?.backgroundColor = NSColor.white.withAlphaComponent(active ? 0.20 : 0.08).cgColor
         icon.image = image; icon.imageScaling = .scaleProportionallyUpOrDown
         label.stringValue = title; label.font = .systemFont(ofSize:12,weight:.medium); label.lineBreakMode = .byTruncatingTail
-        addSubview(icon); addSubview(label); toolTip = title; setAccessibilityLabel(title); setAccessibilityRole(.button)
+        addSubview(icon); addSubview(label); label.allowsExpansionToolTips = false; setAccessibilityLabel(title); setAccessibilityRole(.button)
         layer?.addSublayer(developerOutline)
     }
     required init?(coder:NSCoder) { fatalError() }
@@ -187,7 +188,12 @@ final class SplitTabChip: NSView, NSDraggingSource {
         let start = event.locationInWindow
         layer?.opacity = 0.72
         while let next = window.nextEvent(matching:[.leftMouseDragged,.leftMouseUp]) {
-            if next.type == .leftMouseUp { layer?.opacity = 1; select?(); return }
+            if next.type == .leftMouseUp {
+                layer?.opacity = 1
+                if let rename, label.isHidden || label.frame.contains(convert(start,from:nil)) { rename() }
+                else { select?() }
+                return
+            }
             if hypot(next.locationInWindow.x-start.x,next.locationInWindow.y-start.y) > 4 {
                 layer?.opacity = 1
                 let pasteboard = NSPasteboardItem(); pasteboard.setString(id,forType:NSPasteboard.PasteboardType("local.browser.tab"))

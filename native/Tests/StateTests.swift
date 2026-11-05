@@ -277,10 +277,26 @@ import CoreGraphics
         let small = SpaceIndicatorLayout(count:2,available:152,activeIndex:0)
         let many = SpaceIndicatorLayout(count:10,available:152,activeIndex:4)
         let huge = SpaceIndicatorLayout(count:100,available:152,activeIndex:99)
-        check(small.dotDiameter == 8 && many.dotDiameter == 4,"indicators compact progressively")
+        check(small.inactiveWidth > many.inactiveWidth,"short rows leave more room between spaces")
         check(many.width <= 152 && huge.width > 152 && huge.inactiveWidth >= 12,"large counts overflow rather than becoming microscopic")
-        check(many.frame(4).width >= 24 && huge.frame(99).width >= 24,"active icon stays legible")
-        check(many.frame(5).x >= many.frame(4).x+many.frame(4).width,"indicator hit regions never overlap")
+        check(many.activeWidth > many.inactiveWidth,"the highlighted marker has room for its icon")
+        let other = SpaceIndicatorLayout(count:10,available:152,activeIndex:1)
+        check(many.start == other.start && many.width == other.width,"hover never shifts the strip or the surrounding controls")
+        check(many.index(at:many.start-1) == nil && many.index(at:many.start+many.width) == nil,"empty margins have no target")
+        for i in 0..<many.count {
+            let f = many.frame(i)
+            let next = SpaceIndicatorLayout(count:many.count,available:many.available,activeIndex:i)
+            for x in [f.x+0.01, f.x+f.width/2, f.x+f.width-0.01] {
+                check(many.index(at:x) == i && next.index(at:x) == i,"growing the hovered space keeps the pointer and click on it")
+            }
+        }
+        var pulse = SpaceDockSpring(0)
+        pulse.advance(to:1,dt:0.035)
+        let before = pulse.value
+        pulse.advance(to:0,dt:0.005)
+        check(before > 0 && pulse.value > before,"a brief hover carries momentum even after the pointer passes")
+        pulse.advance(to:0,dt:0.8)
+        check(pulse.isAt(0),"the wave settles back to an ordinary dot")
         var gesture = SpaceSwipeState()
         let first = gesture.update(dx:-1,dy:0,phase:.began,momentum:false,eligible:true,time:0)
         check(first.consume && first.offset == -1,"first horizontal pixel starts interactive preview")
@@ -534,6 +550,13 @@ import CoreGraphics
         var session = BrowserSession.fresh()
         let id = session.createTab(url: "https://example.com")
         session.tabs[0].title = "Site title"
+        var pending = session.tabs.first { $0.id == id }!
+        pending.url = "https://example.test/path?ticket=123"; pending.title = pending.url
+        check(pending.hoverTitle(untitled:"Nouvel onglet") == "example.test","a missing page title never exposes the URL path or its query on hover")
+        pending.title = "Étude détaillée"
+        check(pending.hoverTitle(untitled:"Nouvel onglet") == "Étude détaillée","hover preserves the full accented page title")
+        pending.customTitle = "Mes notes"
+        check(pending.hoverTitle(untitled:"Nouvel onglet") == "Mes notes","hover follows the custom tab title")
         check(session.renameTab(id:id,name:"  Mon onglet  "), "rename accepts trimmed name")
         check(session.tabs[0].displayTitle == "Mon onglet", "custom title displayed")
         session.tabs[0].title = "Updated by website"

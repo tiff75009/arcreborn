@@ -80,7 +80,7 @@ final class SpaceCreationView: NSView, NSTextFieldDelegate {
     private let errorLabel = NSTextField(wrappingLabelWithString:"")
     private let emblem = SpaceCardsView()
     private let dots = HorizontalSpaceScrollView()
-    private let spaceDots = CreationFlippedView()
+    private let spaceDots = SpaceDockView()
     private var help: NSPopover?
     private var customTheme = false
     private var committing = false
@@ -121,18 +121,12 @@ final class SpaceCreationView: NSView, NSTextFieldDelegate {
         errorLabel.font = .systemFont(ofSize:11); errorLabel.textColor = .systemRed
         dots.drawsBackground = false; dots.borderType = .noBorder; dots.hasHorizontalScroller = true
         dots.autohidesScrollers = true; dots.scrollerStyle = .overlay; dots.documentView = spaceDots
-        for space in spaces {
-            let button = FooterSpaceButton(space.id == activeSpaceID ? space.icon : "") { [weak self] in
-                guard let self, !self.committing, !self.ending else { return }; self.selectExistingSpace?(space.id)
-            }
-            button.dot = space.id != activeSpaceID; button.ink = .white
-            button.font = .systemFont(ofSize:14); button.contentTintColor = .white
-            button.setAccessibilityLabel(space.name); button.toolTip = space.name
-            spaceDots.addSubview(button)
-        }
-        let draftDot = FooterSpaceButton("") {}
-        draftDot.dot = true; draftDot.ink = .white; draftDot.isEnabled = false
-        draftDot.setAccessibilityLabel(t("createSpaceTitle")); spaceDots.addSubview(draftDot)
+        let items = spaces.map { SpaceDockView.Item(id:$0.id,name:$0.name,icon:$0.icon) }
+        spaceDots.update(items+[.init(id:"creation-draft",name:t("createSpaceTitle"),icon:"none",enabled:false)],
+                         selectedID:activeSpaceID,ink:.white,select:{ [weak self] id in
+            guard let self, !self.committing, !self.ending else { return }; self.selectExistingSpace?(id)
+        })
+        dots.pointerAfterScroll = { [weak self] in self?.spaceDots.trackPointer($0) }
         emblem.alphaValue = 0
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -163,13 +157,7 @@ final class SpaceCreationView: NSView, NSTextFieldDelegate {
         createButton.frame = NSRect(x:0,y:max(425,bounds.height-132),width:width,height:36)
         cancelButton.frame = NSRect(x:0,y:max(469,bounds.height-88),width:width,height:30)
         dots.frame = NSRect(x:0,y:bounds.height-39,width:width,height:34)
-        let active = max(0,spaceDots.subviews.count-1)
-        let metrics = SpaceIndicatorLayout(count:spaceDots.subviews.count,available:width,activeIndex:active)
-        spaceDots.frame = NSRect(x:0,y:0,width:max(width,metrics.width),height:32)
-        for (index,button) in spaceDots.subviews.enumerated() {
-            let item = metrics.frame(index); button.frame = NSRect(x:item.x,y:0,width:item.width,height:32)
-            (button as? FooterSpaceButton)?.dotDiameter = metrics.dotDiameter
-        }
+        spaceDots.fit(width:width)
         emblem.frame = NSRect(x:(width-68)/2,y:(bounds.height-60)/2,width:68,height:60)
     }
     func show() {
