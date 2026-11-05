@@ -1,13 +1,15 @@
-![Arc Reborn — navigateur open source pour Mac, avec les fenêtres GitHub et YouTube en relief](docs/showcase/arc-reborn-banner.jpg)
+<p align="center"><img src="docs/showcase/arc-reborn-banner.jpg" alt="Arc Reborn — navigateur open source pour Mac, avec les fenêtres GitHub et YouTube en relief" width="100%"></p>
 
 <p align="center">
-  <a href="https://www.arc-reborn.com/download/mac"><img src="docs/showcase/download-fr.svg" alt="Télécharger pour Mac" height="38"></a>
-  <a href="https://www.arc-reborn.com/"><img src="docs/showcase/website-fr.svg" alt="Site officiel" height="38"></a>
+  <a href="https://www.arc-reborn.com/download/mac"><img src="docs/showcase/download-fr.svg" alt="Télécharger pour Mac" width="266" height="62"></a>
+</p>
+<p align="center">
+  <a href="https://www.arc-reborn.com/"><img src="docs/showcase/website-fr.svg" alt="Site officiel" width="124" height="36"></a> &nbsp; <a href="https://github.com/tiff75009/arcreborn/releases"><img src="docs/showcase/releases-fr.svg" alt="Versions" width="110" height="36"></a>
 </p>
 
-# Arc Reborn
+<p align="center"><a href="README.md">English</a> · <strong>Français</strong></p>
 
-[English](README.md) · **Français**
+# Arc Reborn
 
 Arc Reborn est un navigateur indépendant et open source pour Mac. Je le développe pour celles et ceux qui veulent garder leurs habitudes sur Arc. Mon objectif est de retrouver le plus fidèlement possible son apparence, ses animations et ses gestes du quotidien. J’aimerais que vous reconnaissiez votre Espace à sa couleur et que vous sachiez où un onglet épinglé va se ranger avant même de le lâcher.
 

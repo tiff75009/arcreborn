@@ -1,13 +1,15 @@
-![Arc Reborn — open-source Mac browser, showing GitHub and YouTube in two layered windows](docs/showcase/arc-reborn-banner.jpg)
+<p align="center"><img src="docs/showcase/arc-reborn-banner.jpg" alt="Arc Reborn — open-source Mac browser, showing GitHub and YouTube in two layered windows" width="100%"></p>
 
 <p align="center">
-  <a href="https://www.arc-reborn.com/download/mac"><img src="docs/showcase/download-en.svg" alt="Download for Mac" height="38"></a>
-  <a href="https://www.arc-reborn.com/"><img src="docs/showcase/website-en.svg" alt="Website" height="38"></a>
+  <a href="https://www.arc-reborn.com/download/mac"><img src="docs/showcase/download-en.svg" alt="Download for Mac" width="239" height="62"></a>
+</p>
+<p align="center">
+  <a href="https://www.arc-reborn.com/"><img src="docs/showcase/website-en.svg" alt="Website" width="108" height="36"></a> &nbsp; <a href="https://github.com/tiff75009/arcreborn/releases"><img src="docs/showcase/releases-en.svg" alt="Releases" width="110" height="36"></a>
 </p>
 
-# Arc Reborn
+<p align="center"><strong>English</strong> · <a href="README.fr.md">Français</a></p>
 
-**English** · [Français](README.fr.md)
+# Arc Reborn
 
 Arc Reborn is an independent, open-source browser for Mac. I’m building it for people who want to keep using Arc the way they already do. My aim is to recreate its look, motion and everyday behavior as faithfully as possible. I want you to recognize your Space by its color and know where a pinned tab will land before you let go of it.
 
