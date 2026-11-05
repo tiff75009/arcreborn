@@ -1,14 +1,19 @@
+![Arc Reborn — open-source Mac browser, showing GitHub and YouTube in two layered windows](docs/showcase/arc-reborn-banner.jpg)
+
+<p align="center">
+  <a href="https://www.arc-reborn.com/download/mac"><img src="docs/showcase/download-en.svg" alt="Download for Mac" height="38"></a>
+  <a href="https://www.arc-reborn.com/"><img src="docs/showcase/website-en.svg" alt="Website" height="38"></a>
+</p>
+
 # Arc Reborn
 
 **English** · [Français](README.fr.md)
 
-![Arc Reborn on macOS: the default tab, the first-launch welcome screen, and a Space changing from magenta to teal as the theme handle moves.](docs/showcase/tour.gif)
-
-[Download for Apple silicon](https://github.com/tiff75009/arcreborn/releases/latest) · [Website](https://www.arc-reborn.com/) · [View the stills](#a-closer-look)
-
 Arc Reborn is an independent, open-source browser for Mac. I’m building it for people who want to keep using Arc the way they already do. My aim is to recreate its look, motion and everyday behavior as faithfully as possible. I want you to recognize your Space by its color and know where a pinned tab will land before you let go of it.
 
 I used Codex and Claude to reverse-engineer parts of Arc’s behavior. The implementation pairs a native **Swift and AppKit** interface with a customized **Chromium Embedded Framework (CEF)**. This is an independent project in active development, unaffiliated with Arc or The Browser Company.
+
+![Arc Reborn on macOS: the default tab, the first-launch welcome screen, and a Space changing from magenta to teal as the theme handle moves.](docs/showcase/tour.gif)
 
 ## A closer look
 

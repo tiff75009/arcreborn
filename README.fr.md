@@ -1,14 +1,19 @@
+![Arc Reborn — navigateur open source pour Mac, avec les fenêtres GitHub et YouTube en relief](docs/showcase/arc-reborn-banner.jpg)
+
+<p align="center">
+  <a href="https://www.arc-reborn.com/download/mac"><img src="docs/showcase/download-fr.svg" alt="Télécharger pour Mac" height="38"></a>
+  <a href="https://www.arc-reborn.com/"><img src="docs/showcase/website-fr.svg" alt="Site officiel" height="38"></a>
+</p>
+
 # Arc Reborn
 
 [English](README.md) · **Français**
 
-![Arc Reborn sur Mac : la page par défaut, le premier lancement, puis un Espace qui passe du magenta au bleu-vert quand on déplace la poignée de couleur.](docs/showcase/tour-fr.gif)
-
-[Télécharger pour Mac Apple Silicon](https://github.com/tiff75009/arcreborn/releases/latest) · [Site du projet](https://www.arc-reborn.com/) · [Voir les captures](#le-navigateur-en-images)
-
 Arc Reborn est un navigateur indépendant et open source pour Mac. Je le développe pour celles et ceux qui veulent garder leurs habitudes sur Arc. Mon objectif est de retrouver le plus fidèlement possible son apparence, ses animations et ses gestes du quotidien. J’aimerais que vous reconnaissiez votre Espace à sa couleur et que vous sachiez où un onglet épinglé va se ranger avant même de le lâcher.
 
 Avec Codex et Claude, j’ai étudié par rétro-ingénierie certains comportements d’Arc pour les recréer. L’interface native est écrite en **Swift et AppKit**. Les pages s’affichent grâce à une version personnalisée du **Chromium Embedded Framework (CEF)**. Le projet est en développement et indépendant d’Arc et de The Browser Company.
+
+![Arc Reborn sur Mac : la page par défaut, le premier lancement, puis un Espace qui passe du magenta au bleu-vert quand on déplace la poignée de couleur.](docs/showcase/tour-fr.gif)
 
 ## Le navigateur en images
 
