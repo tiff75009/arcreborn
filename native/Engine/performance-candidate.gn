@@ -1,0 +1,11 @@
+# Candidate overrides for the pinned macOS arm64 engine. Apply to the CEF
+# Release args (including all existing media settings), in a separate output.
+is_official_build = true
+is_debug = false
+dcheck_always_on = false
+enable_expensive_dchecks = false
+chrome_pgo_phase = 2
+# Bound peak memory at link time on the 16 GB build Mac. This does not turn
+# off PGO, the production CHECKs, V8's sandbox, or the Chromium process sandbox.
+use_thin_lto = false
+disable_fieldtrial_testing_config = true

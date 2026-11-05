@@ -13,7 +13,8 @@ Stock CEF cannot replace the customized runtime.
 ## Rebuild from upstream sources
 
 Use a dedicated local APFS directory on a disk with several hundred GB available,
-Xcode, its accepted licence, Git and Python. Source download and compilation are
+Xcode, its accepted licence, the Metal Toolchain component, Git and Python.
+Install a missing Metal compiler with `xcodebuild -downloadComponent MetalToolchain`. Source download and compilation are
 large operations; normal UI contributors do not need them.
 
 ```sh
@@ -29,7 +30,9 @@ recognizes the complete applied stack without reversing live edits. The initial
 engine objects were compiled with Xcode 26.2. Engine `arcreborn.2` rebuilds the
 navigation changes with Xcode 27.2 and links them with unchanged pinned objects;
 its `engine.json` records this incremental build and its base version. The shell
-is compiled with Xcode 27.2. A full clean engine build with 27.2 remains unvalidated.
+is compiled with Xcode 27.2. Engine `arcreborn.5` replaces that incremental build with a complete optimized
+build from the same pinned source revisions using Xcode 27.2. Its `engine.json`
+records the effective GN arguments, PGO profile and validated V8 configuration.
 A macOS SDK is obtained through the developer's Xcode installation.
 
 Before changing the patch stack, update its hashes and increment the engine
@@ -112,3 +115,62 @@ BROWSER_MEDIA_TEST_HLS_URL=https://example.org/playlist.m3u8 node native/Tests/m
 
 Set `BROWSER_SMOKE_APP` to test a different local app bundle. The check requires
 advancing playback, decoded audio and video frames in the real renderer.
+
+## Profiling the browser and building a separate optimized engine
+
+A CEF directory called `Release` does not imply that development checks were
+compiled out. The published `arcreborn.4` engine was built with
+`is_official_build=false`, leaving expensive V8 development checks enabled.
+The current `arcreborn.5` pin enables official release compilation and PGO,
+disables development-only checks, and retains the V8 sandbox and optimizing
+compilers. ThinLTO is disabled to bound linker memory on a 16 GB Mac.
+`engine.py configure` fetches the exact upstream release optimization profiles
+before generating the build graph. Old archives stay immutable.
+
+For future experiments without replacing the normal output directory, start
+with a pinned and configured CEF checkout as described above:
+
+```sh
+python3 native/scripts/performance-engine.py --root /path/to/engine --jobs 4
+BROWSER_ENGINE_FRAMEWORK='/path/to/engine/chromium_git/chromium/src/out/Arc_Performance_arm64/Chromium Embedded Framework.framework' \
+  BROWSER_BUILD_ROOT="$PWD/native/build/performance" native/scripts/dev.sh --build-only
+```
+
+The separate output uses the existing CEF configuration, the locked codec
+settings and patch stack, official Chromium arm64 and V8 optimization profiles,
+and release compiler flags. It checks the generated V8 config (including its
+sandbox and optimizing compilers) before compiling. Interrupting and rerunning
+reuses the candidate's own objects. Do not copy object files from the published
+engine's build directory: these options also change definitions shared between
+translation units and the V8 snapshot.
+
+To compare builds on the same idle Mac, run them separately on AC power with
+the same window size. The runner opens Speedometer 3.1 in a disposable profile
+with the test keychain and exports the benchmark's full JSON. It discards
+backgrounded or incomplete runs and never changes the normal profile. Keep the
+window visible; compare ten iterations per browser and report uncertainty.
+
+```sh
+node native/Tests/speedometer.mjs '/Applications/Arc Reborn.app' 10 > before.json
+node native/Tests/speedometer.mjs 'native/build/performance/Arc Reborn.app' 10 > after.json
+BROWSER_SMOKE_APP="$PWD/native/build/performance/Arc Reborn.app" \
+  BROWSER_MEDIA_TEST_MATRIX=1 node native/Tests/media-playback.mjs
+BROWSER_BUILD_ROOT="$PWD/native/build/performance" native/scripts/test-extension-placement.sh
+```
+
+Do not promote a candidate on the strength of a stock CEF score. Verify the
+complete app and its codecs, extension popups and native embedding before
+assigning a new engine version or publishing an update.
+
+To track the local candidate, run `make monitor` from the repository root.
+It opens a read-only dashboard at <http://127.0.0.1:8770>, updated every two
+seconds. Closing the tab or stopping the monitor does not affect the build.
+For future builds, `native/scripts/check-performance-candidate.sh ENGINE_ROOT 7`
+runs the engine, development app, playback and extension checks, and Speedometer
+in sequence. An optional third argument supplies a local MP4. Both commands
+use `native/build/perf-check` for the journal (override with `ARC_PERF_WORK`).
+The progress bar counts engine steps, including steps retained on a retry;
+it doesn't estimate the duration of the subsequent tests.
+
+The [0.6.0 performance report](performance-0.6.0.md) documents the diagnosis,
+measurements and validation boundaries for the optimized engine.

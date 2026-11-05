@@ -1,4 +1,4 @@
-.PHONY: dev build check release-check demo-onboarding
+.PHONY: dev build check release-check demo-onboarding monitor
 dev:
 	./native/scripts/dev.sh
 build:
@@ -9,3 +9,5 @@ release-check:
 	/usr/bin/python3 native/scripts/release.py check
 demo-onboarding:
 	./native/scripts/onboarding-demo.sh
+monitor:
+	python3 native/scripts/monitor-engine.py --candidate --open

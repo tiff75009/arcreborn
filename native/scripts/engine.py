@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -69,6 +70,36 @@ def fetch():
         raise SystemExit('Engine extraction incomplete')
     print(target/FRAMEWORK)
 
+def prepare_release_tools(src, depot, env):
+    """Fetch only the optimization profiles and tools pinned by this checkout."""
+    py = depot / (depot / 'python3_bin_reldir.txt').read_text().strip() / 'python3'
+    def tool(*args):
+        run(*args, cwd=src, env=env)
+
+    # An existing local checkout may never have run the release-only symbol hook.
+    symbols = src/'tools/clang/dsymutil/bin'
+    if not (symbols/'dsymutil').is_file():
+        import urllib.request, tempfile
+        expected = (symbols/'dsymutil.arm64.sha1').read_text().strip()
+        if not re.fullmatch(r'[a-f0-9]{40}', expected):
+            raise SystemExit('Invalid pinned dsymutil hash')
+        with tempfile.NamedTemporaryFile(dir=symbols) as temp:
+            with urllib.request.urlopen('https://storage.googleapis.com/chromium-browser-clang/' + expected, timeout=90) as response:
+                shutil.copyfileobj(response, temp)
+            temp.flush()
+            if hashlib.sha1(Path(temp.name).read_bytes()).hexdigest() != expected:
+                raise SystemExit('dsymutil checksum mismatch')
+            os.chmod(temp.name, 0o755)
+            os.link(temp.name, symbols/'dsymutil')
+
+    # These are the profiles associated with this exact Chromium/V8 release.
+    # Both hooks are idempotent; the V8 one also checks the revision in DEPS.
+    pgo = (src/'chrome/build/mac-arm.pgo.txt').read_text().strip()
+    if not (src/'chrome/build/pgo_profiles'/pgo).is_file():
+        tool(py, 'tools/update_pgo_profiles.py', '--target', 'mac-arm', 'update',
+             '--gs-url-base=chromium-optimization-profiles/pgo_profiles')
+    tool(py, 'v8/tools/builtins-pgo/download_profiles.py', 'download', '--depot-tools', depot, '--check-v8-revision')
+
 def source(args):
     verify_patches()
     if not args.root:
@@ -105,7 +136,11 @@ def source(args):
         for patch in patches[count:]:
             run('git','apply','--check',patch,cwd=src)
             run('git','apply',patch,cwd=src)
-        run('/usr/bin/python3','tools/gclient_hook.py',cwd=src/'cef',env=env)
+        py = depot / (depot/'python3_bin_reldir.txt').read_text().strip() / 'python3'
+        env['PATH'] = str(py.parent) + ':' + str(src/'buildtools/mac') + ':' + env['PATH']
+        if 'is_official_build=true' in PIN['gnDefines'].split():
+            prepare_release_tools(src, depot, env)
+        run(py,'tools/gclient_hook.py',cwd=src/'cef',env=env)
     if args.command == 'build':
         run('/usr/bin/python3',NATIVE/'scripts/check-engine-patches.py',src,*patches)
         run(src/'third_party/ninja/ninja','-C',src/'out/Release_GN_arm64','-j',args.jobs,PIN['buildTarget'],env=env)

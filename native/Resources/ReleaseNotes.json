@@ -1,36 +1,47 @@
 {
-  "version": "0.5.2",
-  "build": 12,
-  "showOnLaunch": false,
+  "version": "0.6.0",
+  "build": 13,
+  "showOnLaunch": true,
   "title": {
-    "fr": "Les téléchargements dans la barre latérale",
-    "en": "Downloads in the sidebar"
+    "fr": "Un nouveau souffle.",
+    "en": "A new burst of speed."
   },
   "subtitle": {
-    "fr": "Les onglets s’estompent à l’ouverture du panneau des téléchargements et redeviennent accessibles à sa fermeture.",
-    "en": "Tabs fade as the downloads panel opens and become accessible again when it closes."
+    "fr": "Arc Reborn passe à la vitesse supérieure avec un moteur optimisé pour votre Mac.",
+    "en": "Arc Reborn shifts up a gear with an engine optimized for your Mac."
   },
   "highlights": [
     {
-      "symbol": "cursorarrow.click",
+      "symbol": "bolt.fill",
       "title": {
-        "fr": "Des clics qui restent dans le panneau",
-        "en": "Clicks stay inside the panel"
+        "fr": "Les applications web accélèrent",
+        "en": "Web apps pick up speed"
       },
       "detail": {
-        "fr": "Un clic sur le nom d’un fichier ouvre Coup d’œil. Les espaces entre les fichiers et l’animation de fermeture ne laissent plus passer de clic vers les onglets.",
-        "en": "Click a file name to open Quick Look. Clicking between files or while the panel closes no longer activates a tab behind it."
+        "fr": "Le moteur JavaScript utilise désormais une compilation de production optimisée. Les vérifications de développement qui ralentissaient la navigation ont été retirées.",
+        "en": "The JavaScript engine now uses an optimized production build. Development checks that were slowing down browsing have been removed."
       }
     },
     {
-      "symbol": "sidebar.left",
+      "symbol": "speedometer",
       "title": {
-        "fr": "Un fondu dans la couleur de l’espace",
-        "en": "A fade that matches your Space"
+        "fr": "Un gain mesuré, sur le même Mac",
+        "en": "Measured on the same Mac"
       },
       "detail": {
-        "fr": "Les onglets disparaissent progressivement derrière les téléchargements. Les noms des fichiers et leurs commandes restent nets.",
-        "en": "Tabs fade out behind downloads while file names and controls stay sharp."
+        "fr": "Sur notre Mac M4, le score Speedometer 3.1 passe de 8,21 à 51,79. Ce test mesure la réactivité des applications web ; les résultats varient selon les sites et les appareils.",
+        "en": "On our M4 Mac, the Speedometer 3.1 score rises from 8.21 to 51.79. This benchmark measures web app responsiveness; results vary by site and device."
+      }
+    },
+    {
+      "symbol": "checkmark.shield",
+      "title": {
+        "fr": "Votre navigateur, préservé",
+        "en": "Still your browser"
+      },
+      "detail": {
+        "fr": "Vos espaces, onglets, réglages et extensions restent en place. La vidéo H.264, HLS, AV1 et HEVC a été vérifiée avec ce nouveau moteur, qui conserve ses protections de sécurité.",
+        "en": "Your Spaces, tabs, settings and extensions stay in place. H.264, HLS, AV1 and HEVC playback has been checked with the new engine, which retains its security protections."
       }
     }
   ]

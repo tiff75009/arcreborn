@@ -16,9 +16,9 @@ DIRECTORIES = ['native/Sources','native/Bridge','native/Tests','native/Resources
                'native/Demo','native/Engine/patches','native/Engine/licenses','design/app-icon/ArcReborn.icon',
                '.github/workflows','.github/ISSUE_TEMPLATE','docs/development']
 FILES = ['README.md','LICENSE','NOTICE.md','CONTRIBUTING.md','SECURITY.md','.gitignore','Makefile',
-         '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json']
+         '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json','native/Engine/performance-candidate.gn','native/Engine/monitor.html']
 SCRIPTS = ['test-extension-placement.sh','build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
-           'engine.py','engine-framework-fingerprint.py','check-engine-patches.py',
+           'engine.py','performance-engine.py','monitor-engine.py','check-performance-candidate.sh','engine-framework-fingerprint.py','check-engine-patches.py',
            'welcome-assets.sh','onboarding-demo.sh','sign-and-notarize.sh','sign-sparkle.sh','release.py','verify-release.swift','ci-signing.py','public-source.py']
 FILES += ['native/scripts/'+name for name in SCRIPTS]
 FORBIDDEN = {'server','node_modules','vendor','build','dist','.env','profile','Chromium','.DS_Store','__pycache__'}
