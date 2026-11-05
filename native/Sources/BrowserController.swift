@@ -32,6 +32,7 @@ private final class BrowserWindow: NSWindow {
     }
     var pointerEvent: ((NSEvent) -> Void)?
     var pointerTrackingEnded: (() -> Void)?
+    var handleSidebarBackgroundClick: ((NSEvent) -> Bool)?
     override func sendEvent(_ event: NSEvent) {
         // Buttons, favorite tiles, folder rows and window drags can consume the
         // mouse-up in a nested tracking loop, without calling sendEvent again.
@@ -42,6 +43,7 @@ private final class BrowserWindow: NSWindow {
         case .mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp: pointerEvent?(event)
         default: break
         }
+        if event.type == .leftMouseDown, handleSidebarBackgroundClick?(event) == true { return }
         super.sendEvent(event)
     }
 }
@@ -624,6 +626,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var trackingMenus = 0
     private var sidebarPointer: NSPoint?
     private var sidebarMousePressed = false
+    private var firstClickOnSidebarBackground = false
     private let sidebar = NSVisualEffectView()
     private let sidebarTint = ThemeBackdropView()
     private let toolbar = FlippedView()
@@ -1014,6 +1017,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         window.acceptsMouseMovedEvents = true
         root.pointerChanged = { [weak self] event in self?.trackSidebarPointer(event); self?.trackSplitFocus(event) }
         (window as? BrowserWindow)?.pointerEvent = { [weak self] event in self?.trackSidebarPointer(event); self?.trackSplitFocus(event) }
+        (window as? BrowserWindow)?.handleSidebarBackgroundClick = { [weak self] event in
+            self?.handleSidebarBackgroundClick(event) ?? false
+        }
         (window as? BrowserWindow)?.pointerTrackingEnded = finishSidebarTracking
         spaceScrollMonitor = NSEvent.addLocalMonitorForEvents(matching:.scrollWheel) { [weak self] event in
             guard let self, event.window === self.window || (event.window == nil && NSApp.keyWindow === self.window) else { return event }
@@ -1346,6 +1352,34 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             spaceIndicatorContent.trackPointer(event)
         } else { spaceIndicatorContent.clearHover() }
     }
+    private func handleSidebarBackgroundClick(_ event: NSEvent) -> Bool {
+        let firstWasOnBackground = firstClickOnSidebarBackground
+        firstClickOnSidebarBackground = false
+        guard event.clickCount == 1 || event.clickCount == 2,
+              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+              window.attachedSheet == nil, commandPalette == nil, addMenu == nil, trackingMenus == 0,
+              !sidebarHost.isHiddenOrHasHiddenAncestor, !session.sidebarHidden || sidebarRevealed,
+              isSidebarBackground(at: event.locationInWindow) else { return false }
+        // Let AppKit handle the first press normally, including dragging the window.
+        firstClickOnSidebarBackground = event.clickCount == 1
+        guard event.clickCount == 2, firstWasOnBackground else { return false }
+        newTabAction(nil)
+        return true
+    }
+
+    private func isSidebarBackground(at point: NSPoint) -> Bool {
+        guard sidebarHost.bounds.contains(sidebarHost.convert(point, from: nil)),
+              let frameView = root.superview,
+              let hit = frameView.hitTest(frameView.superview?.convert(point, from: nil) ?? point) else { return false }
+        if hit === table || hit === rowsScroll.contentView || hit === rowsScroll {
+            return table.row(at: table.convert(point, from: nil)) == -1
+        }
+        // Only the bare containers qualify. Their buttons, tiles and the resize strip
+        // keep their own clicks, even if a first click removed or moved a control.
+        return hit === sidebarHost || hit === sidebarItems || hit === favorites ||
+            hit === toolbar || hit === spacesFooter || hit === spaceIndicatorContent
+    }
+
     private func trackSidebarPointer(_ event: NSEvent) {
         guard siteMenu?.isShown != true else { clearSidebarPointerFeedback(); return }
         updateSidebarPointerFeedback(event)
