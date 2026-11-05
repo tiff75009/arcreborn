@@ -145,7 +145,8 @@ import Security
                 guard next.validated() else { throw SessionStoreError.invalidState }
                 try apply?(next)
                 updateStatus("À jour · "+DateFormatter.localizedString(from:Date(),dateStyle:.none,timeStyle:.short))
-                if ArcSyncCodec.canonical(next) != result.0 { localChanged() }
+                // Applying the reply also incorporates edits still in window memory.
+                if ArcSyncCodec.canonical(current?() ?? next) != result.0 { localChanged() }
                 return
             }
             throw ArcAccount.Failure.message("Un autre appareil modifie vos données. La synchronisation réessaiera automatiquement.")

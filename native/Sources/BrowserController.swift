@@ -581,7 +581,7 @@ private final class TabCell: NSTableCellView, NSTextFieldDelegate {
         layer?.shadowColor = NSColor.black.cgColor; layer?.shadowOpacity = active ? 0.12 : 0; layer?.shadowRadius = 1; layer?.shadowOffset = NSSize(width: 0, height: -1)
     }
 }
-private struct TabStatus { var progress: Double = 0; var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
+private struct TabStatus { var unread = FavoriteUnread(); var progress: Double = 0; var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
 private enum SidebarRow { case tab(String), folder(String), heading(String), newTab }
 private final class MenuAction: NSObject { let kind: String; let id: String; let value: String; init(_ kind: String, _ id: String, _ value: String = "") { self.kind = kind; self.id = id; self.value = value } }
 
@@ -1542,9 +1542,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         favoritesHint.heading.stringValue = t("favoritesHintTitle"); favoritesHint.detail.stringValue = t("favoritesHintDetail"); favoritesHint.dismiss.setAccessibilityLabel(t("dismissHint")); favoritesHint.needsDisplay = true; favoritesHint.needsLayout = true
         for (button, key) in [(sidebarButton!, "sidebar"), (backButton!, "back"), (forwardButton!, "forward"), (reloadButton!, "reload"), (folderButton!, "newFolder"), (downloadButton!, "library"), (findClose!, "close")] { button.toolTip = t(key); button.setAccessibilityLabel(t(key)) }
         findField.placeholderString = t("find")
-        favorites.update(session.favoriteTabs(spaceID:session.activeSpaceID).map {
-            FavoriteVisual(id:$0.id,title:displayTitle($0),image:favoriteImage($0.id),menu:tabMenu($0),isLoaded:favoriteIsLoaded($0.id),developerMode:($0.id == (activeTab?.favoriteSourceID ?? activeTab?.id)) && activeTab?.developerMode == true)
-        },activeID:activeTab?.favoriteSourceID ?? activeTab?.id,ink:sidebarInk)
+        refreshFavorites()
         renderSpaceContent()
         table.insertionColor = sidebarInk
         table.reloadData(); renderSpacesFooter(); updateToolbar(); buildHome(); layoutFavorites(animated:true); style(spaceButton, opacity: 0.7); style(downloadButton, opacity: 0.8)
@@ -2072,9 +2070,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         cell.rename = nil; cell.titleLabel.toolTip = nil; cell.titleLabel.setAccessibilityHelp(nil); cell.setAccessibilityHelp(nil)
         cell.ink = sidebarInk; cell.depth = treeRows.indices.contains(row) ? treeRows[row].depth : 0
         cell.titleLabel.font = .systemFont(ofSize:14)
+        var sidebarTab: NativeTab?
         switch rows[row] {
         case .tab(let id):
             guard let tab = session.tabs.first(where: { $0.id == id }) else { return cell }
+            sidebarTab = tab
             cell.titleLabel.stringValue = displayTitle(tab); cell.active = id == activeTab?.id && commandPalette?.isNewTab != true
             cell.setTabHint(tabHoverHint(tab))
             cell.icon.image = splitTabIcon(tab)
@@ -2099,7 +2099,15 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             cell.titleLabel.stringValue = t("newTab"); cell.titleLabel.textColor = sidebarInk.withAlphaComponent(0.48); cell.toolTip = t("newTab")
             cell.icon.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
         }
+        styleSidebarTab(sidebarTab, icon:cell.icon, title:cell.titleLabel)
         return cell
+    }
+    private func styleSidebarTab(_ tab: NativeTab?, icon: NSImageView, title: NSTextField) {
+        let dormant = tab.map {
+            containers[$0.id] == nil && status[$0.id]?.error == nil && !$0.url.isEmpty && $0.url != "about:blank"
+        } ?? false
+        icon.alphaValue = dormant ? 0.66 : 1
+        title.alphaValue = dormant && !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.86 : 1
     }
     private static func folderImage(open: Bool) -> NSImage {
         let image = NSImage(size:NSSize(width:20,height:20),flipped:false) { _ in
@@ -3161,6 +3169,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard let shared = session.favoriteTabID(id,spaceID:session.activeSpaceID) else { return false }
         return containers[shared] != nil && status[shared]?.hasLoaded == true && status[shared]?.error == nil
     }
+    private func refreshFavorites() {
+        let activeFavorite = activeTab?.favoriteSourceID ?? activeTab?.id
+        let items = session.favoriteTabs(spaceID:session.activeSpaceID).map { favorite in
+            let localID = session.favoriteTabID(favorite.id,spaceID:session.activeSpaceID)
+            let unread = localID.flatMap { status[$0]?.unread.visible } ?? false
+            return FavoriteVisual(id:favorite.id, title:displayTitle(favorite), image:favoriteImage(favorite.id),
+                                  menu:tabMenu(favorite), isLoaded:favoriteIsLoaded(favorite.id),
+                                  developerMode:favorite.id == activeFavorite && activeTab?.developerMode == true,
+                                  unreadLabel:unread ? splitText("Messages non lus","Unread messages") : nil)
+        }
+        favorites.update(items,activeID:activeFavorite,ink:sidebarInk)
+    }
     private func favoriteImage(_ id: String) -> NSImage? {
         guard let source = session.tabs.first(where:{ $0.id == id }) else { return nil }
         let local = session.favoriteTabID(id,spaceID:session.activeSpaceID).flatMap { localID in
@@ -3186,14 +3206,24 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard rows.indices.contains(row), case .tab(let id) = rows[row] else { continue }
             if let group = session.splitGroup(containing:id) {
                 guard siteAvailable || group.tabIDs.contains(tabID) else { continue }
-                if let view = table.view(atColumn:0,row:row,makeIfNecessary:false),
-                   !(sidebarTitleEditor?.isEditingTitle == true && sidebarTitleEditor?.isDescendant(of:view) == true) {
-                    table.reloadData(forRowIndexes:IndexSet(integer:row),columnIndexes:IndexSet(integer:0))
+                // Metadata can arrive while AppKit is tracking a click. Keep
+                // the same chips, first responder and table selection.
+                guard let cell = table.view(atColumn:0,row:row,makeIfNecessary:false) as? SplitGroupCell else { continue }
+                for chip in cell.chips where siteAvailable || chip.id == tabID {
+                    guard let member = session.tabs.first(where:{ $0.id == chip.id }) else { continue }
+                    chip.icon.image = splitTabIcon(member)
+                    styleSidebarTab(member, icon:chip.icon, title:chip.label)
+                    if chip.id == tabID {
+                        chip.label.stringValue = displayTitle(member)
+                        chip.setAccessibilityLabel(displayTitle(member))
+                        chip.setAccessibilityHelp(tabHoverHint(member))
+                    }
                 }
             } else if (siteAvailable || id == tabID),
                       let cell = table.view(atColumn:0,row:row,makeIfNecessary:false) as? TabCell,
                       let item = id == tabID ? tab : session.tabs.first(where:{ $0.id == id }) {
                 cell.icon.image = splitTabIcon(item)
+                styleSidebarTab(item, icon:cell.icon, title:cell.titleLabel)
                 if id == tabID {
                     if !cell.isEditingTitle { cell.titleLabel.stringValue = displayTitle(tab) }
                     cell.setTabHint(tabHoverHint(tab))
@@ -3202,16 +3232,29 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             }
         }
         if siteAvailable || tab.favorite || tab.favoriteSourceID != nil {
-            favorites.update(session.favoriteTabs(spaceID:session.activeSpaceID).map {
-                FavoriteVisual(id:$0.id,title:displayTitle($0),image:favoriteImage($0.id),menu:tabMenu($0),isLoaded:favoriteIsLoaded($0.id),developerMode:($0.id == (activeTab?.favoriteSourceID ?? activeTab?.id)) && activeTab?.developerMode == true)
-            },activeID:activeTab?.favoriteSourceID ?? activeTab?.id,ink:sidebarInk)
+            refreshFavorites()
         }
+    }
+    func browserInboxChanged(_ tabID:String, document:String, unread:Bool) {
+        guard !isQuitting, let tab = session.tabs.first(where:{ $0.id == tabID }) else { return }
+        var state = status[tabID] ?? TabStatus()
+        let wasUnread = state.unread.visible
+        state.unread.updateInbox(unread, document:document, address:tab.url)
+        status[tabID] = state
+        if wasUnread != state.unread.visible && (tab.favorite || tab.favoriteSourceID != nil) { refreshFavorites() }
     }
     func browserTitleChanged(_ tabID: String, title: String) {
         guard !isQuitting else { return }
         guard let i = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
         let title = String(decoding:title.utf8.prefix(8000),as:UTF8.self).replacingOccurrences(of:"\0",with:"")
-        guard !title.isEmpty, session.tabs[i].title != title else { return }
+        var state = status[tabID] ?? TabStatus()
+        let wasUnread = state.unread.visible
+        state.unread.update(title:title,address:session.tabs[i].url)
+        status[tabID] = state
+        guard !title.isEmpty, session.tabs[i].title != title else {
+            if wasUnread != state.unread.visible { refreshTabVisual(tabID) }
+            return
+        }
         session.tabs[i].title = title; refreshTabVisual(tabID); persist()
     }
     func browserURLChanged(_ tabID: String, url: String) {
@@ -3221,7 +3264,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let hostChanged = URL(string:session.tabs[i].url)?.host != URL(string:url)?.host
         let previousIcon = tabFavicon(session.tabs[i])
         session.tabs[i].url = url
-        if tabFavicon(session.tabs[i]) !== previousIcon { refreshTabVisual(tabID) }
+        let wasUnread = status[tabID]?.unread.visible
+        status[tabID]?.unread.navigate(to:url)
+        if wasUnread != status[tabID]?.unread.visible || tabFavicon(session.tabs[i]) !== previousIcon { refreshTabVisual(tabID) }
         if hostChanged && session.folders.contains(where: { $0.spaceID == session.tabs[i].spaceID && $0.liveHost != nil }) { render() }
         else { updateToolbar() }
         persist()
@@ -3350,6 +3395,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         pendingClose.remove(tabID)
         if closeParticipants.contains(tabID), !isQuitting { closeWaiting.remove(tabID); finishWindowCloseAttempt(); return }
         if destructiveClosing.remove(tabID) != nil {
+            refreshTabVisual(tabID)
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.isQuitting else { return }
                 self.showSelectedTab()
@@ -3363,6 +3409,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             profileReloads[id]?.waiting.remove(tabID); finishProfileReload(id); return
         }
         if archiveDecision == false {
+            refreshTabVisual(tabID)
             // The user may have selected or pinned this tab while CEF was closing.
             DispatchQueue.main.async { [weak self] in self?.showSelectedTab() }; return
         }
@@ -3506,6 +3553,8 @@ extension BrowserController {
             engine.resizeTab(id,container:container); engine.setTab(id,visible:true)
         } else {
             let container = NSView(frame:pageBounds(for:id,in:parent)); parent.addSubview(container); containers[id] = container
+            // Creating the live view wakes the row, even while the first request is pending.
+            defer { refreshTabVisual(id) }
             guard let space = session.spaces.first(where: { $0.id == tab.spaceID }), engine.createTab(id,profile:space.profileID,url:tab.url,container:container) else {
                 container.removeFromSuperview(); containers[id] = nil; status[id] = TabStatus(error:NavigationFailure(code:"TAB_UNAVAILABLE",host:URL(string:tab.url)?.host)); return
             }
@@ -3563,6 +3612,7 @@ extension BrowserController {
         let chips = group.tabIDs.compactMap { id -> SplitTabChip? in
             guard let tab = session.tabs.first(where: { $0.id == id }) else { return nil }
             let chip = SplitTabChip(id:id,title:displayTitle(tab),image:splitTabIcon(tab),active:id == activeTab?.id)
+            styleSidebarTab(tab, icon:chip.icon, title:chip.label)
             chip.developerMode = tab.developerMode == true && id == activeTab?.id
             chip.select = { [weak self] in
                 guard let self else { return }; if self.activeSplit?.id == group.id { self.focusSplitPane(id) } else { self.selectTab(id) }

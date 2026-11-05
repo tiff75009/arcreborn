@@ -45,6 +45,22 @@ struct UpdatePreferencesTests {
             RunLoop.main.run(until:Date(timeIntervalSinceNow:2.2))
             precondition(!NSApp.windows.contains(where:{ $0.isVisible }))
             print("PASS: silent update and subsequent launch leave release notes closed")
+        } else {
+            let key = "ArcRebornLastNewsBuild"
+            defaults.set("fr",forKey:"BrowserLanguage")
+            updates.presentNewsAfterUpgrade { true }
+            precondition(defaults.integer(forKey:key) == notes.build && !NSApp.windows.contains(where:{ $0.isVisible }),"Fresh install establishes a baseline")
+            defaults.set(notes.build - 1,forKey:key)
+            updates.presentNewsAfterUpgrade { true }
+            RunLoop.main.run(until:Date(timeIntervalSinceNow:2.5))
+            guard let window = NSApp.windows.first(where:{ $0.isVisible && $0.title == "Nouveautés d’Arc Reborn" }) else {
+                fatalError("Release highlights were not shown after the upgrade")
+            }
+            precondition(defaults.integer(forKey:key) == notes.build)
+            window.close()
+            updates.presentNewsAfterUpgrade { fatalError("Replay of release highlights on the next launch") }
+            precondition(!window.isVisible)
+            print("PASS: upgrading opens release notes once, fresh installs and subsequent launches stay quiet")
         }
         func fields(_ view:NSView) -> [String] {
             (view as? NSTextField).map { [$0.stringValue] } ?? view.subviews.flatMap(fields)

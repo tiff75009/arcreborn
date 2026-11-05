@@ -167,14 +167,23 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         let task = DispatchWorkItem { [weak self] in self?.publish() }; publishTask = task
         DispatchQueue.main.async(execute:task)
     }
+    // Chromium reports a new URL before the window's debounced save. Apply
+    // those edits against each window's own baseline before distributing a
+    // snapshot, or receiveSharedSession can navigate the renderer backwards.
+    private func mergingPendingWindowEdits(into snapshot:BrowserSession) throws -> BrowserSession {
+        var merged = snapshot
+        for item in controllers where item.windowKind == .normal && !item.isPrivateWindow && !item.isClosingWindow {
+            let local = item.windowSession
+            guard let base = baselines[item.windowID], local != base else { continue }
+            merged = try BrowserSession.merging(base:base,incoming:local,latest:merged)
+        }
+        return merged
+    }
     private func publish() {
         guard !quitting else { return }
         let before = sharedSession
-        // Include unsaved in-flight changes (for example a title callback) before
-        // publishing the shared model. Selection stays local to each window.
-        for item in controllers where item.windowKind == .normal && !item.isPrivateWindow && !item.isClosingWindow {
-            if let base = baselines[item.windowID], base != item.windowSession, let merged = try? BrowserSession.merging(base:base,incoming:item.windowSession,latest:sharedSession) { sharedSession = merged }
-        }
+        do { sharedSession = try mergingPendingWindowEdits(into:sharedSession) }
+        catch { NSLog("Browser window edits could not be merged: %@",error.localizedDescription); return }
         for item in controllers where item.windowKind == .normal && !item.isPrivateWindow && !item.isClosingWindow {
             item.receiveSharedSession(sharedSession); baselines[item.windowID] = item.windowSession
         }
@@ -198,8 +207,9 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
-    private func applyCloudSession(_ state:BrowserSession) throws {
-        guard !quitting, state.validated() else { throw SessionStoreError.invalidState }
+    func applyCloudSession(_ snapshot:BrowserSession) throws {
+        guard !quitting, snapshot.validated() else { throw SessionStoreError.invalidState }
+        let state = try mergingPendingWindowEdits(into:snapshot)
         let previous = sharedSession
         // Session + encrypted sync baseline are one atomic write with a backup.
         try store.save(state); sharedSession = state

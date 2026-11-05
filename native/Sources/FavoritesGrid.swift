@@ -25,6 +25,7 @@ struct FavoriteVisual {
     var menu: NSMenu
     var isLoaded: Bool = false
     var developerMode: Bool = false
+    var unreadLabel: String?
 }
 
 /// Retained tiles: a title/favicon refresh never replaces a running drag source.
@@ -156,6 +157,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
     private var favicon: NSImage?
     private let iconView = NSImageView()
     private var isLoaded = false
+    private var hasUnread = false
     private var configured = false
     private var ink = NSColor.labelColor
     private var active = false, hovered = false
@@ -182,7 +184,9 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         developerMode = item.developerMode && active; developerOutline.update(in:bounds,enabled:developerMode)
         let imageChanged = favicon !== item.image
         favicon = item.image; if imageChanged { iconView.image = item.image }; fallback = String(item.title.prefix(1)).uppercased()
-        self.active = active; self.ink = ink; menu = item.menu; toolTip = item.title; setAccessibilityLabel(item.title)
+        self.active = active; self.ink = ink; menu = item.menu; toolTip = item.title
+        hasUnread = item.unreadLabel != nil
+        setAccessibilityLabel([item.title, item.unreadLabel].compactMap { $0 }.joined(separator:", "))
         if imageChanged || colorBorder.colors == nil { colorBorder.colors = faviconPalette(favicon,fallback:ink).map(\.cgColor) }
         let opacity: CGFloat = item.isLoaded ? 1 : 0.42
         if configured && isLoaded != item.isLoaded && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
@@ -214,6 +218,11 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         }
     }
     override func draw(_ dirtyRect: NSRect) {
+        if hasUnread {
+            let dot = NSRect(x:bounds.maxX-12, y:isFlipped ? bounds.maxY-12 : bounds.minY+7, width:5, height:5)
+            NSColor(srgbRed:0.92, green:0.26, blue:0.21, alpha:1).setFill()
+            NSBezierPath(ovalIn:dot).fill()
+        }
         if favicon == nil {
             let style = NSMutableParagraphStyle(); style.alignment = .center
             NSAttributedString(string:fallback,attributes:[.font:NSFont.systemFont(ofSize:18,weight:.semibold),.foregroundColor:ink.withAlphaComponent(isLoaded ? 1 : 0.42),.paragraphStyle:style]).draw(in:NSRect(x:0,y:bounds.midY-12,width:bounds.width,height:24))

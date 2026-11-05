@@ -49,6 +49,17 @@ import AppKit
                 guard let m=main, let s=second, title(s)=="windowtest=regular|regular" else { return }
                 check(s.selectedWindowTabID==firstID && m.rendererID(for:firstID) != s.rendererID(for:firstID),"normal windows share tabs with independent Chromium views")
                 check(delegate.controller === s,"menus target active window")
+                var reply = delegate.sharedSession
+                reply.profiles[0].name = "Profil synchronisé"
+                let details = url+"?details"
+                // Deliver the cloud reply in the same turn as Chromium's URL
+                // callback, before the navigating window's save timer fires.
+                s.browserURLChanged(firstID,url:details)
+                do { try delegate.applyCloudSession(reply) }
+                catch { check(false,"apply overlapping navigation and cloud edits"); return }
+                check(s.selectedWindowURL == details && m.selectedWindowURL == details,"a sync reply preserves the in-page navigation in both windows")
+                let saved = try? store.load()
+                check(saved?.tabs.first(where:{$0.id == firstID})?.url == details && saved?.profiles[0].name == "Profil synchronisé","latest page and independent remote edit persist together")
                 s.openExternalAddress(url+"?shared"); sharedID=s.selectedWindowTabID ?? ""; advance(2)
             case 2:
                 guard let m=main, m.windowSession.tabs.contains(where:{$0.id==sharedID}) else { return }

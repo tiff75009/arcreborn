@@ -51,6 +51,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     override func clearCookies(forTab id:String,completion:@escaping (Bool)->Void) { bridge.clearCookies(forTab:rendererID(id),completion:completion) }
     // Profile/global operations do not contain a tab ID and use the shared bridge implementation.
     func browserTitleChanged(_ id:String,title:String) { receiver?.browserTitleChanged(logical(id),title:title) }
+    func browserInboxChanged(_ id:String,document:String,unread:Bool) { receiver?.browserInboxChanged?(logical(id),document:document,unread:unread) }
     func browserURLChanged(_ id:String,url:String) { receiver?.browserURLChanged(logical(id),url:url) }
     func browserLoadProgress(_ id:String,fraction:Double) { receiver?.browserLoadProgress?(logical(id),fraction:fraction) }
     func browserLoadingChanged(_ id:String,loading:Bool,back:Bool,forward:Bool) { receiver?.browserLoadingChanged(logical(id),loading:loading,back:back,forward:forward) }

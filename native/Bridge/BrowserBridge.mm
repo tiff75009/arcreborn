@@ -543,7 +543,18 @@ class NativeClient : public CefClient,
   }
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
       CefProcessId source, CefRefPtr<CefProcessMessage> message) override {
-    if (source != PID_RENDERER || message->GetName() != "ArcReborn.IdleFrameResult") return false;
+    if (source != PID_RENDERER) return false;
+    if (message->GetName() == "ArcReborn.GmailInboxUnread") {
+      auto args = message->GetArgumentList();
+      if (embedded_ && !quitting && frame && frame->IsMain() && args && args->GetSize() == 2 &&
+          args->GetType(0) == VTYPE_BOOL && args->GetType(1) == VTYPE_STRING &&
+          frame->GetURL().ToString().rfind("https://mail.google.com/mail/", 0) == 0 &&
+          [engine_.delegate respondsToSelector:@selector(browserInboxChanged:document:unread:)]) {
+        [engine_.delegate browserInboxChanged:tabID_ document:Str(args->GetString(1)) unread:args->GetBool(0)];
+      }
+      return true;
+    }
+    if (message->GetName() != "ArcReborn.IdleFrameResult") return false;
     const std::string tab = tabID_.UTF8String;
     auto it = archiveProbes.find(tab); auto args = message->GetArgumentList();
     if (it == archiveProbes.end() || !args || args->GetString(0).ToString() != it->second.nonce ||

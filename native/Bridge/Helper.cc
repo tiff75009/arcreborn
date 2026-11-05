@@ -8,11 +8,17 @@
 #error Browser helpers must be built with the CEF sandbox enabled.
 #endif
 
-// Only a boolean leaves the frame. Never expose a JS binding or inspect the URL,
-// text, stream, or media source. In particular a failed probe is not "idle".
+#include "GmailUnread.inc"
+
+// For archive probes, only an idle flag leaves the frame. A failed probe
+// never authorizes closing a page.
 class ArchiveRenderer : public CefApp, public CefRenderProcessHandler {
  public:
   CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override { return this; }
+  void OnContextCreated(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+                        CefRefPtr<CefV8Context> context) override {
+    ObserveGmailInbox(frame, context);
+  }
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
       CefProcessId source, CefRefPtr<CefProcessMessage> message) override {
     if (source != PID_BROWSER || message->GetName() != "ArcReborn.ProbeIdleFrame") return false;
