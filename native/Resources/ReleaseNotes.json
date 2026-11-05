@@ -1,47 +1,36 @@
 {
-  "version": "0.6.1",
-  "build": 14,
+  "version": "0.6.2",
+  "build": 15,
   "showOnLaunch": false,
   "title": {
-    "fr": "Des favoris vraiment partagés.",
-    "en": "Favorites that stay shared."
+    "fr": "Les onglets gardent leur icône",
+    "en": "Tabs keep their icons"
   },
   "subtitle": {
-    "fr": "Cette mise à jour corrige le masquage de la barre latérale et le partage des favoris entre espaces.",
-    "en": "This update fixes sidebar auto-hide and shares favorite tabs across Spaces."
+    "fr": "Les icônes des onglets restent visibles quand l’adresse change sur un même site, y compris sur X.",
+    "en": "Tab icons stay visible when the address changes within a site, including on X."
   },
   "highlights": [
     {
-      "symbol": "sidebar.left",
+      "symbol": "globe",
       "title": {
-        "fr": "La barre latérale se masque correctement",
-        "en": "Reliable sidebar auto-hide"
+        "fr": "De l’accueil aux notifications",
+        "en": "From home to notifications"
       },
       "detail": {
-        "fr": "Après un clic sur un favori, un dossier ou un bouton, la barre latérale masquée se referme lorsque le pointeur la quitte.",
-        "en": "After clicking a favorite, folder or button, the hidden sidebar closes when the pointer leaves it."
+        "fr": "L’onglet conserve son icône même si tu changes de page pendant son chargement.",
+        "en": "A tab keeps its icon even if you navigate within the site while the icon is loading."
       }
     },
     {
-      "symbol": "star.fill",
+      "symbol": "arrow.clockwise",
       "title": {
-        "fr": "Un seul onglet favori par profil",
-        "en": "One favorite tab per profile"
+        "fr": "Les icônes reviennent à la réouverture",
+        "en": "Icons return when you reopen the browser"
       },
       "detail": {
-        "fr": "Les espaces d’un même profil réutilisent la même page et conservent son état de chargement. Les profils distincts gardent leurs connexions séparées.",
-        "en": "Spaces using the same profile reuse the same page and retain its loaded state. Separate profiles keep their sign-ins isolated."
-      }
-    },
-    {
-      "symbol": "arrow.triangle.2.circlepath",
-      "title": {
-        "fr": "Une restauration cohérente",
-        "en": "Consistent session restoration"
-      },
-      "detail": {
-        "fr": "Les anciennes copies de favoris sont regroupées et les sélections sont conservées lors de la restauration, de la synchronisation et des changements d’espace.",
-        "en": "Older favorite copies are consolidated and selections are retained through restoration, sync and Space changes."
+        "fr": "Un onglet restauré peut reprendre l’icône déjà connue du même site dans son profil, sans recharger la page.",
+        "en": "A restored tab can reuse a known icon for the same site in its profile without reloading the page."
       }
     }
   ]

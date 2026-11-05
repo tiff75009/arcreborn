@@ -351,7 +351,6 @@ class NativeApp : public CefApp, public CefBrowserProcessHandler {
 struct FaviconState {
   uint64_t generation = 0;
   bool closed = false;
-  std::string document;
   std::vector<std::string> candidates;
 };
 static std::string DocumentURL(CefRefPtr<CefBrowser> browser) {
@@ -372,7 +371,7 @@ class FaviconDownload : public CefDownloadImageCallback {
     CEF_REQUIRE_UI_THREAD();
     auto live = browsers.find(tabID_.UTF8String);
     if (state_->closed || state_->generation != generation_ || !browser_->IsValid() ||
-        live == browsers.end() || !live->second->IsSame(browser_) || DocumentURL(browser_) != document_) return;
+        live == browsers.end() || !live->second->IsSame(browser_)) return;
     NSImage *icon = nil;
     // CEF decodes/downsizes the remote image. Bound both the decoded dimensions
     // and the PNG transferred into AppKit; never instantiate NSImage from the URL.
@@ -390,12 +389,16 @@ class FaviconDownload : public CefDownloadImageCallback {
       }
     }
     if (icon) {
-      if ([engine_.delegate respondsToSelector:@selector(browserFaviconChanged:image:)])
-        [engine_.delegate browserFaviconChanged:tabID_ image:icon];
+      // OnLoadStart invalidates real navigations. pushState/replaceState only
+      // changes the address of the same document; its pending icon is still valid.
+      if ([engine_.delegate respondsToSelector:@selector(browserFaviconChanged:document:image:)])
+        [engine_.delegate browserFaviconChanged:tabID_ document:Str(document_) image:icon];
     } else if (candidate_ + 1 < state_->candidates.size()) {
       const size_t next = candidate_ + 1;
       browser_->GetHost()->DownloadImage(state_->candidates[next], true, 64, false,
           new FaviconDownload(engine_, tabID_, browser_, state_, generation_, document_, next));
+    } else {
+      state_->candidates.clear();  // Allow a later Chromium announcement to retry.
     }
   }
  private:
@@ -620,13 +623,6 @@ class NativeClient : public CefClient,
     CancelNativeInspection(tabID_.UTF8String);
     ++favicon_->generation;
     favicon_->candidates.clear();
-    const auto document = DocumentURL(browser);
-    const bool changedDocument = favicon_->document != document;
-    favicon_->document = document;
-    // Reloading the same document keeps its current icon until a different
-    // decoded image arrives. Generation still rejects stale downloads.
-    if (changedDocument && [engine_.delegate respondsToSelector:@selector(browserFaviconChanged:image:)])
-      [engine_.delegate browserFaviconChanged:tabID_ image:nil];
   }
   void OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::vector<CefString>& icon_urls) override {
     CEF_REQUIRE_UI_THREAD();
@@ -642,14 +638,10 @@ class NativeClient : public CefClient,
       if (std::find(candidates.begin(), candidates.end(), url) == candidates.end()) candidates.push_back(url);
       if (candidates.size() == 4) break;
     }
-    if (favicon_->candidates == candidates) return;
+    // Chromium may transiently report no icons; let an announced image finish.
+    if (candidates.empty() || favicon_->candidates == candidates) return;
     favicon_->candidates = std::move(candidates);
     ++favicon_->generation;
-    if (favicon_->candidates.empty()) {
-      // Empty candidates can be transient during reload. A navigation to a
-      // different document already cleared the previous icon in OnLoadStart.
-      return;
-    }
     browser->GetHost()->DownloadImage(favicon_->candidates[0], true, 64, false,
         new FaviconDownload(engine_, tabID_, browser, favicon_, favicon_->generation, DocumentURL(browser), 0));
   }

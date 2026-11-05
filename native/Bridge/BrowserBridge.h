@@ -18,7 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)browserExtensionTabCreated:(NSString *)tabID success:(BOOL)success NS_SWIFT_NAME(browserExtensionTabCreated(_:success:));
 - (void)browserDownloadUpdated:(NSString *)tabID values:(NSDictionary<NSString *, id> *)values NS_SWIFT_NAME(browserDownloadUpdated(_:values:));
 - (BOOL)browserUndoRequested;
-- (void)browserFaviconChanged:(NSString *)tabID image:(nullable NSImage *)image NS_SWIFT_NAME(browserFaviconChanged(_:image:));
+- (void)browserFaviconChanged:(NSString *)tabID document:(NSString *)document image:(NSImage *)image NS_SWIFT_NAME(browserFaviconChanged(_:document:image:));
 - (void)browserCloseCancelled:(NSString *)tabID NS_SWIFT_NAME(browserCloseCancelled(_:));
 - (nullable NSDictionary<NSString *, id> *)browserPreparePopup:(NSString *)url sourceTab:(NSString *)tabID NS_SWIFT_NAME(browserPreparePopup(_:sourceTab:));
 @end

@@ -1,13 +1,19 @@
 // Native CEF integration: direct CDP targets include independently persisted profiles.
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 const root=path.resolve('native'), data=await fs.mkdtemp(path.join(os.tmpdir(),'browser-native-test-'));
 const report={data,checks:[],failure:null};
+const faviconRace=process.argv.includes('--favicon');
+let iconRequested=false, releaseIcon;
+const held=new Promise(r=>{releaseIcon=r;});
 const server=createServer(async(req,res)=>{
+  if(faviconRace && req.url==='/favicon.png') { iconRequested=true; await held; }
+
   if(req.url==='/favicon.png') { res.setHeader('Content-Type','image/png'); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMElEQVR4nO3OIQEAAAgDMJKg6Z+MBhDjZmJ+tdOXVAICAgICAgICAgICAgICAunAAzX/1HnVWnPXAAAAAElFTkSuQmCC','base64')); return; }
   let body='';for await(const c of req)body+=c;
   const title=({'/':'Native Browser Test','/next':'Second Page','/popup':'Popup','/post':'POST Complete','/blank':'Blank Link'})[req.url]||'Native Browser Test';
@@ -85,6 +91,24 @@ async function displaySharingSmoke() {
   }
 }
 
+// Model an SPA replacing its URL while the declared icon is still in flight.
+async function faviconSmoke(){
+  const page=await launch(20);
+  await title(page,'Native Browser Test');
+  await until(()=>iconRequested);
+  await page.evaluate('history.replaceState({}, "", "/accueil?fil=abonnés")');
+  releaseIcon();
+  const file=path.join(data,'favicons',createHash('sha256').update('tab-a').digest('hex')+'.json');
+  await until(async()=>JSON.parse(await fs.readFile(file,'utf8')).png.length>0);
+  check('An in-flight Chromium favicon reaches its tab after history.replaceState');
+  const icon=JSON.parse(await fs.readFile(file,'utf8'));
+  await page.evaluate('history.pushState({}, "", "/notifications")');
+  const saved=await finish();
+  assert.equal(saved.tabs.find(t=>t.id==='tab-a').url,origin+'/notifications');
+  assert.equal(new URL(icon.document).origin,origin);
+  check('The restored route and its saved icon belong to the same origin');
+}
+
 async function browserSmoke(){
   const page=await launch(25);await title(page,'Native Browser Test');check('Chromium navigation in AppKit');
   assert.equal(await page.evaluate('matchMedia("(prefers-color-scheme: dark)").matches'),true);check('Dark appearance reaches Chromium');
@@ -130,7 +154,7 @@ async function browserSmoke(){
 }
 try{
   await fs.writeFile(path.join(root,'build','smoke-app.log'),'');
-  if(process.argv.includes('--display-sharing')) await displaySharingSmoke(); else await browserSmoke();
+  if(faviconRace) await faviconSmoke(); else if(process.argv.includes('--display-sharing')) await displaySharingSmoke(); else await browserSmoke();
 }catch(error){report.failure=String(error);console.error(error);}
-finally{connections.forEach(c=>c.close());if(!exited){app.kill('SIGTERM');await exitPromise;}if(log)await log.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.writeFile(path.join(root,'build','smoke-report.json'),JSON.stringify(report,null,2));}
+finally{releaseIcon();connections.forEach(c=>c.close());if(!exited){app.kill('SIGTERM');await exitPromise;}if(log)await log.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.writeFile(path.join(root,'build','smoke-report.json'),JSON.stringify(report,null,2));}
 if(report.failure)process.exitCode=1;else console.log('NATIVE_SMOKE_PASS');

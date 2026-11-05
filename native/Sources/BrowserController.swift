@@ -661,9 +661,6 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }()
     private var extensionSignature = ""
     private let faviconCache: FaviconCache
-    private var faviconDocuments: [String: String] = [:]
-    private var favicons: [String: NSImage] = [:]
-    private var faviconSignatures: [String: Data] = [:]
     private var hintDismissed = UserDefaults.standard.bool(forKey: "BrowserFavoritesHintDismissed")
     private let spacesFooter = FlippedView()
     private let spaceIndicators = HorizontalSpaceScrollView()
@@ -763,9 +760,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         window.isMovableByWindowBackground = true; window.minSize = NSSize(width: 760, height: 540)
         window.isReleasedWhenClosed = false; window.contentView = root; window.center()
         for tab in session.tabs {
-            if let image = faviconCache.image(id:tab.id,url:tab.url) {
-                favicons[tab.id] = image; faviconSignatures[tab.id] = faviconPixels(image)
-                faviconDocuments[tab.id] = FaviconCache.document(tab.url)
+            if let profile = session.profile(forSpace:tab.spaceID)?.id {
+                faviconCache.restore(id:tab.id,url:tab.url,profile:profile)
             }
         }
         buildInterface()
@@ -2544,7 +2540,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         // An empty split pane uses the new-tab presentation while navigation
         // still fills that existing pane (including choosing an open tab).
         let emptySplitPane = !newTab && (activeTab?.url == "about:blank" || activeTab?.url.isEmpty == true)
-        let palette = CommandPalette(parent: window, newTab: newTab, centered: emptySplitPane, addressAnchor:usesClassicInterface ? addressButton : nil, initial: initial, icon: activeTab.flatMap { favicons[$0.id] }, tint: tint(), language: session.language, suggestions: { [weak self] query in
+        let palette = CommandPalette(parent: window, newTab: newTab, centered: emptySplitPane, addressAnchor:usesClassicInterface ? addressButton : nil, initial: initial, icon: activeTab.flatMap(tabFavicon), tint: tint(), language: session.language, suggestions: { [weak self] query in
             self?.commandSuggestions(query, initial: initial, newTab: newTab) ?? []
         }, onDismiss: { [weak self] in self?.commandPalette = nil; self?.render(); self?.updateSidebarHover() })
         commandPalette = palette; render(); palette.show()
@@ -2567,7 +2563,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             if a.favorite != b.favorite { return a.favorite }; return false
         }
         for tab in ordered where query.isEmpty || initialAddress || (tab.displayTitle+" "+tab.url).localizedCaseInsensitiveContains(query) {
-            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("switchTab"),image:favicons[tab.id],symbol:"globe",perform:{ [weak self] in self?.selectCommandTab(tab.id,newTab:newTab) }))
+            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("switchTab"),image:tabFavicon(tab),symbol:"globe",perform:{ [weak self] in self?.selectCommandTab(tab.id,newTab:newTab) }))
         }
         let openURLs = Set(session.tabs.map(\.url))
         var seen = openURLs
@@ -2958,64 +2954,61 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
 
     // CEF delegate callbacks arrive on the AppKit/UI thread.
-    func browserFaviconChanged(_ tabID: String, image: NSImage?) {
-        guard !isQuitting, let tab = session.tabs.first(where: {$0.id == tabID}) else { return }
-        let document = FaviconCache.document(tab.url)
-        // CEF's first OnLoadStart has no previous document. Keep the restored icon
-        // while that same page opens; an actual URL change invalidates it separately.
-        guard let image else { return }
-        let signature = faviconPixels(image)
-        let changed = signature == nil || signature != faviconSignatures[tabID]
-        var refresh = changed
-        if changed || faviconDocuments[tabID] != document {
-            faviconCache.save(image,id:tabID,url:tab.url)
-        }
-        faviconDocuments[tabID] = document
-        if changed {
-            faviconSignatures[tabID] = signature
-            image.size = NSSize(width:16,height:16); favicons[tabID] = image
-        }
-        // A favorite loaded through another space also refreshes its shared icon.
-        if let sourceID = tab.favoriteSourceID,
-           let source = session.tabs.first(where: { $0.id == sourceID }),
-           FaviconCache.document(source.url) == document {
-            if faviconSignatures[sourceID] != signature || faviconDocuments[sourceID] != document {
-                faviconCache.save(image,id:sourceID,url:source.url); refresh = true
-            }
-            faviconDocuments[sourceID] = document; faviconSignatures[sourceID] = signature
-            favicons[sourceID] = favicons[tabID] ?? image
-        }
-        if refresh { refreshTabVisual(tabID) }
+    func browserFaviconChanged(_ tabID: String, document: String, image: NSImage) {
+        guard !isQuitting, !destructiveClosing.contains(tabID),
+              let tab = session.tabs.first(where:{ $0.id == tabID }), let profile = session.profile(forSpace:tab.spaceID)?.id,
+              FaviconCache.canUse(document,for:tab.url) else { return }
+        let result = faviconCache.save(image,id:tabID,url:tab.url,profile:profile)
+        if result.changed || result.firstSite { refreshTabVisual(tabID,siteAvailable:result.firstSite) }
+    }
+    private func tabFavicon(_ tab:NativeTab) -> NSImage? {
+        guard let profile = session.profile(forSpace:tab.spaceID)?.id else { return nil }
+        return faviconCache.image(id:tab.id,url:tab.url,profile:profile)
     }
     private func favoriteIsLoaded(_ id: String) -> Bool {
         guard let shared = session.favoriteTabID(id,spaceID:session.activeSpaceID) else { return false }
         return containers[shared] != nil && status[shared]?.hasLoaded == true && status[shared]?.error == nil
     }
     private func favoriteImage(_ id: String) -> NSImage? {
-        if let image = favicons[id] { return image }
-        guard let source = session.tabs.first(where: { $0.id == id }) else { return nil }
+        guard let source = session.tabs.first(where:{ $0.id == id }) else { return nil }
+        let local = session.favoriteTabID(id,spaceID:session.activeSpaceID).flatMap { localID in
+            session.tabs.first(where:{ $0.id == localID })
+        }
+        if let local, let icon = tabFavicon(local) { return icon }
+        // A shared bookmark may show its saved artwork in another profile, but
+        // never store that artwork in the other profile's site cache.
         let document = FaviconCache.document(source.url)
+        if let local, !FaviconCache.canUse(document,for:local.url) { return nil }
+        if let icon = tabFavicon(source) { return icon }
         return session.tabs.lazy.filter {
             $0.favoriteSourceID == id && FaviconCache.document($0.url) == document
-        }.compactMap { self.favicons[$0.id] }.first
+        }.compactMap { self.tabFavicon($0) }.first
     }
-    private func refreshTabVisual(_ tabID: String) {
+    private func refreshTabVisual(_ tabID: String, siteAvailable:Bool = false) {
+        guard let tab = session.tabs.first(where: { $0.id == tabID }) else { return }
         updateSplitHeaders()
-        if let group = session.splitGroup(containing:tabID), let row = rows.firstIndex(where: { if case .tab(let id) = $0 { return group.tabIDs.contains(id) }; return false }) {
-            let view = table.view(atColumn:0,row:row,makeIfNecessary:false)
-            let editingRow = view.map { sidebarTitleEditor?.isEditingTitle == true && sidebarTitleEditor?.isDescendant(of:$0) == true } ?? false
-            if !editingRow {
-                table.reloadData(forRowIndexes:IndexSet(integer:row),columnIndexes:IndexSet(integer:0))
+        // A newly learned site icon can also fill visible dormant rows. Offscreen
+        // cells resolve their image when AppKit asks for them; never load the page.
+        let visible = table.rows(in:table.visibleRect)
+        for row in visible.location..<(visible.location + visible.length) {
+            guard rows.indices.contains(row), case .tab(let id) = rows[row] else { continue }
+            if let group = session.splitGroup(containing:id) {
+                guard siteAvailable || group.tabIDs.contains(tabID) else { continue }
+                if let view = table.view(atColumn:0,row:row,makeIfNecessary:false),
+                   !(sidebarTitleEditor?.isEditingTitle == true && sidebarTitleEditor?.isDescendant(of:view) == true) {
+                    table.reloadData(forRowIndexes:IndexSet(integer:row),columnIndexes:IndexSet(integer:0))
+                }
+            } else if (siteAvailable || id == tabID),
+                      let cell = table.view(atColumn:0,row:row,makeIfNecessary:false) as? TabCell,
+                      let item = id == tabID ? tab : session.tabs.first(where:{ $0.id == id }) {
+                cell.icon.image = splitTabIcon(item)
+                if id == tabID {
+                    if !cell.isEditingTitle { cell.titleLabel.stringValue = displayTitle(tab) }
+                    cell.toolTip = tab.url
+                }
             }
         }
-        guard let tab = session.tabs.first(where: { $0.id == tabID }) else { return }
-        if let row = rows.firstIndex(where: { if case .tab(let id) = $0 { return id == tabID }; return false }),
-           let cell = table.view(atColumn:0,row:row,makeIfNecessary:false) as? TabCell {
-            cell.icon.image = favicons[tabID] ?? NSImage(systemSymbolName:"globe",accessibilityDescription:nil)
-            if !cell.isEditingTitle { cell.titleLabel.stringValue = displayTitle(tab) }
-            cell.toolTip = tab.url
-        }
-        if tab.favorite || tab.favoriteSourceID != nil {
+        if siteAvailable || tab.favorite || tab.favoriteSourceID != nil {
             favorites.update(session.favoriteTabs(spaceID:session.activeSpaceID).map {
                 FavoriteVisual(id:$0.id,title:displayTitle($0),image:favoriteImage($0.id),menu:tabMenu($0),isLoaded:favoriteIsLoaded($0.id),developerMode:($0.id == (activeTab?.favoriteSourceID ?? activeTab?.id)) && activeTab?.developerMode == true)
             },activeID:activeTab?.favoriteSourceID ?? activeTab?.id,ink:sidebarInk)
@@ -3033,15 +3026,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard let i = session.tabs.firstIndex(where: { $0.id == tabID }), isAllowedBrowserURL(url) else { return }
         if pageCapture?.tabID == tabID, session.tabs[i].url != url { pageCapture?.close() }
         let hostChanged = URL(string:session.tabs[i].url)?.host != URL(string:url)?.host
+        let previousIcon = tabFavicon(session.tabs[i])
         session.tabs[i].url = url
-        if let cachedDocument = faviconDocuments[tabID], cachedDocument != FaviconCache.document(url) {
-            favicons[tabID] = nil; faviconSignatures[tabID] = nil; faviconDocuments[tabID] = nil
-            if let image = faviconCache.image(id:tabID,url:url) {
-                favicons[tabID] = image; faviconSignatures[tabID] = faviconPixels(image)
-                faviconDocuments[tabID] = FaviconCache.document(url)
-            }
-            refreshTabVisual(tabID)
-        }
+        if tabFavicon(session.tabs[i]) !== previousIcon { refreshTabVisual(tabID) }
         if hostChanged && session.folders.contains(where: { $0.spaceID == session.tabs[i].spaceID && $0.liveHost != nil }) { render() }
         else { updateToolbar() }
         persist()
@@ -3312,7 +3299,7 @@ extension BrowserController {
             let ink = sidebarInk
             return NSImage(size:NSSize(width:24,height:24),flipped:false) { rect in SpaceIcon.draw(value,in:rect,color:ink,size:20); return true }
         }
-        return favicons[tab.id] ?? NSImage(systemSymbolName:"globe",accessibilityDescription:nil)
+        return tabFavicon(tab) ?? NSImage(systemSymbolName:"globe",accessibilityDescription:nil)
     }
     private func ensurePage(_ id:String,in parent:NSView) {
         guard let tab = session.tabs.first(where: { $0.id == id }), !destructiveClosing.contains(id) else { return }

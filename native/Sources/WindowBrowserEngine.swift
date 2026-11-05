@@ -61,7 +61,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     func browserClosed(_ id:String) { receiver?.browserClosed(logical(id)) }
     func browserCloseCancelled(_ id:String) { receiver?.browserCloseCancelled?(logical(id)) }
     func browserPictureInPictureReturn(_ id:String) { receiver?.browserPictureInPictureReturn?(logical(id)) }
-    func browserFaviconChanged(_ id:String,image:NSImage?) { receiver?.browserFaviconChanged?(logical(id),image:image) }
+    func browserFaviconChanged(_ id:String,document:String,image:NSImage) { receiver?.browserFaviconChanged?(logical(id),document:document,image:image) }
     func browserDownloadUpdated(_ id:String,values:[String:Any]) { receiver?.browserDownloadUpdated?(logical(id),values:values) }
     func browserUndoRequested() -> Bool { receiver?.browserUndoRequested?() ?? false }
     func browserExtensionInstalled(_ id:String,name:String,profile:String) { receiver?.browserExtensionInstalled?(id,name:name,profile:profile) }
