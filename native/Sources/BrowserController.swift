@@ -66,11 +66,14 @@ private final class PointerRootView: FlippedView {
 private final class LibraryFooterButton: ActionButton {
     var hoverChanged: (() -> Void)?
     private let progressRing = CAShapeLayer(), progressTrack = CAShapeLayer()
+    private let basketArtwork = LibraryBasketArtwork()
+    private var peekOpen = false
     private var transfersActive = false
     private var unreadTransfers = 0
     func updateTransfers(_ records: [LibraryDownload], unread: Int) {
         let active = records.filter(\.isActive); transfersActive = !active.isEmpty; unreadTransfers = unread
         progressRing.isHidden = !transfersActive; progressTrack.isHidden = !transfersActive
+        basketArtwork.isHidden = transfersActive
         let known = active.filter { $0.total > 0 }
         let total = known.reduce(0.0) { $0+Double($1.total) }
         let received = known.reduce(0.0) { $0+Double($1.received) }
@@ -93,6 +96,7 @@ private final class LibraryFooterButton: ActionButton {
         let path = CGMutablePath(); path.addArc(center:CGPoint(x:bounds.midX,y:bounds.midY),radius:10,startAngle:-CGFloat.pi/2,endAngle:CGFloat.pi*1.5,clockwise:false)
         for ring in [progressTrack,progressRing] { ring.frame = bounds; ring.path = path; ring.fillColor = NSColor.clear.cgColor; ring.lineWidth = 2.5; ring.lineCap = .round }
         progressRing.strokeColor = ink.cgColor; progressTrack.strokeColor = ink.withAlphaComponent(0.18).cgColor
+        basketArtwork.frame = NSRect(x:bounds.midX-12,y:bounds.midY-12,width:24,height:24)
         CATransaction.commit()
     }
     var ink = NSColor.labelColor { didSet { needsDisplay = true; refreshHover() } }
@@ -101,6 +105,7 @@ private final class LibraryFooterButton: ActionButton {
     override init(_ title: String = "", symbol: String? = nil, action: @escaping () -> Void) {
         super.init(title,symbol:symbol,action:action)
         wantsLayer = true; layer?.cornerRadius = 8
+        layer?.addSublayer(basketArtwork)
         layer?.addSublayer(progressTrack); layer?.addSublayer(progressRing); progressTrack.isHidden = true; progressRing.isHidden = true
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -109,8 +114,6 @@ private final class LibraryFooterButton: ActionButton {
             ink.setStroke(); let arrow = NSBezierPath(); arrow.lineWidth = 1.5; arrow.lineCapStyle = .round
             let direction: CGFloat = isFlipped ? 1 : -1
             arrow.move(to:NSPoint(x:bounds.midX,y:bounds.midY-5*direction)); arrow.line(to:NSPoint(x:bounds.midX,y:bounds.midY+5*direction)); arrow.move(to:NSPoint(x:bounds.midX-3,y:bounds.midY+2*direction)); arrow.line(to:NSPoint(x:bounds.midX,y:bounds.midY+5*direction)); arrow.line(to:NSPoint(x:bounds.midX+3,y:bounds.midY+2*direction)); arrow.stroke()
-        } else {
-            FooterControlArtwork.drawLibrary(in:bounds,flipped:isFlipped,color:ink.withAlphaComponent(hovered ? 0.9 : 0.65))
         }
         if !transfersActive && unreadTransfers > 0 {
             let badge = NSRect(x:bounds.maxX-15,y:isFlipped ? bounds.minY : bounds.maxY-15,width:15,height:15)
@@ -135,15 +138,13 @@ private final class LibraryFooterButton: ActionButton {
     }
     private func setHovered(_ value: Bool) { guard value != hovered else { return }; hovered = value; refreshHover(); hoverChanged?() }
     func animateLibraryPeek(_ open: Bool) {
-        guard let layer else { return }
-        layer.shadowColor = ink.cgColor; layer.shadowRadius = open ? 5 : 0; layer.shadowOpacity = open ? 0.65 : 0; layer.shadowOffset = .zero
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        let bounce = CAKeyframeAnimation(keyPath:"transform.translation.y")
-        bounce.values = open ? [0,-4,1,-1,0] : [0,2,0]; bounce.keyTimes = open ? [0,0.35,0.65,0.82,1] : [0,0.45,1]; bounce.duration = open ? 0.42 : 0.2
-        layer.add(bounce,forKey:"library-peek-bounce")
-        let glow = CABasicAnimation(keyPath:"shadowOpacity"); glow.fromValue = open ? 0 : 0.65; glow.toValue = open ? 0.65 : 0; glow.duration = 0.25; layer.add(glow,forKey:"library-peek-glow")
+        peekOpen = open
+        refreshHover()
     }
     private func refreshHover() {
+        basketArtwork.ink = ink.withAlphaComponent(hovered || peekOpen ? 0.9 : 0.65)
+        basketArtwork.setExpanded(hovered || peekOpen, animated:true)
+        needsDisplay = true
         let color = ink.withAlphaComponent(hovered ? 0.09 : 0).cgColor
         let previous = layer?.presentation()?.backgroundColor ?? layer?.backgroundColor
         CATransaction.begin(); CATransaction.setDisableActions(true); layer?.backgroundColor = color; CATransaction.commit()
@@ -233,6 +234,7 @@ private final class ActionPopUp: NSPopUpButton {
 private final class SidebarTable: NSTableView {
     var context: ((Int) -> NSMenu?)?
     var clicked: ((Int) -> Void)?
+    var acceptsPointerAt: ((NSPoint) -> Bool)?
     var dragExited: (() -> Void)?
     var mouseTrackingEnded: (() -> Void)?
     var didDrag = false
@@ -249,6 +251,7 @@ private final class SidebarTable: NSTableView {
         return super.validateProposedFirstResponder(responder, for: event)
     }
     override func mouseDown(with event: NSEvent) {
+        guard acceptsPointerAt?(event.locationInWindow) != false else { return }
         didDrag = false; handlingMouseDown = true
         defer {
             handlingMouseDown = false
@@ -300,7 +303,10 @@ private final class SidebarTable: NSTableView {
             NSBezierPath(ovalIn:NSRect(x:x-3,y:y-3,width:6,height:6)).fill()
         }
     }
-    override func menu(for event: NSEvent) -> NSMenu? { context?(row(at: convert(event.locationInWindow, from: nil))) }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard acceptsPointerAt?(event.locationInWindow) != false else { return nil }
+        return context?(row(at:convert(event.locationInWindow,from:nil)))
+    }
 }
 private final class ResizeStrip: NSView {
     var width: (() -> Double)?
@@ -402,201 +408,6 @@ private final class FavoritesHint: FlippedView {
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { sender.draggingPasteboard.string(forType: NSPasteboard.PasteboardType("local.browser.tab")) == nil ? [] : .move }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { guard let id = sender.draggingPasteboard.string(forType: NSPasteboard.PasteboardType("local.browser.tab")) else { return false }; return acceptTab?(id) ?? false }
 }
-private final class TabCloseButton: ActionButton {
-    private var hovered = false
-    private var tracking: NSTrackingArea?
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(tracking!)
-    }
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
-    override func draw(_ dirtyRect: NSRect) {
-        let ink = contentTintColor ?? .labelColor
-        if hovered {
-            ink.withAlphaComponent(isHighlighted ? 0.20 : 0.12).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6).fill()
-        }
-        ink.withAlphaComponent(hovered ? 1 : 0.7).setStroke()
-        let path = NSBezierPath(); path.lineWidth = 1.8; path.lineCapStyle = .round
-        let x = bounds.midX, y = bounds.midY, r: CGFloat = 4.5
-        path.move(to: NSPoint(x:x-r,y:y-r)); path.line(to:NSPoint(x:x+r,y:y+r))
-        path.move(to: NSPoint(x:x-r,y:y+r)); path.line(to:NSPoint(x:x+r,y:y-r)); path.stroke()
-    }
-}
-private final class TabTitleField: NSTextField {
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: isEditable ? .iBeam : .arrow)
-    }
-}
-private final class TabCell: NSTableCellView, NSTextFieldDelegate {
-    private let developerOutline = DeveloperTabOutline()
-    var developerMode = false { didSet { needsLayout = true } }
-    private let pressedScale: CGFloat = 0.975
-    func resetPress() {
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        layer?.transform = CATransform3DIdentity; layer?.removeAnimation(forKey:"tab-press")
-        CATransaction.commit()
-    }
-    func setPressed(_ pressed: Bool, fromHeld: Bool = false) {
-        guard let layer else { return }
-        let start = fromHeld ? pressTransform(pressedScale) : (layer.presentation()?.transform ?? layer.transform)
-        let target = pressed ? pressTransform(pressedScale) : CATransform3DIdentity
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        layer.transform = target
-        layer.removeAnimation(forKey:"tab-press")
-        CATransaction.commit()
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        let motion: CABasicAnimation
-        if pressed {
-            motion = CABasicAnimation(keyPath:"transform")
-            motion.duration = 0.11
-            motion.timingFunction = CAMediaTimingFunction(name:.easeOut)
-        } else {
-            let spring = CASpringAnimation(keyPath:"transform")
-            spring.mass = 1; spring.stiffness = 460; spring.damping = 25
-            spring.duration = min(0.42,spring.settlingDuration)
-            motion = spring
-        }
-        motion.fromValue = NSValue(caTransform3D:start)
-        motion.toValue = NSValue(caTransform3D:target)
-        layer.add(motion,forKey:"tab-press")
-    }
-    private func pressTransform(_ scale: CGFloat) -> CATransform3D {
-        // AppKit owns the backing layer's anchor; compensate around its center.
-        let anchor = layer?.anchorPoint ?? .zero
-        let dx = bounds.width * (0.5-anchor.x), dy = bounds.height * (0.5-anchor.y)
-        return CATransform3DScale(CATransform3DMakeTranslation(dx*(1-scale),dy*(1-scale),0),scale,scale,1)
-    }
-    private let titleEditingBackground = CALayer()
-    let icon = NSImageView(); let titleLabel = TabTitleField(frame: .zero); let closeButton: ActionButton
-    var rename: ((String) -> Void)?
-    var titleEditingEnded: (() -> Void)?
-    private(set) var isEditingTitle = false
-    private var originalTitle = ""
-    var depth = 0 { didSet { needsLayout = true } }
-    private var folderIcon: FolderDisclosureIcon?
-    let soundButton = TabSoundButton()
-    var active = false { didSet { updateLayer() } }
-    var ink = NSColor.black { didSet { titleLabel.textColor = ink; icon.contentTintColor = ink.withAlphaComponent(0.6); closeButton.contentTintColor = ink } }
-    var canClose = false { didSet { closeButton.isHidden = isEditingTitle || !canClose || !hovered } }
-    private var hovered = false
-    private var tracking: NSTrackingArea?
-    override init(frame frameRect: NSRect) {
-        closeButton = TabCloseButton("", symbol: "xmark", action: {})
-        super.init(frame: frameRect)
-        wantsLayer = true; layer?.cornerRadius = 12
-        titleEditingBackground.cornerRadius = 7
-        titleEditingBackground.borderWidth = 1
-        titleEditingBackground.isHidden = true
-        titleEditingBackground.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
-        layer?.insertSublayer(titleEditingBackground, at: 0)
-        titleLabel.font = .systemFont(ofSize: 14); titleLabel.lineBreakMode = .byTruncatingTail; titleLabel.maximumNumberOfLines = 1
-        titleLabel.isEditable = false; titleLabel.isSelectable = false; titleLabel.allowsExpansionToolTips = false
-        titleLabel.isBordered = false; titleLabel.isBezeled = false; titleLabel.drawsBackground = false
-        titleLabel.cell?.usesSingleLineMode = true
-        titleLabel.delegate = self; titleLabel.focusRingType = .none
-        addSubview(icon); addSubview(titleLabel); addSubview(closeButton); addSubview(soundButton)
-        layer?.addSublayer(developerOutline)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    func showFolder(_ folder: NativeFolder, tint: NSColor, animated: Bool = false) {
-        let glyph = folderIcon ?? FolderDisclosureIcon()
-        if folderIcon == nil {
-            folderIcon = glyph
-            addSubview(glyph)
-            needsLayout = true
-        }
-        icon.isHidden = true
-        glyph.configure(folder, ink: ink, tint: tint, animated: animated)
-        setAccessibilityExpanded(!folder.collapsed)
-    }
-    func setTabHint(_ text:String) {
-        setAccessibilityHelp(text); titleLabel.setAccessibilityHelp(text)
-        toolTip = nil; titleLabel.toolTip = nil
-    }
-    func beginTitleEditing() {
-        guard rename != nil, !isEditingTitle else { return }
-        originalTitle = titleLabel.stringValue; isEditingTitle = true
-        titleLabel.isEditable = true; titleLabel.isSelectable = true
-        window?.invalidateCursorRects(for: titleLabel)
-        closeButton.isHidden = true
-        needsLayout = true
-        layoutSubtreeIfNeeded()
-        updateLayer()
-        // makeFirstResponder already creates the field editor. Calling
-        // NSTextField.selectText again ends that editing session first.
-        window?.makeFirstResponder(titleLabel)
-        if let editor = titleLabel.currentEditor() as? NSTextView {
-            // The shared field editor can retain an opaque background from
-            // another control. Keep our rounded editing surface visible.
-            editor.drawsBackground = false
-            editor.backgroundColor = .clear
-            editor.focusRingType = .none
-            editor.insertionPointColor = ink
-            editor.setSelectedRange(NSRange(location:0,length:(editor.string as NSString).length))
-        }
-    }
-    private func finishTitleEditing(cancelled: Bool) {
-        guard isEditingTitle else { return }
-        let name = titleLabel.currentEditor()?.string ?? titleLabel.stringValue
-        isEditingTitle = false
-        titleLabel.stringValue = cancelled ? originalTitle : name
-        titleLabel.isEditable = false; titleLabel.isSelectable = false
-        window?.invalidateCursorRects(for: titleLabel)
-        closeButton.isHidden = !canClose || !hovered
-        needsLayout = true
-        updateLayer()
-        let ended = titleEditingEnded; titleEditingEnded = nil; ended?()
-        if cancelled { titleLabel.stringValue = originalTitle }
-        else if name != originalTitle { rename?(name) }
-    }
-    func controlTextDidEndEditing(_ notification: Notification) { finishTitleEditing(cancelled: false) }
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        if selector == #selector(NSResponder.cancelOperation(_:)) {
-            finishTitleEditing(cancelled: true); window?.makeFirstResponder(nil); return true
-        }
-        if selector == #selector(NSResponder.insertNewline(_:)) {
-            finishTitleEditing(cancelled: false); window?.makeFirstResponder(nil); return true
-        }
-        return false
-    }
-    override func updateTrackingAreas() { super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }; tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self); addTrackingArea(tracking!) }
-    override func mouseEntered(with event: NSEvent) { hovered = true; closeButton.isHidden = isEditingTitle || !canClose; updateLayer() }
-    override func mouseExited(with event: NSEvent) { hovered = false; closeButton.isHidden = true; updateLayer() }
-    override func layout() {
-        super.layout()
-        developerOutline.update(in:bounds,enabled:developerMode)
-        let indent = CGFloat(min(depth,8))*16
-        icon.frame = NSRect(x:12+indent,y:(bounds.height-16)/2,width:16,height:16)
-        let glyphSize = FolderDisclosureIcon.size
-        folderIcon?.frame = NSRect(x:20-glyphSize/2+indent,y:(bounds.height-glyphSize)/2,width:glyphSize,height:glyphSize)
-        let inset = soundButton.titleInset
-        soundButton.frame = NSRect(x:34+indent,y:bounds.midY-12,width:23,height:24)
-        closeButton.frame = NSRect(x:bounds.width-28,y:(bounds.height-22)/2,width:22,height:22)
-        // NSTextField adds a 2 pt text inset; align its glyphs with the header at x = 37.
-        if isEditingTitle {
-            // A separate layer adds padding without intercepting the native field editor.
-            let fieldRect = NSRect(x:32+indent+inset,y:(bounds.height-28)/2,width:max(0,bounds.width-40-indent-inset),height:28)
-            titleEditingBackground.frame = fieldRect
-            titleLabel.frame = NSRect(x:fieldRect.minX+6,y:(bounds.height-19)/2,width:max(0,fieldRect.width-12),height:19)
-        } else {
-            titleLabel.frame = NSRect(x:35+indent+inset,y:(bounds.height-19)/2,width:max(0,bounds.width-67-indent-inset),height:19)
-        }
-    }
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        let lightInk = (ink.usingColorSpace(.sRGB)?.redComponent ?? 0) > 0.8
-        titleEditingBackground.isHidden = !isEditingTitle
-        titleEditingBackground.backgroundColor = ink.withAlphaComponent(0.07).cgColor
-        titleEditingBackground.borderColor = ink.withAlphaComponent(0.22).cgColor
-        layer?.backgroundColor = active ? NSColor.white.withAlphaComponent(lightInk ? 0.18 : 0.84).cgColor : (hovered ? NSColor.white.withAlphaComponent(0.12).cgColor : NSColor.clear.cgColor)
-        layer?.shadowColor = NSColor.black.cgColor; layer?.shadowOpacity = active ? 0.12 : 0; layer?.shadowRadius = 1; layer?.shadowOffset = NSSize(width: 0, height: -1)
-    }
-}
 private struct TabStatus { var unread = FavoriteUnread(); var sound: TabSoundState = .silent; var progress: Double = 0; var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
 private enum SidebarRow: Equatable { case tab(String), folder(String), heading(String), newTab }
 private final class MenuAction: NSObject { let kind: String; let id: String; let value: String; init(_ kind: String, _ id: String, _ value: String = "") { self.kind = kind; self.id = id; self.value = value } }
@@ -664,8 +475,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var splitActionsMenu: NSMenu?
     private let pageShadow = NSView()
     private let home = BrowserLandingView(frame:.zero)
-    private let rowsScroll = NSScrollView()
+    private let rowsScroll = SidebarScrollView()
     private let table = SidebarTable()
+    private let returnAbove = SidebarTabReturnButton(edge:.above)
+    private let returnBelow = SidebarTabReturnButton(edge:.below)
+    private let activeTabScroll = SidebarTabReturnMotion()
     private weak var sidebarTitleEditor: TabCell?
     private weak var hoveredSoundButton: TabSoundButton?
     private lazy var sidebarTip = SidebarHoverTip(parent:window)
@@ -705,6 +519,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private let resizeStrip = ResizeStrip()
     private let sidebarItems = SidebarPeekContent(frame:.zero)
     private let recentPeek = RecentMediaPeek(frame:.zero)
+    private let updateCard = SidebarUpdateCard(frame:.zero)
+    private let footerBarrier = SidebarFooterBarrier(frame:.zero)
+    private let listTopSeparator = SidebarListSeparator(frame:.zero)
+    private let listBottomSeparator = SidebarListSeparator(frame:.zero)
     private weak var downloadFlight: DownloadFlightView?
     private var lastPagePress: (tab:String, point:NSPoint, time:TimeInterval)?
     private var recentPeekVisible = false
@@ -804,10 +622,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
         libraryStore.downloadsChanged = { [weak self] in self?.updateDownloadIndicator() }
         recentPeek.transferAction = { [weak self] in self?.libraryStore.request($0,action:$1) }
-        recentPeek.transferRemove = { [weak self] in self?.libraryStore.removeDownload($0) }
         recentPeek.removeRecent = { [weak self] in self?.libraryStore.dismissRecentFile($0) }
         recentPeek.transferSeen = { [weak self] in self?.libraryStore.acknowledge([$0]) }
-        recentPeek.showDownloads = { [weak self] in self?.showLibrary(); self?.library?.switchSection(.downloads) }
         if kind == .compact || privateWindow {
             let bar = WindowChromeBar(compact:kind == .compact,privateWindow:privateWindow,language:session.language,
                 back:{ [weak self] in self?.backAction(nil) },forward:{ [weak self] in self?.forwardAction(nil) },reload:{ [weak self] in self?.reloadAction(nil) },expand:{ [weak self] in self?.promoteWindowRequested?() })
@@ -945,7 +761,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         root.addSubview(sidebarHost)
         sidebarHost.addSubview(sidebarItems)
         for view in [toolbar, addressBackground, favoritesHint, favorites, rowsScroll] { sidebarItems.addSubview(view) }
+        sidebarHost.addSubview(footerBarrier)
+        sidebarHost.addSubview(listTopSeparator); sidebarHost.addSubview(listBottomSeparator)
         sidebarHost.addSubview(spacesFooter)
+        sidebarHost.addSubview(returnAbove); sidebarHost.addSubview(returnBelow)
+        returnAbove.invoke = { [weak self] in self?.returnToActiveSidebarTab(.above) }
+        returnBelow.invoke = { [weak self] in self?.returnToActiveSidebarTab(.below) }
+        sidebarItems.blocksInputAt = { [weak self] point in self?.sidebarOverlayContains(point) == true }
         // Root-level hit surface spans both sides of the seam, above Chromium.
         root.addSubview(resizeStrip)
         home.search = { [weak self] in
@@ -960,6 +782,19 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         reloadButton = ReloadButton(t("reload")) { [weak self] in self?.reloadAction(nil) }
         addButton.invoke = { [weak self] in self?.showAddMenu() }
         addressButton = FadingAddressButton(t("address")) { [weak self] in self?.openLocationAction(nil) }; addressButton.font = .systemFont(ofSize: 14); addressButton.alignment = .left; addressButton.lineBreakMode = .byClipping
+        sidebarHost.addSubview(updateCard)
+        updateCard.activate = { BrowserUpdates.shared.sidebar.activate() }
+        updateCard.toggleAutomatic = { value in
+            if value { BrowserUpdates.shared.automaticallyChecks = true }
+            BrowserUpdates.shared.automaticallyDownloads = value
+        }
+        updateCard.expansionChanged = { [weak self] expanded in
+            if expanded { self?.dismissSidebarTip(); self?.dismissFolderPeek(animated:false) }
+            self?.updateActiveTabReturn()
+        }
+        sidebarObservers.append(NotificationCenter.default.addObserver(forName:SidebarUpdateSession.changed,object:nil,queue:.main) { [weak self] _ in
+            self?.updateSidebarUpdate(); self?.layoutSidebarUpdate()
+        })
         sidebarHost.addSubview(recentPeek)
         downloadButton = LibraryFooterButton(t("library")) { [weak self] in self?.showLibrary() }; downloadButton.title = ""
         (downloadButton as? LibraryFooterButton)?.hoverChanged = { [weak self] in
@@ -1007,6 +842,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         folderButton = ActionButton(t("newFolder"), symbol: "folder.badge.plus") { [weak self] in self?.newFolder() }; folderButton.title = ""
         sidebarItems.addSubview(spaceButton); sidebarItems.addSubview(folderButton)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sidebar")); column.resizingMask = .autoresizingMask; table.addTableColumn(column)
+        table.acceptsPointerAt = { [weak self] point in
+            guard let self else { return false }
+            return !self.sidebarOverlayContains(point) && self.rowsScroll.bounds.contains(self.rowsScroll.convert(point,from:nil))
+        }
         table.style = .plain; table.headerView = nil; table.rowHeight = 36; table.intercellSpacing = NSSize(width: 0, height: 2); table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.backgroundColor = .clear; table.selectionHighlightStyle = .none; table.focusRingType = .none
         table.dataSource = self; table.delegate = self; table.allowsEmptySelection = true
@@ -1032,7 +871,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarObservers.append(NotificationCenter.default.addObserver(forName:NSView.boundsDidChangeNotification,object:sidebarClip,queue:.main) { [weak self] _ in
             self?.dismissSidebarTip()
             self?.dismissFolderPeek(animated:false)
+            self?.updateListSeparators()
+            self?.updateSidebarRowHover(at:self?.window.mouseLocationOutsideOfEventStream)
         })
+        table.postsFrameChangedNotifications = true
+        sidebarObservers.append(NotificationCenter.default.addObserver(forName:NSView.frameDidChangeNotification,object:table,queue:.main) { [weak self] _ in self?.updateListSeparators() })
         rowsScroll.scrollerStyle = .overlay; rowsScroll.automaticallyAdjustsContentInsets = false; rowsScroll.contentInsets = .init(); rowsScroll.documentView = table; rowsScroll.drawsBackground = false; rowsScroll.hasVerticalScroller = true; rowsScroll.autohidesScrollers = true; rowsScroll.borderType = .noBorder
         resizeStrip.width = { [weak self] in self?.session.sidebarWidth ?? SidebarSizing.standard }
         resizeStrip.begin = { [weak self] in self?.finishSpaceSwitch() }
@@ -1048,6 +891,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         (window as? BrowserWindow)?.pointerTrackingEnded = finishSidebarTracking
         spaceScrollMonitor = NSEvent.addLocalMonitorForEvents(matching:.scrollWheel) { [weak self] event in
             guard let self, event.window === self.window || (event.window == nil && NSApp.keyWindow === self.window) else { return event }
+            self.activeTabScroll.cancel()
             return self.handleSpaceScroll(event) ? nil : event
         }
         spaceIndicatorContent.receivesWindowEvents = true
@@ -1228,13 +1072,15 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         spaceButton.frame = NSRect(x: 5, y: spaceY, width: max(170,side-11), height: 36)
         folderButton.frame = NSRect(x: side-37, y: spaceY+3, width: 25, height: 24)
         let rowsY = spaceY+42
-        rowsScroll.frame = NSRect(x: 5, y: rowsY, width: max(170,side-11), height: max(40,height-rowsY-46))
+        rowsScroll.frame = NSRect(x: 5, y: rowsY, width: max(176,side-5), height: max(40,height-rowsY-46))
+        rowsScroll.tile()
         table.frame.size.width = rowsScroll.contentSize.width; table.tableColumns.first?.width = rowsScroll.contentSize.width
         downloadButton.frame = NSRect(x: 5, y: height-41, width: 34, height: 32)
         spacesFooter.frame = NSRect(x: 42, y: height-41, width: max(100,side-51), height: 32)
         layoutSpacesFooter()
         layoutRecentPeek()
-        resizeStrip.frame = NSRect(x: side-6, y: 42, width: 14, height: max(0,height-52))
+        layoutSidebarUpdate()
+        resizeStrip.frame = NSRect(x: side-0.5, y: 42, width: 8.5, height: max(0,height-52))
         resizeStrip.isHidden = floating || library != nil || spaceCreation != nil
         favoritesHint.isHidden = !showFavoritesHint
         favorites.isHidden = showFavoritesHint
@@ -1322,6 +1168,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let self, self.sidebarTransition == transition else { return }
             self.sidebarAnimating = false
             self.layoutSidebarPresentation(); self.layoutWindowButtons()
+            self.updateActiveTabReturn()
             if revealed { self.updateFolderHover() }
         }
     }
@@ -1332,6 +1179,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarPointer = SidebarRevealState.pointer(at: NSEvent.mouseLocation, in: root)
         if NSEvent.pressedMouseButtons & 1 == 0 { sidebarMousePressed = false }
         trackSidebarTip(at:window.mouseLocationOutsideOfEventStream)
+        updateCard.trackPointer(sidebarPointer == nil ? nil : window.mouseLocationOutsideOfEventStream)
         updateFolderHover(); updateRecentPeekHover()
         updateSidebarHover()
     }
@@ -1367,6 +1215,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         updateSidebarPointerFeedback(outside)
     }
     private func updateSidebarPointerFeedback(_ event: NSEvent) {
+        updateSidebarRowHover(at:event.window === window && event.type != .mouseExited ? event.locationInWindow : nil)
         spaceButton?.trackPointer(event)
         favorites.trackPointer(event)
         backButton?.trackPointer(event); forwardButton?.trackPointer(event)
@@ -1377,6 +1226,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if spaceCreation == nil && library == nil && trackingMenus == 0 && addMenu == nil {
             spaceIndicatorContent.trackPointer(event)
         } else { spaceIndicatorContent.clearHover() }
+    }
+    private func updateSidebarRowHover(at point:NSPoint?) {
+        table.enumerateAvailableRowViews { rowView,_ in
+            for case let cell as TabCell in rowView.subviews { cell.updateHover(at:point) }
+        }
     }
     private func handleSidebarBackgroundClick(_ event: NSEvent) -> Bool {
         let firstWasOnBackground = firstClickOnSidebarBackground
@@ -1407,6 +1261,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
 
     private func trackSidebarPointer(_ event: NSEvent) {
+        if event.type == .leftMouseDown { activeTabScroll.cancel() }
         guard siteMenu?.isShown != true else { clearSidebarPointerFeedback(); return }
         if event.type == .leftMouseDown, event.window === window, let tab = activeTab,
            content.visibleRect.contains(content.convert(event.locationInWindow,from:nil)) {
@@ -1426,6 +1281,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if event.type == .leftMouseUp { sidebarMousePressed = false }
         let location = root.convert(event.locationInWindow, from:nil)
         sidebarPointer = event.type != .mouseExited && event.window === window && root.bounds.contains(location) ? location : nil
+        updateCard.trackPointer(sidebarPointer == nil ? nil : event.locationInWindow)
+        if sidebarOverlayContains(event.locationInWindow) {
+            table.enumerateAvailableRowViews { rowView,_ in
+                for case let cell as TabCell in rowView.subviews { cell.clearHover() }
+            }
+        }
         updateFolderHover(); updateRecentPeekHover()
         updateSidebarHover()
     }
@@ -1448,6 +1309,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if let sound, sound.playback != .silent, let id = sound.representedID { return .sound(id) }
         guard !sidebarMousePressed, NSEvent.pressedMouseButtons == 0 else { return nil }
         if let slot = spaceIndicatorContent.slot(at:p) { return .space(slot.id) }
+        guard !sidebarOverlayContains(p) else { return nil }
         let point = table.convert(p,from:nil)
         guard table.visibleRect.contains(point) else { return nil }
         let row = table.row(at:point)
@@ -1499,7 +1361,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         session.folders.first { $0.id == id && $0.spaceID == session.activeSpaceID && $0.collapsed }
     }
     private func hoveredFolder(at screen:NSPoint) -> (folder:NativeFolder,anchor:NSRect)? {
-        let point = table.convert(window.convertPoint(fromScreen:screen),from:nil)
+        let windowPoint = window.convertPoint(fromScreen:screen)
+        guard !sidebarOverlayContains(windowPoint) else { return nil }
+        let point = table.convert(windowPoint,from:nil)
         guard table.visibleRect.contains(point) else { return nil }
         let row = table.row(at:point)
         guard rows.indices.contains(row), case .folder(let id) = rows[row], let folder = collapsedFolderForPeek(id) else { return nil }
@@ -1599,9 +1463,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         renderSpaceContent()
         renderSpacesFooter(); updateToolbar(); buildHome(); layoutFavorites(animated:true); style(spaceButton, opacity: 0.7); style(downloadButton, opacity: 0.8)
         library?.update(session:session); sidebarTip.refreshIfVisible()
+        updateSidebarUpdate(); layoutSidebarUpdate()
     }
     /// Updates only the movable part of the sidebar; previewing never opens a Chromium tab.
     private func renderSpaceContent(toggling folder: NativeFolder? = nil) {
+        activeTabScroll.cancel()
         spaceButton.spaceName = activeSpace?.name ?? "Arc Reborn"; spaceButton.spaceIcon = activeSpace?.icon ?? "◈"
         spaceButton.collapsed = activeSpace?.foldersCollapsed == true; spaceButton.ink = sidebarInk; spaceButton.accent = favoritesHint.accent; spaceButton.moreLabel = t("more"); spaceButton.refreshTitle()
         spaceButton.setAccessibilityLabel((spaceButton.collapsed ? t("expandSpace") : t("collapseSpace")) + " — " + spaceButton.spaceName)
@@ -1633,6 +1499,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             table.reloadData()
         }
         style(spaceButton,opacity:0.7)
+        updateActiveTabReturn()
     }
 
     /// Keep the folder cell and the surrounding rows alive. A tab retained
@@ -1732,6 +1599,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func discardSpaceSwipePreview() {
         spaceSwitch?.finish(); spaceSwitch = nil; swipeTarget = nil; swipeProgress = 0
         sidebarTint.endPreview(); sidebarHost.endPreview()
+        updateActiveTabReturn()
     }
 
     private func prepareSpaceSwipe(to id: String, direction: Int) {
@@ -1787,6 +1655,78 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             return true
         }; image.isTemplate = true; return image
     }
+    var canPresentSidebarUpdate: Bool { windowKind != .compact && !closingWindow && !isQuitting && window.isVisible }
+    func focusSidebarUpdate() {
+        if library != nil { closeLibrary { [weak self] in self?.focusSidebarUpdate() }; return }
+        show(); setSidebarRevealed(true); updateCard.setExpanded(true)
+        window.makeFirstResponder(updateCard)
+    }
+    private func updateSidebarUpdate() {
+        let updates = BrowserUpdates.shared
+        let theme = activeSpace?.theme ?? .solid(activeSpace?.color ?? palette[0])
+        let accent = NSColor(browserHex:theme.points.first?.color ?? activeSpace?.color ?? palette[0]) ?? .systemIndigo
+        updateCard.update(phase:updates.sidebar.phase,progress:updates.sidebar.progress,actionable:updates.sidebar.actionable,
+                          automatic:updates.automaticallyChecks && updates.automaticallyDownloads,allowsAutomatic:updates.allowsAutomaticDownloads,
+                          accent:accent,ink:sidebarInk,language:session.language)
+    }
+    private func layoutSidebarUpdate() {
+        updateCard.frame = NSRect(x:8,y:downloadButton.frame.minY-12-SidebarUpdateCard.expandedHeight,
+                                  width:max(160,sidebarHost.bounds.width-16),height:SidebarUpdateCard.expandedHeight)
+        updateCard.layoutSubtreeIfNeeded()
+        let visible = BrowserUpdates.shared.sidebar.phase != .hidden && windowKind != .compact
+        // Physically clip the scrolling list above the entire fixed footer.
+        // The expanded card may cover rows, but the resting pill never does.
+        let bottom = visible ? updateCard.frame.maxY-SidebarUpdateCard.collapsedHeight-8 : downloadButton.frame.minY-5
+        rowsScroll.frame.size.height = max(40,bottom-rowsScroll.frame.minY)
+        rowsScroll.contentInsets = .init()
+        footerBarrier.frame = NSRect(x:0,y:bottom,width:sidebarHost.bounds.width,height:max(0,sidebarHost.bounds.height-bottom))
+        let hairline = 1 / max(1,window.backingScaleFactor)
+        listTopSeparator.frame = NSRect(x:0,y:rowsScroll.frame.minY-hairline,width:sidebarHost.bounds.width,height:hairline)
+        listBottomSeparator.frame = NSRect(x:0,y:bottom,width:sidebarHost.bounds.width,height:hairline)
+        listTopSeparator.ink = sidebarInk; listBottomSeparator.ink = sidebarInk
+        updateListSeparators()
+    }
+    private func updateListSeparators() {
+        let visible = rowsScroll.documentVisibleRect
+        let content = table.bounds
+        listTopSeparator.setShown(!rows.isEmpty && visible.minY > content.minY + 0.5)
+        listBottomSeparator.setShown(!rows.isEmpty && visible.maxY < content.maxY - 0.5)
+        updateActiveTabReturn()
+    }
+    private func activeSidebarRowRect() -> NSRect? {
+        guard commandPalette?.isNewTab != true, let id = activeTab?.id,
+              let index = rows.firstIndex(where:{ row in
+                  guard case .tab(let rowID) = row else { return false }
+                  return rowID == id || session.splitGroup(containing:rowID)?.tabIDs.contains(id) == true
+              }), index < table.numberOfRows else { return nil }
+        return table.rect(ofRow:index)
+    }
+    private func updateActiveTabReturn() {
+        let diameter = SidebarTabReturnButton.diameter
+        let x = (sidebarHost.bounds.width-diameter)/2
+        returnAbove.frame = NSRect(x:x,y:rowsScroll.frame.minY+6,width:diameter,height:diameter)
+        returnBelow.frame = NSRect(x:x,y:rowsScroll.frame.maxY-diameter-6,width:diameter,height:diameter)
+        for button in [returnAbove,returnBelow] { button.setAccessibilityLabel(t("returnToActiveTab")) }
+        let available = !isQuitting && library == nil && spaceCreation == nil &&
+            spaceSwitch == nil && swipeTarget == nil && !recentPeekVisible && !updateCard.isExpanded &&
+            !activeTabScroll.isRunning && !rowsScroll.isHiddenOrHasHiddenAncestor && rowsScroll.bounds.height >= diameter*2+12
+        let edge = available ? activeSidebarRowRect().flatMap { SidebarTabReturnGeometry.edge(of:$0,visible:rowsScroll.documentVisibleRect) } : nil
+        returnAbove.setShown(edge == .above); returnBelow.setShown(edge == .below)
+    }
+    private func returnToActiveSidebarTab(_ edge:SidebarTabReturnEdge) {
+        guard let row = activeSidebarRowRect() else { return }
+        dismissSidebarTip(); dismissFolderPeek(animated:false)
+        let y = SidebarTabReturnGeometry.destination(for:row,edge:edge,visible:rowsScroll.documentVisibleRect,document:table.bounds)
+        returnAbove.setShown(false); returnBelow.setShown(false)
+        activeTabScroll.scroll(rowsScroll,to:y) { [weak self] in self?.updateActiveTabReturn() }
+    }
+    private func sidebarOverlayContains(_ point:NSPoint) -> Bool {
+        guard !sidebarHost.isHiddenOrHasHiddenAncestor else { return false }
+        let local = sidebarHost.convert(point,from:nil)
+        return footerBarrier.frame.contains(local) || updateCard.contains(point) || returnAbove.contains(point) || returnBelow.contains(point) ||
+            (recentPeekVisible && recentPeek.frame.contains(local))
+    }
+
     private func layoutRecentPeek() {
         recentPeek.frame = NSRect(x:0,y:downloadButton.frame.minY-recentPeek.desiredHeight+3,width:sidebarHost.bounds.width,height:recentPeek.desiredHeight)
         sidebarItems.setDownloadsEdge(recentPeek.frame.minY)
@@ -1795,10 +1735,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func updateDownloadIndicator() {
         (downloadButton as? LibraryFooterButton)?.updateTransfers(libraryStore.downloads,unread:libraryStore.unreadCount)
     }
-    private var peekShowsDownloads = false
     private func updateRecentPeekContents() {
-        if !libraryStore.activeDownloads.isEmpty || libraryStore.unreadCount > 0 { peekShowsDownloads = true }
-        recentPeek.update(files:RecentLibraryFile.collect(media:libraryStore.media,downloads:libraryStore.downloads,excluding:libraryStore.hiddenRecents),downloads:peekShowsDownloads ? libraryStore.peekDownloads : [],ink:sidebarInk,language:session.language,loading:libraryStore.loading)
+        recentPeek.update(files:RecentLibraryFile.collect(media:libraryStore.media,downloads:libraryStore.downloads,excluding:libraryStore.hiddenRecents),downloads:libraryStore.peekDownloads,ink:sidebarInk,language:session.language,loading:libraryStore.loading)
         layoutRecentPeek()
     }
     private func updateRecentPeekHover() {
@@ -1812,8 +1750,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let self else { return }; self.recentPeekTask = nil; self.recentPeekPending = nil
             if inside {
                 guard NSEvent.pressedMouseButtons == 0 else { return }
-                self.peekShowsDownloads = false
                 self.recentPeekVisible = true
+                self.updateActiveTabReturn()
+                self.updateCard.setSuppressed(true)
                 self.libraryStore.changed = { [weak self] in if self?.recentPeekVisible == true { self?.updateRecentPeekContents() } }
                 self.updateRecentPeekContents(); self.libraryStore.startObserving()
                 self.sidebarItems.setDownloadsPresented(true)
@@ -1826,6 +1765,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func dismissRecentPeek(animated: Bool = true) {
         recentPeekTask?.cancel(); recentPeekTask = nil; recentPeekPending = nil
         guard recentPeekVisible else { return }; recentPeekVisible = false
+        updateActiveTabReturn()
+        updateCard.setSuppressed(false)
         libraryStore.changed = nil; libraryStore.stopObserving()
         sidebarItems.setDownloadsPresented(false, animated:animated)
         recentPeek.setPresented(false,animated:animated)
@@ -1837,7 +1778,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if library != nil { closeLibrary(); return }
         finishSpaceSwitch(); commandPalette?.close(); themeEditor?.close(animated:false); addMenu?.close(); endFind(); cancelSidebarHover()
         sidebarTransition += 1; sidebarAnimating = false; sidebarHost.isHidden = true
-        let view = LibraryView(store:libraryStore,session:session); library = view
+        let view = LibraryView(store:libraryStore,session:session,archivedIcon:{ [weak self] tab in
+            guard let self, let profile = self.session.profile(forSpace:tab.spaceID)?.id else { return nil }
+            _ = self.faviconCache.restoredImage(id:tab.id,url:tab.url,profile:profile)
+            return self.splitTabIcon(tab)
+        }); library = view
         view.close = { [weak self] in self?.closeLibrary() }
         view.expandedChanged = { [weak self] in self?.animateLibraryLayout() }
         view.selectSpace = { [weak self] id in self?.closeLibrary { [weak self] in self?.selectSpace(id) } }
@@ -2115,7 +2060,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         renderingSpaceSwitch = false
         if let transition = spaceSwitch {
             transition.run(views:spaceSwitchViews,towardsRight:next > previous) { [weak self, weak transition] in
-                if self?.spaceSwitch === transition { self?.spaceSwitch = nil }
+                if self?.spaceSwitch === transition { self?.spaceSwitch = nil; self?.updateActiveTabReturn() }
             }
         }
     }
@@ -2178,7 +2123,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let identifier: NSUserInterfaceItemIdentifier
         if case .folder = rows[row] { identifier = .init("folderCell") } else { identifier = .init("tabCell") }
         let cell = (copyingSpaceRows ? nil : tableView.makeView(withIdentifier:identifier, owner:self) as? TabCell) ?? TabCell(frame:.zero)
+        cell.clearHover()
         cell.identifier = identifier; cell.active = false; cell.canClose = false
+        cell.acceptsPointerAt = { [weak self] in self?.table.acceptsPointerAt?($0) ?? false }
         cell.developerMode = false
         cell.rename = nil; cell.titleLabel.toolTip = nil; cell.titleLabel.setAccessibilityHelp(nil); cell.setAccessibilityHelp(nil)
         cell.ink = sidebarInk; cell.depth = treeRows.indices.contains(row) ? treeRows[row].depth : 0
@@ -3272,7 +3219,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
               let tab = session.tabs.first(where:{ $0.id == tabID }), let profile = session.profile(forSpace:tab.spaceID)?.id,
               FaviconCache.canUse(document,for:tab.url) else { return }
         let result = faviconCache.save(image,id:tabID,url:tab.url,profile:profile)
-        if result.changed || result.firstSite { refreshTabVisual(tabID,siteAvailable:result.firstSite) }
+        if result.changed || result.firstSite {
+            refreshTabVisual(tabID,siteAvailable:result.firstSite)
+            library?.refreshArchiveIcons()
+        }
     }
     private func tabFavicon(_ tab:NativeTab) -> NSImage? {
         guard let profile = session.profile(forSpace:tab.spaceID)?.id else { return nil }

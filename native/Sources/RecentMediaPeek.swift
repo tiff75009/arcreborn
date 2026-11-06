@@ -9,6 +9,12 @@ private let shelfFadeTime: TimeInterval = 0.12
 /// Fades the tab artwork itself so the space's actual background shows through.
 final class SidebarPeekContent: NSView {
     override var isFlipped: Bool { true }
+    var blocksInputAt: ((NSPoint) -> Bool)?
+    override func hitTest(_ point:NSPoint) -> NSView? {
+        let local = convert(point,from:superview)
+        guard blocksInputAt?(convert(local,to:nil)) != true else { return nil }
+        return super.hitTest(point)
+    }
     private let maskLayer = CAGradientLayer()
     private var edge: CGFloat = 0
     private var presented = false
@@ -53,12 +59,12 @@ final class SidebarPeekContent: NSView {
         guard duration > 0 else { return }
         let fade = CABasicAnimation(keyPath:"colors")
         fade.fromValue = from; fade.toValue = destination
-        fade.beginTime = CACurrentMediaTime() + (visible ? 0 : duration)
+        fade.beginTime = CACurrentMediaTime() + (visible ? 0 : 0.20)
         fade.fillMode = .backwards
         fade.duration = duration; fade.timingFunction = CAMediaTimingFunction(name:.easeInEaseOut)
         maskLayer.add(fade,forKey:"downloads")
         if !visible {
-            DispatchQueue.main.asyncAfter(deadline:.now()+2*duration) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.20+duration) { [weak self] in
                 guard let self, self.revision == current else { return }
                 self.layer?.mask = nil
             }
@@ -66,61 +72,166 @@ final class SidebarPeekContent: NSView {
     }
 }
 
-private final class RecentFileRow: NSView {
-    static let height: CGFloat = 39
-    var open: (() -> Void)?
-    let thumbnail = NSImageView(), nameLabel = NSTextField(labelWithString:""), dateLabel = NSTextField(labelWithString:"")
+
+private struct ShelfFile {
+    let file: RecentLibraryFile
+    let download: LibraryDownload?
+    var key: String { file.url.standardizedFileURL.path }
+    var isActive: Bool { download?.isActive == true }
+}
+
+/// One native file row, with the same geometry before, during and after a transfer.
+final class RecentFileRow: NSView {
+    static let height: CGFloat = 56
+    private let thumbnail = NSImageView(), nameLabel = NSTextField(labelWithString:""), dateLabel = NSTextField(labelWithString:"")
+    private let track = CALayer(), fill = CALayer()
+    private let primary = TransferActionButton("",symbol:"folder",action:{})
+    private let secondary = TransferActionButton("",symbol:"xmark",action:{})
     private var hovered = false
-    private let revealButton = TransferActionButton("",symbol:"folder",action:{})
-    private let removeButton = TransferActionButton("",symbol:"xmark",action:{})
+    private var ink = NSColor.white
     private var tracking: NSTrackingArea?
-    var request: QLThumbnailGenerator.Request?
-    init(file: RecentLibraryFile, remove: @escaping () -> Void, language: String, ink: NSColor, open: @escaping () -> Void) {
-        super.init(frame:.zero); self.open = open; setAccessibilityElement(true); setAccessibilityRole(.group)
-        wantsLayer = true; layer?.cornerRadius = 10; focusRingType = .none
-        nameLabel.stringValue = file.url.lastPathComponent; nameLabel.font = .systemFont(ofSize:12.5,weight:.medium); nameLabel.textColor = ink; nameLabel.lineBreakMode = .byTruncatingMiddle
-        let formatter = RelativeDateTimeFormatter(); formatter.locale = Locale(identifier:language); formatter.unitsStyle = .full
-        dateLabel.stringValue = formatter.localizedString(for:file.date,relativeTo:Date()); dateLabel.font = .systemFont(ofSize:10.5); dateLabel.textColor = ink.withAlphaComponent(0.64)
-        thumbnail.imageScaling = .scaleProportionallyUpOrDown; thumbnail.wantsLayer = true; thumbnail.layer?.cornerRadius = 7; thumbnail.layer?.masksToBounds = true
-        thumbnail.image = NSWorkspace.shared.icon(forFile:file.url.path)
-        revealButton.invoke = { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }; removeButton.invoke = remove
-        revealButton.toolTip = language == "fr" ? "Afficher dans le Finder" : "Show in Finder"; removeButton.toolTip = language == "fr" ? "Retirer de la liste" : "Remove from list"
-        for button in [revealButton,removeButton] { button.wantsLayer = true; button.layer?.cornerRadius = 6; button.contentTintColor = ink; button.alphaValue = 0; button.setAccessibilityLabel(button.toolTip) }
-        for v in [thumbnail,nameLabel,dateLabel,revealButton,removeButton] { addSubview(v) }
-        setAccessibilityLabel(nameLabel.stringValue+", "+dateLabel.stringValue); toolTip = nameLabel.stringValue
-        let request = QLThumbnailGenerator.Request(fileAt:file.url,size:NSSize(width:48,height:48),scale:2,representationTypes:.thumbnail); self.request = request
-        QLThumbnailGenerator.shared.generateBestRepresentation(for:request) { [weak self] result,_ in
-            guard let result else { return }; DispatchQueue.main.async { [weak self] in self?.thumbnail.image = result.nsImage; self?.request = nil }
+    private var request: QLThumbnailGenerator.Request?
+    private var thumbnailKey = ""
+    private var item: ShelfFile?
+    private var seenTask: DispatchWorkItem?
+    var open: ((URL) -> Void)?
+    var action: ((String,String) -> Void)?
+    var remove: ((URL) -> Void)?
+    var seen: ((String) -> Void)?
+    override init(frame:NSRect) {
+        super.init(frame:frame)
+        wantsLayer = true; layer?.cornerRadius = 8; focusRingType = .none
+        setAccessibilityElement(true); setAccessibilityRole(.group)
+        nameLabel.font = .systemFont(ofSize:14,weight:.medium); nameLabel.lineBreakMode = .byTruncatingTail
+        dateLabel.font = .systemFont(ofSize:12.5); dateLabel.lineBreakMode = .byTruncatingTail
+        for label in [nameLabel,dateLabel] { label.maximumNumberOfLines = 1; label.cell?.wraps = false; label.cell?.usesSingleLineMode = true }
+        thumbnail.imageScaling = .scaleProportionallyUpOrDown
+        thumbnail.wantsLayer = true; thumbnail.layer?.cornerRadius = 5; thumbnail.layer?.masksToBounds = true
+        for button in [primary,secondary] { button.wantsLayer = true; button.layer?.cornerRadius = 5 }
+        primary.invoke = { [weak self] in
+            guard let self, let item = self.item else { return }
+            if let record = item.download, record.isActive {
+                self.action?(record.id,record.state == "paused" ? "resume" : "pause")
+            } else {
+                if let record = item.download { self.seen?(record.id) }
+                NSWorkspace.shared.activateFileViewerSelecting([item.file.url])
+            }
         }
+        secondary.invoke = { [weak self] in
+            guard let self, let item = self.item else { return }
+            if let record = item.download, record.isActive { self.action?(record.id,"cancel") }
+            else { self.remove?(item.file.url) }
+        }
+        for view in [thumbnail,nameLabel,dateLabel,primary,secondary] { addSubview(view) }
+        track.cornerRadius = 1; fill.cornerRadius = 1; track.masksToBounds = true
+        track.addSublayer(fill); layer?.addSublayer(track)
     }
     required init?(coder:NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
-    override func draw(_ dirtyRect:NSRect) {}
+    fileprivate func update(_ item:ShelfFile, language:String, ink:NSColor) {
+        self.item = item; self.ink = ink
+        let fr = language == "fr"
+        nameLabel.stringValue = item.download?.name ?? item.file.url.lastPathComponent
+        nameLabel.textColor = ink.withAlphaComponent(0.94); dateLabel.textColor = ink.withAlphaComponent(0.60)
+        if let record = item.download, record.isActive {
+            let bytes = ByteCountFormatStyle(style:.file,spellsOutZero:false,locale:Locale(identifier:fr ? "fr_FR" : "en_US"))
+            let amount = record.total > 0 ? "\(Int(record.fraction*100)) %" : bytes.format(record.received)
+            dateLabel.stringValue = record.state == "paused" ? (fr ? "En pause · " : "Paused · ")+amount : amount
+            if record.state == "progress", let speed = record.speed, speed > 0 { dateLabel.stringValue += " · "+bytes.format(speed)+"/s" }
+            primary.image = NSImage(systemSymbolName:record.state == "paused" ? "play.fill" : "pause.fill",accessibilityDescription:nil)
+            primary.toolTip = record.state == "paused" ? (fr ? "Reprendre" : "Resume") : (fr ? "Mettre en pause" : "Pause")
+            secondary.toolTip = fr ? "Annuler le téléchargement" : "Cancel download"
+        } else {
+            let formatter = RelativeDateTimeFormatter(); formatter.locale = Locale(identifier:language); formatter.unitsStyle = .full
+            dateLabel.stringValue = formatter.localizedString(for:item.file.date,relativeTo:Date())
+            primary.image = NSImage(systemSymbolName:"folder",accessibilityDescription:nil)
+            primary.toolTip = fr ? "Afficher dans le Finder" : "Show in Finder"
+            secondary.toolTip = fr ? "Retirer de la liste" : "Remove from list"
+        }
+        for button in [primary,secondary] { button.contentTintColor = ink.withAlphaComponent(0.8); button.setAccessibilityLabel(button.toolTip) }
+        track.isHidden = !item.isActive; track.backgroundColor = ink.withAlphaComponent(0.12).cgColor
+        fill.backgroundColor = ink.withAlphaComponent(0.7).cgColor
+        toolTip = nameLabel.stringValue
+        setAccessibilityLabel(nameLabel.stringValue+", "+dateLabel.stringValue)
+        updateThumbnail(item)
+        updateControls(animated:false); needsLayout = true
+        if !isHiddenOrHasHiddenAncestor { scheduleSeen() }
+    }
+    private func updateThumbnail(_ item:ShelfFile) {
+        let key = item.key+(item.isActive ? "|pending" : "|\(item.file.date.timeIntervalSince1970)")
+        guard thumbnailKey != key else { return }; thumbnailKey = key
+        if let request { QLThumbnailGenerator.shared.cancel(request) }; request = nil
+        thumbnail.image = NSWorkspace.shared.icon(forFile:item.file.url.path)
+        guard !item.isActive else { return }
+        let request = QLThumbnailGenerator.Request(fileAt:item.file.url,size:NSSize(width:40,height:40),scale:window?.backingScaleFactor ?? 2,representationTypes:.all)
+        self.request = request
+        QLThumbnailGenerator.shared.generateBestRepresentation(for:request) { [weak self] result,_ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.thumbnailKey == key else { return }
+                self.request = nil
+                if let result { self.thumbnail.image = result.nsImage }
+            }
+        }
+    }
     override func layout() {
-        super.layout(); thumbnail.frame = NSRect(x:4,y:7,width:25,height:25)
-        let textWidth = max(0,bounds.width-33-(hovered ? 57 : 6))
-        nameLabel.frame = NSRect(x:33,y:4,width:textWidth,height:17)
-        dateLabel.frame = NSRect(x:33,y:20,width:textWidth,height:15)
-        revealButton.frame = NSRect(x:bounds.width-53,y:7,width:23,height:24); removeButton.frame = NSRect(x:bounds.width-27,y:7,width:23,height:24)
+        super.layout()
+        thumbnail.frame = NSRect(x:2,y:8,width:40,height:40)
+        let controls = hovered || item?.isActive == true
+        let textWidth = max(0,bounds.width-54-(controls ? 51 : 4))
+        nameLabel.frame = NSRect(x:54,y:9,width:textWidth,height:19)
+        dateLabel.frame = NSRect(x:54,y:28,width:textWidth,height:17)
+        primary.frame = NSRect(x:bounds.width-48,y:16,width:22,height:24)
+        secondary.frame = NSRect(x:bounds.width-24,y:16,width:22,height:24)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        track.frame = NSRect(x:56,y:49,width:max(0,textWidth-2),height:2)
+        fill.frame = NSRect(x:0,y:0,width:track.bounds.width*(item?.download?.fraction ?? 0),height:2)
+        CATransaction.commit()
     }
     override var mouseDownCanMoveWindow: Bool { false }
     override func mouseDown(with event:NSEvent) {}
-    override func mouseUp(with event:NSEvent) { if bounds.contains(convert(event.locationInWindow,from:nil)) { open?() } }
-    override func accessibilityPerformPress() -> Bool { open?(); return true }
+    override func mouseUp(with event:NSEvent) {
+        if bounds.contains(convert(event.locationInWindow,from:nil)) { activate() }
+    }
+    private func activate() {
+        guard let item, !item.isActive else { return }
+        if let record = item.download { seen?(record.id) }
+        open?(item.file.url)
+    }
+    override func accessibilityPerformPress() -> Bool { activate(); return item?.isActive == false }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
         tracking = NSTrackingArea(rect:.zero,options:[.activeAlways,.inVisibleRect,.mouseEnteredAndExited],owner:self); addTrackingArea(tracking!)
+        refreshHover()
+    }
+    func refreshHover() {
         if let window { hover(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) }
     }
-    func refreshHover() { if let window { hover(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) } }
     private func hover(_ value:Bool) {
-        guard hovered != value else { return }; hovered = value; needsLayout = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(value ? 0.08 : 0).cgColor
-        NSAnimationContext.runAnimationGroup { context in context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.14; revealButton.animator().alphaValue = value ? 1 : 0; removeButton.animator().alphaValue = value ? 1 : 0 }
+        guard hovered != value else { return }; hovered = value
+        updateControls(animated:true); needsLayout = true
+    }
+    private func updateControls(animated:Bool) {
+        let visible = hovered || item?.isActive == true
+        layer?.backgroundColor = ink.withAlphaComponent(hovered ? 0.07 : 0).cgColor
+        for button in [primary,secondary] { button.isEnabled = visible }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.14 : 0
+            primary.animator().alphaValue = visible ? 1 : 0; secondary.animator().alphaValue = visible ? 1 : 0
+        }
+    }
+    func scheduleSeen() {
+        guard item?.download?.unread == true, seenTask == nil else { return }
+        let task = DispatchWorkItem { [weak self] in
+            guard let self else { return }; self.seenTask = nil
+            if let record = self.item?.download, record.state == "complete", record.unread == true,
+               self.window?.isVisible == true, !self.isHiddenOrHasHiddenAncestor,
+               self.visibleRect.height >= self.bounds.height*0.75 { self.seen?(record.id) }
+        }
+        seenTask = task; DispatchQueue.main.asyncAfter(deadline:.now()+0.85,execute:task)
     }
     override func mouseEntered(with event:NSEvent) { hover(true) }
     override func mouseExited(with event:NSEvent) { hover(false) }
-    deinit { if let request { QLThumbnailGenerator.shared.cancel(request) } }
+    deinit { seenTask?.cancel(); if let request { QLThumbnailGenerator.shared.cancel(request) } }
 }
 
 final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
@@ -128,95 +239,70 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
     override var mouseDownCanMoveWindow: Bool { false }
     private var presented = false
     private var rows: [RecentFileRow] = []
-    private var files: [RecentLibraryFile] = []
-    private var cards: [DownloadCard] = []
-    private var downloadIDs: [String] = []
-    private let allButton = ActionButton("",action:{})
-    private let surface = CALayer(), footerRule = CALayer()
-    private let inset:CGFloat = 4, footerHeight:CGFloat = 28
+    private var keys: [String] = []
     var transferAction: ((String,String) -> Void)?
-    var transferRemove: ((String) -> Void)?
     var removeRecent: ((URL) -> Void)?
     var transferSeen: ((String) -> Void)?
-    var showDownloads: (() -> Void)?
     private var previewURL: URL?
     private var animationToken = 0
     private let emptyLabel = NSTextField(wrappingLabelWithString:"")
-    var desiredHeight: CGFloat {
-        let content = cards.isEmpty ? CGFloat(max(1,rows.count))*RecentFileRow.height : cards.reduce(footerHeight) { $0+$1.shelfHeight }
-        return content + 2*inset
-    }
+    var desiredHeight: CGFloat { CGFloat(max(1,rows.count))*RecentFileRow.height+8 }
     override var acceptsFirstResponder: Bool { true }
     override init(frame:NSRect) {
         super.init(frame:frame); wantsLayer = true; isHidden = true
-        surface.cornerRadius = 11; surface.cornerCurve = .continuous; surface.borderWidth = 0.5
-        layer?.addSublayer(surface); layer?.addSublayer(footerRule)
-        allButton.image = NSImage(systemSymbolName:"chevron.right",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:8.5,weight:.semibold))
-        allButton.imagePosition = .imageRight
-        allButton.isHidden = true; allButton.invoke = { [weak self] in self?.showDownloads?() }; addSubview(allButton)
-        emptyLabel.font = .systemFont(ofSize:12); emptyLabel.alignment = .center; addSubview(emptyLabel)
+        emptyLabel.font = .systemFont(ofSize:12); emptyLabel.alignment = .center
+        emptyLabel.wantsLayer = true; addSubview(emptyLabel)
     }
     required init?(coder:NSCoder) { fatalError() }
-    func update(files: [RecentLibraryFile], downloads: [LibraryDownload] = [], ink: NSColor, language: String, loading: Bool) {
-        let ids = downloads.map(\.id)
-        if ids != downloadIDs {
-            cards.forEach { $0.removeFromSuperview() }; downloadIDs = ids
-            cards = downloads.map { _ in
-                let card = DownloadCard(frame:.zero,compact:true)
-                card.action = { [weak self] in self?.transferAction?($0,$1) }
-                card.removeRecord = { [weak self] in self?.transferRemove?($0) }
-                card.seen = { [weak self] in self?.transferSeen?($0) }
-                card.open = { [weak self] in self?.preview($0) }
-                addSubview(card); return card
-            }
+    func update(files:[RecentLibraryFile], downloads:[LibraryDownload] = [], ink:NSColor, language:String, loading:Bool) {
+        // Reserve room for ongoing transfers; merge finished transfers with the actual files.
+        // No mode switch on unread status, and no duplicate row when a transfer finishes.
+        let byPath = Dictionary(downloads.filter { !$0.path.isEmpty }.map { (URL(fileURLWithPath:$0.path).standardizedFileURL.path,$0) },uniquingKeysWith:{ a,b in a.date > b.date ? a : b })
+        var entries = downloads.filter(\.isActive).map { ShelfFile(file:RecentLibraryFile(url:URL(fileURLWithPath:$0.path.isEmpty ? "/.transfer-"+$0.id : $0.path),date:$0.date),download:$0) }
+        let activePaths = Set(entries.map(\.key))
+        entries += files.filter { !activePaths.contains($0.url.standardizedFileURL.path) }.map { ShelfFile(file:$0,download:byPath[$0.url.standardizedFileURL.path]) }
+        entries = Array(entries.sorted {
+            if $0.isActive != $1.isActive { return $0.isActive }
+            return $0.file.date == $1.file.date ? $0.key < $1.key : $0.file.date > $1.file.date
+        }.prefix(4)).sorted { $0.file.date == $1.file.date ? $0.key < $1.key : $0.file.date < $1.file.date }
+        let old = Dictionary(uniqueKeysWithValues:zip(keys,rows))
+        let nextKeys = entries.map(\.key)
+        for (key,row) in old where !nextKeys.contains(key) { row.removeFromSuperview() }
+        rows = entries.map { item in
+            let row = old[item.key] ?? RecentFileRow(frame:.zero)
+            row.open = { [weak self] in self?.preview($0) }
+            row.action = { [weak self] in self?.transferAction?($0,$1) }
+            row.remove = { [weak self] in self?.removeRecent?($0) }
+            row.seen = { [weak self] in self?.transferSeen?($0) }
+            row.update(item,language:language,ink:ink)
+            if row.superview == nil { addSubview(row) }
+            return row
         }
-        for (card,record) in zip(cards,downloads) { card.update(record,language:language,ink:ink) }
-        let allTitle = language == "fr" ? "Tous les téléchargements" : "All Downloads"
-        allButton.isHidden = cards.isEmpty; allButton.contentTintColor = ink.withAlphaComponent(0.64)
-        allButton.attributedTitle = NSAttributedString(string:allTitle,attributes:[.font:NSFont.systemFont(ofSize:11,weight:.medium),.foregroundColor:ink.withAlphaComponent(0.74)])
-        allButton.setAccessibilityLabel(allTitle)
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        surface.backgroundColor = ink.withAlphaComponent(0.04).cgColor
-        surface.borderColor = ink.withAlphaComponent(0.075).cgColor
-        footerRule.backgroundColor = ink.withAlphaComponent(0.12).cgColor
-        footerRule.isHidden = cards.isEmpty
-        CATransaction.commit()
-        rows.forEach { $0.isHidden = !cards.isEmpty }
-        if !cards.isEmpty { emptyLabel.isHidden = true; needsLayout = true; return }
-        emptyLabel.stringValue = L10n.text(loading ? "loadingMedia" : "nothingHere",language:language); emptyLabel.textColor = ink.withAlphaComponent(0.65); emptyLabel.isHidden = !files.isEmpty
-        guard self.files != files else { return }; self.files = files
-        rows.forEach { $0.removeFromSuperview() }
-        rows = files.map { file in RecentFileRow(file:file,remove:{ [weak self] in self?.removeRecent?(file.url) },language:language,ink:ink) { [weak self] in self?.preview(file.url) } }
-        rows.forEach(addSubview); needsLayout = true
+        keys = nextKeys
+        emptyLabel.stringValue = L10n.text(loading ? "loadingMedia" : "nothingHere",language:language)
+        emptyLabel.textColor = ink.withAlphaComponent(0.65); emptyLabel.isHidden = !rows.isEmpty
+        needsLayout = true
     }
     override func layout() {
         super.layout()
-        let x:CGFloat = 8, width = max(0,bounds.width-2*x)
-        for (i,row) in rows.enumerated() { row.frame = NSRect(x:x,y:inset+CGFloat(i)*RecentFileRow.height,width:width,height:RecentFileRow.height); row.layout() }
-        var y = inset
-        for card in cards {
-            card.frame = NSRect(x:x,y:y,width:width,height:card.shelfHeight)
-            y += card.shelfHeight; card.layout()
+        for (i,row) in rows.enumerated() {
+            row.frame = NSRect(x:8,y:4+CGFloat(i)*RecentFileRow.height,width:max(0,bounds.width-16),height:RecentFileRow.height)
+            row.layout()
         }
-        allButton.frame = NSRect(x:x,y:y+1,width:width,height:footerHeight-1)
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        surface.frame = bounds.insetBy(dx:4,dy:1)
-        footerRule.frame = NSRect(x:x+5,y:y,width:max(0,width-10),height:1/(window?.backingScaleFactor ?? 2))
-        CATransaction.commit()
-        emptyLabel.frame = NSRect(x:12,y:10,width:bounds.width-24,height:40)
+        emptyLabel.frame = NSRect(x:12,y:18,width:max(0,bounds.width-24),height:40)
     }
     override func hitTest(_ point:NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
-        // Static labels and thumbnails belong to their row. Keep real buttons as targets.
         guard presented else { return self }
-        var view: NSView? = hit
+        var view:NSView? = hit
         while let candidate = view, candidate !== self {
-            if candidate is NSButton || candidate is RecentFileRow || candidate is DownloadCard { return candidate }
+            if let button = candidate as? NSButton, button.isEnabled, button.alphaValue > 0.1 { return button }
+            if candidate is RecentFileRow { return candidate }
             view = candidate.superview
         }
         return self
     }
-    // Empty shelf areas end the responder chain here, including while fading out.
+    // Invisible background is still a native input surface, including while exiting.
     override func mouseDown(with event:NSEvent) {}
     override func mouseDragged(with event:NSEvent) {}
     override func mouseUp(with event:NSEvent) {}
@@ -224,29 +310,44 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
     override func otherMouseDown(with event:NSEvent) {}
     override func scrollWheel(with event:NSEvent) {}
     override func menu(for event:NSEvent) -> NSMenu? { nil }
-
-    func refreshHover() { rows.forEach { $0.refreshHover() }; cards.forEach { $0.refreshHover() } }
-    func setPresented(_ visible: Bool, animated: Bool = true) {
-        animationToken += 1
-        let token = animationToken
-        let previous = isHidden ? Float(0) : layer?.presentation()?.opacity ?? 1
+    func refreshHover() { rows.forEach { $0.refreshHover() } }
+    func setPresented(_ visible:Bool, animated:Bool = true) {
+        animationToken += 1; let token = animationToken
+        let wasHidden = isHidden
         presented = visible
-        layer?.removeAnimation(forKey:"peekOpacity")
-        let duration = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? shelfFadeTime : 0
-        guard duration > 0 else { isHidden = !visible; return }
-        // Keep AppKit's input surface stationary and active until the last visible frame.
+        let moving = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         isHidden = false
-        let fade = CABasicAnimation(keyPath:"opacity")
-        fade.fromValue = previous; fade.toValue = visible ? 1 : 0
-        fade.duration = duration; fade.timingFunction = CAMediaTimingFunction(name:.easeInEaseOut)
-        let delay = visible ? duration : 0
-        fade.beginTime = CACurrentMediaTime()+delay
-        fade.fillMode = .both; fade.isRemovedOnCompletion = false
-        layer?.add(fade,forKey:"peekOpacity")
-        DispatchQueue.main.asyncAfter(deadline:.now()+delay+duration) { [weak self] in
-            guard let self, self.animationToken == token else { return }
-            self.isHidden = !visible
-            self.layer?.removeAnimation(forKey:"peekOpacity")
+        let views:[NSView] = rows.isEmpty ? [emptyLabel] : rows
+        for (index,view) in views.enumerated() {
+            guard let layer = view.layer else { continue }
+            let fromOpacity = wasHidden ? Float(0) : layer.presentation()?.opacity ?? layer.opacity
+            let fromTransform = wasHidden ? CATransform3DMakeTranslation(0,18,0) : layer.presentation()?.transform ?? layer.transform
+            let targetTransform = visible ? CATransform3DIdentity : CATransform3DMakeTranslation(0,12,0)
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.removeAnimation(forKey:"shelf-reveal"); layer.removeAnimation(forKey:"shelf-fade")
+            layer.opacity = visible ? 1 : 0; layer.transform = targetTransform
+            CATransaction.commit()
+            guard moving else { continue }
+            // The newest (bottom) row leads. Reversals start at the presented frame.
+            let delay = visible && wasHidden ? 0.07+Double(views.count-1-index)*0.025 : 0
+            let motion = CABasicAnimation(keyPath:"transform")
+            motion.fromValue = NSValue(caTransform3D:fromTransform); motion.toValue = NSValue(caTransform3D:targetTransform)
+            motion.duration = visible ? 0.36 : 0.18
+            motion.timingFunction = CAMediaTimingFunction(controlPoints:0.18,0.80,0.24,1)
+            motion.beginTime = CACurrentMediaTime()+delay; motion.fillMode = .backwards
+            layer.add(motion,forKey:"shelf-reveal")
+            let fade = CABasicAnimation(keyPath:"opacity")
+            fade.fromValue = fromOpacity; fade.toValue = visible ? 1 : 0
+            fade.duration = visible ? 0.20 : 0.14; fade.beginTime = motion.beginTime; fade.fillMode = .backwards
+            layer.add(fade,forKey:"shelf-fade")
+        }
+        if visible { rows.forEach { $0.scheduleSeen() } }
+        if !moving { isHidden = !visible; return }
+        if !visible {
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.20) { [weak self] in
+                guard let self, self.animationToken == token else { return }
+                self.isHidden = true
+            }
         }
     }
     private func preview(_ url: URL) {

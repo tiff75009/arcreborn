@@ -1,6 +1,11 @@
 import Foundation
 import UniformTypeIdentifiers
 
+enum LibrarySection: String, CaseIterable {
+    case media, downloads, notes, spaces, archived
+    var index: Int { Self.allCases.firstIndex(of:self)! }
+}
+
 struct LibraryDownload: Codable, Equatable {
     var id: String
     var name: String
@@ -52,7 +57,12 @@ final class LibraryStore {
         guard persistent else { return }
         for peer in peers { peer.saved = saved; peer.captures = captures; peer.downloadsChanged?(); peer.changed?() }
     }
-    private struct Saved: Codable { var mediaEnabled = false; var downloads: [LibraryDownload] = []; var hiddenRecents: [String]? = nil }
+    private struct Saved: Codable {
+        var mediaEnabled = false
+        var downloads: [LibraryDownload] = []
+        var hiddenRecents: [String]? = nil
+        var lastSection: String? = nil
+    }
     private var saved: Saved
     private let file: URL
     private let persistent: Bool
@@ -91,6 +101,15 @@ final class LibraryStore {
     private(set) var mediaError: String?
     private(set) var loading = false
     var mediaEnabled: Bool { saved.mediaEnabled }
+    var lastSection: LibrarySection {
+        guard let key = saved.lastSection, let section = LibrarySection(rawValue:key), section != .notes else { return .media }
+        return section
+    }
+    func rememberSection(_ section: LibrarySection) {
+        guard section != .notes, saved.lastSection != section.rawValue else { return }
+        saved.lastSection = section.rawValue
+        persist()
+    }
     var hiddenRecents: Set<String> { Set(saved.hiddenRecents ?? []) }
     func removeDownload(_ id: String) {
         guard let record = saved.downloads.first(where: { $0.id == id }), !record.isActive else { return }

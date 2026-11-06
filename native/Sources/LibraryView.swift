@@ -30,6 +30,11 @@ private class LibraryButton: NSButton {
     var selected = false { didSet { updateFill() } }
     var filled = false { didSet { updateFill() } }
     private let iconLayer = CALayer()
+    private var mediaArtwork: LibraryMediaIcon?
+    private var downloadArtwork: LibraryDownloadIcon?
+    private var spacesArtwork: LibrarySpacesIcon?
+    private var archiveArtwork: LibraryArchiveIcon?
+    var iconAccent = NSColor.systemBlue { didSet { updateIconArtwork() } }
     private var hovered = false
     private var tracking: NSTrackingArea?
     init(_ title: String, symbol: String? = nil, action: @escaping () -> Void) {
@@ -37,6 +42,15 @@ private class LibraryButton: NSButton {
         isBordered = false; target = self; self.action = #selector(activate); focusRingType = .none
         wantsLayer = true; layer?.cornerRadius = 12; font = .systemFont(ofSize:14,weight:.semibold)
         iconLayer.contentsGravity = .resizeAspect; layer?.addSublayer(iconLayer)
+        if symbol == "photo.on.rectangle.angled" {
+            let artwork = LibraryMediaIcon(); mediaArtwork = artwork; iconLayer.addSublayer(artwork)
+        } else if symbol == "arrow.down.circle" {
+            let artwork = LibraryDownloadIcon(); downloadArtwork = artwork; iconLayer.addSublayer(artwork)
+        } else if symbol == "rectangle.on.rectangle" {
+            let artwork = LibrarySpacesIcon(); spacesArtwork = artwork; iconLayer.addSublayer(artwork)
+        } else if symbol == "archivebox" {
+            let artwork = LibraryArchiveIcon(); archiveArtwork = artwork; iconLayer.addSublayer(artwork)
+        }
         setAccessibilityLabel(title)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -47,24 +61,30 @@ private class LibraryButton: NSButton {
         iconLayer.bounds = CGRect(x:0,y:0,width:26,height:26)
         iconLayer.position = CGPoint(x:bounds.midX,y:31)
         iconLayer.contentsScale = window?.backingScaleFactor ?? 2
+        mediaArtwork?.frame = iconLayer.bounds; downloadArtwork?.frame = iconLayer.bounds
+        spacesArtwork?.frame = iconLayer.bounds; archiveArtwork?.frame = iconLayer.bounds
         CATransaction.commit()
     }
     private func animateIcon() {
-        guard vertical, isEnabled, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        let motion = CAKeyframeAnimation()
-        switch symbol {
-        case "photo.on.rectangle.angled": motion.keyPath = "transform.rotation.z"; motion.values = [0,-0.16,0.10,-0.035,0]
-        case "arrow.down.circle": motion.keyPath = "transform.translation.y"; motion.values = [0,5,-2,0.7,0]
-        case "rectangle.on.rectangle": motion.keyPath = "transform.translation.x"; motion.values = [0,-4,3,-1,0]
-        default: motion.keyPath = "transform.translation.y"; motion.values = [0,-3,2,-0.5,0]
-        }
+        guard vertical, isEnabled, mediaArtwork == nil, downloadArtwork == nil, spacesArtwork == nil, archiveArtwork == nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let motion = CAKeyframeAnimation(keyPath:"transform.translation.y")
+        motion.values = [0,-3,2,-0.5,0]
         motion.keyTimes = [0,0.28,0.60,0.82,1]
         motion.timingFunctions = Array(repeating:CAMediaTimingFunction(name:.easeInEaseOut),count:4)
         let scale = CAKeyframeAnimation(keyPath:"transform.scale"); scale.values = [1,1.13,0.98,1]; scale.keyTimes = [0,0.3,0.7,1]
         let group = CAAnimationGroup(); group.animations = [motion,scale]; group.duration = 0.38
         iconLayer.add(group,forKey:"sectionActivation")
     }
+    private func updateIconArtwork() {
+        mediaArtwork?.setSelected(selected,accent:iconAccent)
+        let ink = NSColor.white.withAlphaComponent(isEnabled ? (selected || hovered ? 0.98 : 0.72) : 0.3)
+        downloadArtwork?.setSelected(selected,accent:iconAccent,ink:ink)
+        spacesArtwork?.setSelected(selected,accent:iconAccent,ink:ink)
+        archiveArtwork?.setSelected(selected,accent:iconAccent,ink:ink)
+        needsDisplay = true
+    }
     private func updateFill() {
+        updateIconArtwork()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.14
             context.allowsImplicitAnimation = true
@@ -78,7 +98,11 @@ private class LibraryButton: NSButton {
         let ink = NSColor.white.withAlphaComponent(gradientFill ? 1 : isEnabled ? (selected || hovered ? 0.98 : 0.72) : 0.3)
         if let spaceIconValue { SpaceIcon.draw(spaceIconValue,in:NSRect(x:bounds.midX-9,y:bounds.midY-9,width:18,height:18),color:ink,size:18); return }
         let paragraph = NSMutableParagraphStyle(); paragraph.alignment = vertical || centered ? .center : .left; paragraph.lineBreakMode = .byTruncatingTail
-        if let symbol, let image = NSImage(systemSymbolName:symbol,accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:vertical ? 23 : 17,weight:.regular))?.withSymbolConfiguration(.init(paletteColors:[ink])) {
+        if vertical, (mediaArtwork != nil && selected) || downloadArtwork != nil || spacesArtwork != nil || archiveArtwork != nil {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            iconLayer.contents = nil
+            CATransaction.commit()
+        } else if let symbol, let image = NSImage(systemSymbolName:symbol,accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:vertical ? 23 : 17,weight:.regular))?.withSymbolConfiguration(.init(paletteColors:[ink])) {
             let size: CGFloat = vertical ? 26 : 19
             let scale = min(size/max(1,image.size.width),size/max(1,image.size.height))
             let fitted = NSSize(width:image.size.width*scale,height:image.size.height*scale)
@@ -374,7 +398,7 @@ private final class LibraryTile: NSCollectionViewItem {
 }
 
 final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollectionViewDelegate, NSTextFieldDelegate, QLPreviewPanelDataSource {
-    enum Section: Int, CaseIterable { case media, downloads, notes, spaces, archived }
+    typealias Section = LibrarySection
     static var currentLanguage = "fr"
     var close: (() -> Void)?
     var expandedChanged: (() -> Void)?
@@ -391,6 +415,7 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
     private(set) var section: Section = .media
     var expanded: Bool { section == .spaces }
     private let store: LibraryStore
+    private let archivedIcon: (NativeTab) -> NSImage?
     private var session: BrowserSession
     private let language: String
     private let rail = LibraryCanvas(), pane = LibraryCanvas(), searchBackground = LibrarySearchBackground()
@@ -418,8 +443,10 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     private func t(_ key: String) -> String { L10n.text(key,language:language) }
-    init(store: LibraryStore, session: BrowserSession) {
+    init(store: LibraryStore, session: BrowserSession, archivedIcon: @escaping (NativeTab) -> NSImage? = { _ in nil }) {
         self.store = store; self.session = session; language = session.language; Self.currentLanguage = session.language
+        self.archivedIcon = archivedIcon
+        section = store.lastSection
         super.init(frame:.zero); wantsLayer = true; layer?.masksToBounds = true
         thumbnails.countLimit = 120; thumbnails.totalCostLimit = 36*1024*1024
         for view in [rail,pane] { view.wantsLayer = true; addSubview(view) }
@@ -428,8 +455,8 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
         let titles = ["media","downloads","easelsNotes","spaces","archivedTabs"]
         let symbols = ["photo.on.rectangle.angled","arrow.down.circle","scribble.variable","rectangle.on.rectangle","archivebox"]
         for (i,title) in titles.enumerated() {
-            let button = LibraryButton(t(title),symbol:symbols[i]) { [weak self] in self?.switchSection(Section(rawValue:i)!) }
-            button.vertical = true; button.font = .systemFont(ofSize:language == "fr" ? 11.5 : 12,weight:.bold); button.isEnabled = i != Section.notes.rawValue
+            let button = LibraryButton(t(title),symbol:symbols[i]) { [weak self] in self?.switchSection(Section.allCases[i]) }
+            button.vertical = true; button.font = .systemFont(ofSize:language == "fr" ? 11.5 : 12,weight:.bold); button.isEnabled = i != Section.notes.index
             if !button.isEnabled { button.toolTip = t("comingLater") }
             rail.addSubview(button); nav.append(button)
         }
@@ -496,6 +523,8 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
     private func updateTheme() {
         let space = session.spaces.first(where: { $0.id == session.activeSpaceID })
         theme = space?.theme ?? .solid(space?.color ?? "#777890")
+        let accent = NSColor(browserHex:theme.points.first?.color ?? space?.color ?? "#777890") ?? .systemBlue
+        nav.forEach { $0.iconAccent = accent }
         let mode = session.themeAppearance ?? .automatic
         dark = mode == .dark || (mode == .automatic && effectiveAppearance.bestMatch(from:[.aqua,.darkAqua]) == .darkAqua)
     }
@@ -516,8 +545,9 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
         guard next != .notes, next != section else { return }
         searchTask?.cancel(); window?.makeFirstResponder(self); updateSearchFocus(false)
         let previous = section; section = next; search.stringValue = ""; filterVisible = false; lastSignature = ""
+        store.rememberSection(next)
         if next == .spaces { rebuildCards() }; refresh(); expandedChanged?(); layoutSubtreeIfNeeded()
-        let direction: CGFloat = next.rawValue > previous.rawValue ? 1 : -1
+        let direction: CGFloat = next.index > previous.index ? 1 : -1
         pane.layer?.removeAnimation(forKey:"librarySection")
         let animation = CABasicAnimation(keyPath:"transform.translation.x"); animation.fromValue = direction*16; animation.toValue = 0; animation.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.20; animation.timingFunction = CAMediaTimingFunction(name:.easeOut); pane.layer?.add(animation,forKey:"librarySection")
         let fade = CABasicAnimation(keyPath:"opacity"); fade.fromValue = 0.4; fade.toValue = 1; fade.duration = animation.duration; pane.layer?.add(fade,forKey:"libraryFade")
@@ -541,7 +571,7 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
         DispatchQueue.main.asyncAfter(deadline:.now()+0.09,execute:task)
     }
     private func refresh() {
-        for (i,button) in nav.enumerated() { button.selected = i == section.rawValue }
+        for (i,button) in nav.enumerated() { button.selected = i == section.index }
         search.placeholderAttributedString = NSAttributedString(string:t(section == .media ? "searchMedia" : section == .downloads ? "searchDownloads" : "searchArchives"),attributes:[.foregroundColor:NSColor.white.withAlphaComponent(0.52),.font:NSFont.systemFont(ofSize:14,weight:.medium)])
         clearSearch.isHidden = search.stringValue.isEmpty
         search.setAccessibilityLabel(search.placeholderString)
@@ -654,14 +684,26 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
             configureTransfer(tile,record:records[indexPath.item])
         } else if section == .archived {
             let tab = archives[indexPath.item]; tile.name.stringValue = tab.displayTitle.isEmpty ? tab.url : tab.displayTitle; tile.detail.stringValue = URL(string:tab.url)?.host ?? tab.url
+            tile.key = "archive:"+tab.id
             if tab.autoArchivedAt != nil {
                 tile.detail.stringValue = (language == "en" ? "Auto-archived" : "Archivé automatiquement") + " · " + tile.detail.stringValue
             }
-            tile.picture.image = NSImage(systemSymbolName:tab.autoArchivedAt != nil ? "clock.arrow.circlepath" : "globe",accessibilityDescription:nil)
+            tile.picture.image = archiveImage(tab)
             tile.open = { [weak self] in self?.restoreTab?(tab.id) }
         }
         if !tile.mediaMode { tile.view.setAccessibilityLabel(tile.name.stringValue + " — " + tile.detail.stringValue) }
         tile.view.needsLayout = true; return tile
+    }
+    private func archiveImage(_ tab:NativeTab) -> NSImage? {
+        archivedIcon(tab) ?? NSImage(systemSymbolName:tab.autoArchivedAt != nil ? "clock.arrow.circlepath" : "globe",accessibilityDescription:nil)
+    }
+    func refreshArchiveIcons() {
+        guard section == .archived else { return }
+        for case let tile as LibraryTile in collection.visibleItems() {
+            guard let index = collection.indexPath(for:tile)?.item, archives.indices.contains(index),
+                  tile.key == "archive:"+archives[index].id else { continue }
+            tile.picture.image = archiveImage(archives[index])
+        }
     }
     private func configureTransfer(_ tile:LibraryTile, record:LibraryDownload) {
         tile.key = record.id

@@ -6,7 +6,16 @@ import Sparkle
 /// application keeps its normal CEF shutdown path (including beforeunload).
 final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
     static let shared = BrowserUpdates()
-    private var controller: SPUStandardUpdaterController?
+    private var updater: SPUUpdater?
+    private var driver: SidebarUpdateDriver?
+    let sidebar = SidebarUpdateSession()
+    private var demoAutomatic = false
+    private var demoChecks = true
+    var sidebarAvailable: (() -> Bool)?
+    private var demo: Bool {
+        ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil &&
+        ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_UPDATE"] == "1"
+    }
     private var news: ReleaseNotesWindow?
     private override init() {
         super.init()
@@ -18,23 +27,28 @@ final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
         ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil ||
         Bundle.main.object(forInfoDictionaryKey: "ArcRebornDevelopmentBuild") as? Bool == true
     }
-    var canCheck: Bool { !disabled && controller?.updater.canCheckForUpdates == true }
+    var canCheck: Bool { !disabled && updater?.canCheckForUpdates == true }
     var automaticallyChecks: Bool {
-        get { controller?.updater.automaticallyChecksForUpdates ?? false }
-        set { controller?.updater.automaticallyChecksForUpdates = newValue }
+        get { demo ? demoChecks : (updater?.automaticallyChecksForUpdates ?? false) }
+        set { if demo { demoChecks = newValue } else { updater?.automaticallyChecksForUpdates = newValue }; NotificationCenter.default.post(name:SidebarUpdateSession.changed,object:sidebar) }
     }
     var automaticallyDownloads: Bool {
-        get { controller?.updater.automaticallyDownloadsUpdates ?? false }
-        set { controller?.updater.automaticallyDownloadsUpdates = newValue }
+        get { demo ? demoAutomatic : (updater?.automaticallyDownloadsUpdates ?? false) }
+        set { if demo { demoAutomatic = newValue } else { updater?.automaticallyDownloadsUpdates = newValue }; NotificationCenter.default.post(name:SidebarUpdateSession.changed,object:sidebar) }
     }
-    var isAvailable: Bool { !disabled && controller != nil }
-    var allowsAutomaticDownloads: Bool { isAvailable && controller?.updater.allowsAutomaticUpdates == true }
+    var isAvailable: Bool { !disabled && updater != nil }
+    var allowsAutomaticDownloads: Bool { demo || (isAvailable && updater?.allowsAutomaticUpdates == true) }
     func start() {
-        guard !disabled, controller == nil else { return }
+        if demo { resetDemo(); return }
+        guard !disabled, updater == nil else { return }
         // Defaults live in Info.plist, so Sparkle preserves explicit user choices.
         // Its scheduler resumes overdue checks at launch; no competing timer or
         // unconditional launch check (which would ignore the six-hour cadence).
-        controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+        let driver = SidebarUpdateDriver(session:sidebar)
+        driver.canPresent = { [weak self] in self?.sidebarAvailable?() == true }
+        let updater = SPUUpdater(hostBundle:.main,applicationBundle:.main,userDriver:driver,delegate:self)
+        self.driver = driver; self.updater = updater
+        do { try updater.start() } catch { self.updater = nil; self.driver = nil; NSLog("Updater could not start: %@",error.localizedDescription) }
     }
     func feedURLString(for updater: SPUUpdater) -> String? {
         guard let base = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
@@ -42,7 +56,15 @@ final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
         let feed = "appcast-" + ReleaseNotes.Language.current.rawValue + ".xml"
         return url.deletingLastPathComponent().appendingPathComponent(feed).absoluteString
     }
-    func check() { guard canCheck else { return }; controller?.checkForUpdates(nil) }
+    func check() { guard canCheck else { return }; updater?.checkForUpdates() }
+
+    private func resetDemo() {
+        guard demo else { return }
+        sidebar.offer(ready:true) { [weak self] in
+            // Disposable visual fixture: never downloads, terminates or installs.
+            DispatchQueue.main.asyncAfter(deadline:.now()+1.2) { self?.resetDemo() }
+        }
+    }
 
     /// Fresh installs establish a baseline. An upgrade is shown once, never on
     /// downgrade, and only after onboarding/other launch sheets have finished.

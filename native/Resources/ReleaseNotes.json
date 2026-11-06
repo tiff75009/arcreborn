@@ -1,47 +1,146 @@
 {
-  "version": "0.9.0",
-  "build": 22,
+  "version": "1.0.0",
+  "build": 23,
   "showOnLaunch": true,
   "title": {
-    "en": "Downloads in the sidebar",
-    "fr": "Les téléchargements dans la barre latérale"
+    "en": "Closer to Arc, down to the details",
+    "fr": "Plus proche d’Arc, jusque dans les détails"
   },
   "subtitle": {
-    "en": "Follow your transfers in the library at the bottom left and choose where your files are saved.",
-    "fr": "Retrouve tes transferts dans la bibliothèque en bas à gauche et choisis où enregistrer tes fichiers."
+    "en": "A milestone release shaped around the Arc Browser experience: a more refined sidebar, expressive animations and a library that feels alive.",
+    "fr": "Une version majeure pensée autour de l’expérience Arc Browser : une barre latérale plus soignée, des animations expressives et une bibliothèque pleine de vie."
   },
   "highlights": [
     {
-      "symbol": "arrow.down",
+      "symbol": "sparkles",
       "title": {
-        "en": "Follow the download arrow",
-        "fr": "Suis la flèche de téléchargement"
+        "en": "Closer to the Arc Browser experience",
+        "fr": "Toujours plus proche de l’expérience Arc Browser"
       },
       "detail": {
-        "en": "When a download starts, an arrow moves to the library button. Hover there to see its progress, pause it, resume it or cancel it. This also works when the sidebar hides automatically.",
-        "fr": "Au début d’un téléchargement, une flèche rejoint le bouton de la bibliothèque. Survole-le pour suivre la progression, mettre en pause, reprendre ou annuler le transfert. Cela fonctionne aussi en masquage automatique."
+        "en": "Arc Reborn 1.0.0 brings the sidebar and library closer to the feel of Arc Browser. Shapes, spacing, hover states and motion have been refined together: a little anticipation, independent moving parts and a gentle rebound make everyday actions feel more natural.",
+        "fr": "Arc Reborn 1.0.0 rapproche encore la barre latérale et la bibliothèque de l’expérience Arc Browser. Formes, espacements, survols et animations ont été peaufinés ensemble : un léger élan, des éléments qui bougent indépendamment et un petit rebond rendent les gestes du quotidien plus naturels."
       }
     },
     {
-      "symbol": "list.bullet",
+      "symbol": "tray.full",
       "title": {
-        "en": "A more compact list",
-        "fr": "Un aperçu plus compact"
+        "en": "A livelier download basket",
+        "fr": "Un panier de téléchargements plus vivant"
       },
       "detail": {
-        "en": "Completed files each take one line, with the size beside the name. The newest file sits at the bottom, nearest the library button. Active transfers also show progress and speed.",
-        "fr": "Chaque fichier terminé tient sur une ligne, avec sa taille à côté du nom. Le plus récent se trouve en bas, au plus près du bouton. Les transferts en cours affichent aussi leur progression et leur débit."
+        "en": "Hover over the basket and its contents grow while the basket itself stays in place. The four recent files appear above it with large native thumbnails, names and relative dates, without a surrounding panel. They rise into view in a smooth sequence, with the newest file at the bottom, closest to the button.",
+        "fr": "Au survol du panier, son contenu grandit tandis que le panier reste en place. Les quatre fichiers récents apparaissent au-dessus avec de grandes vignettes natives, leur nom et leur date relative, sans cadre autour. Ils remontent progressivement avec une animation fluide ; le plus récent reste en bas, au plus près du bouton."
       }
     },
     {
-      "symbol": "folder",
+      "symbol": "photo.on.rectangle",
       "title": {
-        "en": "Choose your download folder",
-        "fr": "Choisis ton dossier de téléchargement"
+        "en": "Media cards with their own rhythm",
+        "fr": "Des cartes Médias qui ont leur propre rythme"
       },
       "detail": {
-        "en": "Open Settings → General → Downloads to choose a folder for future downloads. You can also ask for a location each time you save a file.",
-        "fr": "Dans Réglages → Général → Téléchargements, choisis le dossier des prochains fichiers. Tu peux aussi demander où enregistrer chaque téléchargement."
+        "en": "Entering Media sets the two illustrated cards in motion independently. Each dips slightly, makes a small jump, tilts and settles, with a deliberate offset between them. The animation plays when switching into the section, so clicking an already selected section does not restart it.",
+        "fr": "En ouvrant Médias, les deux cartes illustrées s’animent indépendamment. Chacune prend un peu d’élan, saute légèrement, s’incline puis se repose, avec un décalage volontaire entre les deux. L’animation accompagne le changement de rubrique ; cliquer sur une rubrique déjà sélectionnée ne la relance pas."
+      }
+    },
+    {
+      "symbol": "arrow.down.circle",
+      "title": {
+        "en": "Downloads with a softer bounce",
+        "fr": "Un rebond plus souple pour Téléchargements"
+      },
+      "detail": {
+        "en": "The download arrow and its circle now move separately. The arrow compresses its shaft as it gathers momentum, then rebounds and returns to its original shape. The circle follows with its own timing and a subtle bounce, giving the icon the layered motion seen in Arc Browser.",
+        "fr": "La flèche de téléchargement et son cercle bougent désormais séparément. La tige de la flèche se raccourcit pendant la prise d’élan, puis rebondit et retrouve sa forme. Le cercle suit son propre rythme avec un rebond discret, pour retrouver ce mouvement en plusieurs temps présent dans Arc Browser."
+      }
+    },
+    {
+      "symbol": "rectangle.on.rectangle",
+      "title": {
+        "en": "Spaces become animated pages",
+        "fr": "Des pages animées pour les Espaces"
+      },
+      "detail": {
+        "en": "The Spaces icon now uses two upright pages with carefully rounded corners. They move toward each other, push apart and return to rest with independent rotations and timing. Their shape and movement have both been refined to match the spirit of Arc’s library.",
+        "fr": "L’icône Espaces représente maintenant deux pages verticales aux coins arrondis. Elles se rapprochent, se repoussent puis retrouvent leur position, chacune avec sa rotation et son rythme. Leur silhouette comme leur mouvement ont été retravaillés pour retrouver l’esprit de la bibliothèque d’Arc."
+      }
+    },
+    {
+      "symbol": "archivebox",
+      "title": {
+        "en": "An archive icon animated in three parts",
+        "fr": "Une icône Archives animée en trois parties"
+      },
+      "detail": {
+        "en": "The archive box, its white line and its lid each have their own anticipation and rebound. The lid tilts during its jump, while the line travels almost to the bottom of the box before rising toward the top and settling. The result is a small, playful movement instead of a single rigid jump.",
+        "fr": "Le corps de la boîte, son trait blanc et son couvercle ont chacun leur élan et leur rebond. Le couvercle s’incline pendant son saut ; le trait descend presque jusqu’au fond, remonte vers le haut, puis reprend sa place. L’ensemble retrouve un mouvement léger et vivant."
+      }
+    },
+    {
+      "symbol": "paintpalette",
+      "title": {
+        "en": "Vivid colors that follow your Space",
+        "fr": "Des couleurs vives qui suivent ton espace"
+      },
+      "detail": {
+        "en": "The selected Media, Downloads, Spaces and Archived Tabs icons take their fill color from the current Space and make it brighter and more saturated. Each section keeps its own artwork and motion while sharing the same color treatment. Reduced Motion is respected by the new animations.",
+        "fr": "Les icônes sélectionnées de Médias, Téléchargements, Espaces et Onglets archivés reprennent la couleur de l’espace et la rendent plus lumineuse et plus intense. Chaque rubrique garde son dessin et son animation, avec un traitement de couleur commun. Les nouvelles animations respectent aussi le réglage Réduire les animations."
+      }
+    },
+    {
+      "symbol": "arrow.triangle.2.circlepath",
+      "title": {
+        "en": "Updates directly in the sidebar",
+        "fr": "Les mises à jour directement dans la barre latérale"
+      },
+      "detail": {
+        "en": "When an update is available, a compact notice appears above the Space controls. Hovering expands it smoothly into a card with the automatic updates option and the update action; when ready, you can restart and update from there. The action button follows your Space color, and the card blocks clicks on tabs behind it.",
+        "fr": "Lorsqu’une mise à jour est disponible, un bandeau compact apparaît au-dessus des espaces. Au survol, il se déploie en une carte avec l’option de mises à jour automatiques et l’action de mise à jour ; une fois prête, tu peux redémarrer et l’installer depuis cet endroit. Le bouton suit la couleur de ton espace et la carte bloque les clics sur les onglets derrière elle."
+      }
+    },
+    {
+      "symbol": "arrow.up.arrow.down",
+      "title": {
+        "en": "Find your active tab again",
+        "fr": "Retrouve immédiatement ton onglet actif"
+      },
+      "detail": {
+        "en": "If scrolling moves your active tab completely out of view, a round arrow appears at the appropriate edge of the list. It slides in from that edge, grows and finishes with a tiny rebound. Clicking smoothly brings the tab to the top or bottom of the visible list, without changing the page or tab order. Scrolling manually interrupts the return movement.",
+        "fr": "Si le défilement fait sortir complètement ton onglet actif de la zone visible, une flèche ronde apparaît du bon côté de la liste. Elle arrive depuis le bord, grandit et termine par un mini-rebond. Un clic ramène doucement l’onglet en haut ou en bas de la zone visible, sans changer de page ni réordonner les onglets. Un défilement manuel interrompt le mouvement."
+      }
+    },
+    {
+      "symbol": "sidebar.left",
+      "title": {
+        "en": "Cleaner scrolling and more precise hover states",
+        "fr": "Un défilement plus propre et des survols précis"
+      },
+      "detail": {
+        "en": "The scrollbar sits closer to the outer edge and has been tuned to remain easy to see without taking more room from tab titles. Reused rows no longer retain ghost hover highlights while scrolling. The close button’s rounded background appears only when the pointer is actually over the button.",
+        "fr": "La barre de défilement se rapproche du bord extérieur, avec une épaisseur ajustée pour rester lisible sans grignoter davantage les titres. Les lignes réutilisées ne conservent plus de faux survols pendant le défilement. Le fond arrondi de la croix apparaît uniquement quand la souris se trouve réellement sur ce bouton."
+      }
+    },
+    {
+      "symbol": "line.3.horizontal",
+      "title": {
+        "en": "Subtle boundaries, protected controls",
+        "fr": "Des séparations discrètes et des contrôles protégés"
+      },
+      "detail": {
+        "en": "Fine separators appear at the top and bottom only when content extends beyond those edges. The update area and the footer remain separate from the scrolling tabs, with input handling that prevents clicks from reaching covered rows. These interactions also work with the automatically hidden sidebar.",
+        "fr": "De fins séparateurs apparaissent en haut et en bas uniquement lorsque du contenu dépasse de ces bords. La zone de mise à jour et le pied de la barre restent séparés des onglets qui défilent, avec une gestion des clics qui protège les lignes recouvertes. Ces interactions fonctionnent aussi avec le masquage automatique de la barre latérale."
+      }
+    },
+    {
+      "symbol": "clock.arrow.circlepath",
+      "title": {
+        "en": "A library that remembers, archives with favicons",
+        "fr": "Une bibliothèque qui se souvient, des archives avec leurs favicons"
+      },
+      "detail": {
+        "en": "Reopening the library returns to the last section you selected, including after restarting the browser. Archived tabs now recover their available favicons from the local cache, for both manual and automatic archives. Icons remain separated by profile, and restoring them does not reopen a page or alter your navigation.",
+        "fr": "En rouvrant la bibliothèque, tu retrouves la dernière rubrique sélectionnée, y compris après un redémarrage du navigateur. Les onglets archivés récupèrent désormais leurs favicons disponibles dans le cache local, aussi bien pour les archives manuelles qu’automatiques. Les icônes restent séparées par profil ; leur restauration ne rouvre aucune page et ne modifie pas ta navigation."
       }
     }
   ]

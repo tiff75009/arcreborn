@@ -62,6 +62,12 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         timer.tolerance = 10; RunLoop.main.add(timer,forMode:.common); archiveTimer = timer
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(sweepArchives),name:NSWorkspace.didWakeNotification,object:nil)
         DispatchQueue.main.async { [weak self] in self?.sweepArchives() }
+        BrowserUpdates.shared.sidebarAvailable = { [weak self] in self?.controllers.contains(where: { $0.canPresentSidebarUpdate }) == true }
+        observers.append(NotificationCenter.default.addObserver(forName:SidebarUpdateSession.focus,object:nil,queue:.main) { [weak self] _ in
+            guard let self else { return }
+            let target = self.controller.flatMap { $0.canPresentSidebarUpdate ? $0 : nil } ?? self.controllers.first(where: { $0.canPresentSidebarUpdate })
+            target?.focusSidebarUpdate()
+        })
         BrowserUpdates.shared.start()
         BrowserUpdates.shared.presentNewsAfterUpgrade { [weak self] in self?.sharedSession.onboardingComplete == true && self?.quitting == false }
         if ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil,

@@ -12,6 +12,6 @@ cp "$NATIVE_ROOT/Resources/ReleaseNotes.json" "$UPDATE_TEST_APP/Contents/Resourc
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier local.arcreborn.update-test.$(uuidgen)" "$UPDATE_TEST_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable UpdatePreferencesTests' "$UPDATE_TEST_APP/Contents/Info.plist"
 xcrun swiftc -parse-as-library -F "$SPARKLE_ROOT" -framework Sparkle -framework AppKit \
-    -Xlinker -rpath -Xlinker "$SPARKLE_ROOT" "$NATIVE_ROOT/Sources/BrowserUpdates.swift" "$NATIVE_ROOT/Tests/UpdatePreferencesTests.swift" \
+    -Xlinker -rpath -Xlinker "$SPARKLE_ROOT" "$NATIVE_ROOT/Sources/BrowserUpdates.swift" "$NATIVE_ROOT/Sources/SidebarUpdateDriver.swift" "$NATIVE_ROOT/Sources/SidebarUpdateSession.swift" "$NATIVE_ROOT/Tests/UpdatePreferencesTests.swift" \
     -o "$UPDATE_TEST_APP/Contents/MacOS/UpdatePreferencesTests"
 "$UPDATE_TEST_APP/Contents/MacOS/UpdatePreferencesTests"

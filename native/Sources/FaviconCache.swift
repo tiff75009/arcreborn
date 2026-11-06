@@ -6,6 +6,8 @@ final class FaviconCache {
     private struct Record: Codable { let document: String; let profile: String?; let png: Data }
     private struct Entry { let document: String; let profile: String; let image: NSImage; let pixels: Data? }
     private var tabs: [String:Entry] = [:]
+    private struct RestoreKey: Hashable { let id: String; let document: String; let profile: String }
+    private var restorationAttempts = Set<RestoreKey>()
     private let sites = NSCache<NSString,NSImage>()
     private let directory: URL
     private let persistent: Bool
@@ -41,6 +43,15 @@ final class FaviconCache {
     func image(id: String, url: String, profile: String) -> NSImage? {
         if let entry = tabs[id], entry.profile == profile, Self.canUse(entry.document,for:url) { return entry.image }
         return siteKey(url,profile).flatMap { sites.object(forKey:$0) }
+    }
+    /// Archives are restored lazily, without reopening their pages. Check the
+    /// tab's own disk record before falling back to another icon from its site.
+    /// Remember misses too, so scrolling cannot repeatedly read missing files.
+    func restoredImage(id: String, url: String, profile: String) -> NSImage? {
+        if let entry = tabs[id], entry.profile == profile, Self.canUse(entry.document,for:url) { return entry.image }
+        let key = RestoreKey(id:id,document:Self.document(url),profile:profile)
+        if restorationAttempts.insert(key).inserted { restore(id:id,url:url,profile:profile) }
+        return image(id:id,url:url,profile:profile)
     }
     @discardableResult private func seedSite(_ image: NSImage, url: String, profile: String) -> Bool {
         guard let key = siteKey(url,profile), sites.object(forKey:key) == nil else { return false }
