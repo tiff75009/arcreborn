@@ -35,21 +35,40 @@ extension BrowserSession {
             return group
         }
     }
-    func splitMergeIDs(_ source: String, onto target: String) -> [String]? {
+    func splitMergeIDs(_ source: String, onto target: String, sourceBefore:Bool = false, sourceOnly:Bool = false) -> [String]? {
         guard source != target, let a = tabs.first(where: { $0.id == source }), let b = tabs.first(where: { $0.id == target }),
               a.spaceID == b.spaceID, !a.favorite, !b.favorite else { return nil }
         let destination = splitGroup(containing: target)?.tabIDs ?? [target]
         guard !destination.contains(source) else { return nil }
-        return destination + (splitGroup(containing: source)?.tabIDs ?? [source])
+        let incoming = sourceOnly ? [source] : (splitGroup(containing: source)?.tabIDs ?? [source])
+        return sourceBefore ? incoming + destination : destination + incoming
     }
-    @discardableResult mutating func mergeSplit(_ source: String, onto target: String) -> Bool {
-        guard let ids = splitMergeIDs(source, onto: target), ids.count <= 4,
+    @discardableResult mutating func mergeSplit(_ source: String, onto target: String, sourceBefore:Bool = false, sourceOnly:Bool = false) -> Bool {
+        guard let ids = splitMergeIDs(source, onto: target, sourceBefore:sourceBefore, sourceOnly:sourceOnly), ids.count <= 4,
               let destination = tabs.first(where: { $0.id == target }) else { return false }
+        // A chip represents one pane, not its entire group. Validate first, so
+        // rejected drops leave both groups untouched, then detach only this pane.
+        if sourceOnly { detachSplitTab(source) }
         var group = splitGroup(containing: target) ?? NativeSplitGroup(tabIDs: [target])
+        let destinationIDs = Set(group.tabIDs), mergedIDs = Set(ids)
+        let peers = sidebarChildren(spaceID:destination.spaceID,parentID:destination.folderID,temporary:!destination.pinned)
+        let anchor = peers.firstIndex { if case .tab(let id) = $0 { return destinationIDs.contains(id) }; return false } ?? peers.count
+        let merged: (SidebarItem) -> Bool = { if case .tab(let id) = $0 { return mergedIDs.contains(id) }; return false }
+        let insertion = peers.prefix(anchor).filter { !merged($0) }.count
+        var ordered = peers.filter { !merged($0) }
+        ordered.insert(contentsOf:ids.map(SidebarItem.tab),at:insertion)
         splitGroups = (splitGroups ?? []).filter { !($0.tabIDs.contains(source) || $0.tabIDs.contains(target)) }
         for id in ids {
             if let index = tabs.firstIndex(where: { $0.id == id }) {
                 tabs[index].folderID = destination.folderID; tabs[index].pinned = destination.pinned
+            }
+        }
+        // The preview is anchored on the destination row, even if the incoming
+        // tab used to precede it. Pane order follows the chosen left/right side.
+        for (order,item) in ordered.enumerated() {
+            switch item {
+            case .tab(let id): if let i = tabs.firstIndex(where:{ $0.id == id }) { tabs[i].sidebarOrder = order }
+            case .folder(let id): if let i = folders.firstIndex(where:{ $0.id == id }) { folders[i].sidebarOrder = order }
             }
         }
         group.tabIDs = ids; group.weights = []

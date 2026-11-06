@@ -4,6 +4,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     var controller: BrowserController?
     private(set) var controllers: [BrowserController] = []
     private var menus: BrowserMenus?
+    let handoff = BrowserHandoff()
     private var pendingAddresses: [String] = []
     private var baselines: [String:BrowserSession] = [:]
     private var privateOrigins: [String:String] = [:] // ephemeral CEF context ID → originating regular profile
@@ -81,7 +82,11 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         let next = BrowserController(session:state,store:localStore,windowID:id,kind:kind,privateWindow:privateWindow)
         baselines[id] = state; controllers.append(next)
         localStore.saveHandler = { [weak self] value in try self?.save(value,from:id) }
-        next.becameKey = { [weak self] value in self?.controller = value; self?.buildMenu() }
+        next.becameKey = { [weak self] value in self?.controller = value; self?.buildMenu(); self?.refreshHandoff() }
+        next.handoffPageChanged = { [weak self] value in
+            guard let self, self.controller === value else { return }
+            self.refreshHandoff()
+        }
         next.windowClosed = { [weak self] value in self?.closed(value) }
         next.newWindowRequested = { [weak self,weak next] kind in _ = self?.openWindow(kind,from:next) }
         next.privateAddressRequested = { [weak self,weak next] address in
@@ -244,7 +249,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
            !controllers.contains(where:{ $0.isPrivateWindow && $0.windowSession.profiles.first?.id == id }) {
             BrowserEngine().releasePrivateProfile(id); privateOrigins.removeValue(forKey:id)
         }
-        buildMenu(); persistWindows()
+        buildMenu(); persistWindows(); refreshHandoff()
     }
     // A regular sidebar is shared but each window can have its own renderer and
     // selection. Never close an ID based on a single window's view of it.
@@ -295,7 +300,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         guard !quitting else { return }
         publishTask?.cancel(); publish()
         for item in controllers { if !item.prepareToQuit() { controllers.forEach { $0.resumeAfterCancelledQuit() }; return } }
-        persistWindows(); quitting = true; BrowserEngine.requestQuit()
+        persistWindows(); quitting = true; handoff.invalidate(); BrowserEngine.requestQuit()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication) -> Bool { false }
     func applicationDockMenu(_ sender:NSApplication) -> NSMenu? {
@@ -331,6 +336,21 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Arc Reborn",.applicationVersion:BrowserUpdates.version,.version:"Chromium \(BrowserEngine.chromiumVersion())",.credits:NSAttributedString(string:"Swift · AppKit · Chromium Embedded Framework\nLicences : dossier Resources de l’application.")])
     }
     func buildMenu() { menus = BrowserMenus(controller:controller,appDelegate:self); menus?.build() }
+    private func refreshHandoff() {
+        handoff.update(booted && !quitting ? controller?.handoffPage : nil)
+    }
+    func application(_ application:NSApplication, willContinueUserActivityWithType type:String) -> Bool {
+        !quitting && type == NSUserActivityTypeBrowsingWeb
+    }
+    func application(_ application:NSApplication, continue userActivity:NSUserActivity,
+                     restorationHandler:@escaping ([NSUserActivityRestoring])->Void) -> Bool {
+        guard !quitting else { return false }
+        return BrowserHandoff.receive(userActivity) { url in
+            // Reuse the regular external-link route, including its cold-start
+            // queue and private-window exclusion. No current tab is overwritten.
+            self.application(application,open:[url])
+        }
+    }
     func application(_ application:NSApplication,open urls:[URL]) {
         let addresses = urls.filter { ["https","http"].contains($0.scheme?.lowercased() ?? "") && isAllowedBrowserURL($0.absoluteString) }.map(\.absoluteString)
         if !booted { pendingAddresses.append(contentsOf:addresses); return }

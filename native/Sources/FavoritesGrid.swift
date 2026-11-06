@@ -32,7 +32,7 @@ struct FavoriteVisual {
 /// Retained tiles: a title/favicon refresh never replaces a running drag source.
 final class FavoritesGrid: NSView {
     var activate: ((String) -> Void)?
-    var accept: ((String,Int) -> Bool)?
+    var accept: ((String,Int,NSDraggingInfo) -> Bool)?
     var acceptedID: ((NSDraggingInfo) -> String?)?
     var draggingChanged: ((Bool) -> Void)?
     var heightChanged: (() -> Void)?
@@ -140,12 +140,15 @@ final class FavoritesGrid: NSView {
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { propose(sender) }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { propose(sender) }
     override func draggingExited(_ sender: NSDraggingInfo?) { clearPreview() }
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { acceptedID?(sender) != nil }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard acceptedID?(sender) != nil else { return false }
+        sender.animatesToDestination = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion; return true
+    }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         guard let id = acceptedID?(sender), previewID == id, let index = previewIndex else { return false }
         // Clear preview before publishing; the placeholder becomes the real tile.
         previewID = nil; previewIndex = nil; lastSlot = nil
-        let result = accept?(id,index) ?? false
+        let result = accept?(id,index,sender) ?? false
         heightChanged?(); arrange(animated:true); return result
     }
 }

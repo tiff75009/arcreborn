@@ -1,146 +1,58 @@
 {
-  "version": "1.0.0",
-  "build": 23,
+  "version": "1.0.1",
+  "build": 24,
   "showOnLaunch": true,
   "title": {
-    "en": "Closer to Arc, down to the details",
-    "fr": "Plus proche d’Arc, jusque dans les détails"
+    "en": "Continue browsing, move tabs naturally",
+    "fr": "Reprenez votre navigation, déplacez vos onglets naturellement"
   },
   "subtitle": {
-    "en": "A milestone release shaped around the Arc Browser experience: a more refined sidebar, expressive animations and a library that feels alive.",
-    "fr": "Une version majeure pensée autour de l’expérience Arc Browser : une barre latérale plus soignée, des animations expressives et une bibliothèque pleine de vie."
+    "en": "Handoff comes to Arc Reborn, alongside smoother tab movement and more reliable Split View gestures inspired by Arc Browser.",
+    "fr": "Handoff arrive dans Arc Reborn, accompagné de déplacements d’onglets plus fluides et de gestes Split View plus fiables, inspirés d’Arc Browser."
   },
   "highlights": [
     {
-      "symbol": "sparkles",
+      "symbol": "iphone.and.arrow.forward",
       "title": {
-        "en": "Closer to the Arc Browser experience",
-        "fr": "Toujours plus proche de l’expérience Arc Browser"
+        "en": "Continue between your iPhone and Mac",
+        "fr": "Reprenez entre votre iPhone et votre Mac"
       },
       "detail": {
-        "en": "Arc Reborn 1.0.0 brings the sidebar and library closer to the feel of Arc Browser. Shapes, spacing, hover states and motion have been refined together: a little anticipation, independent moving parts and a gentle rebound make everyday actions feel more natural.",
-        "fr": "Arc Reborn 1.0.0 rapproche encore la barre latérale et la bibliothèque de l’expérience Arc Browser. Formes, espacements, survols et animations ont été peaufinés ensemble : un léger élan, des éléments qui bougent indépendamment et un petit rebond rendent les gestes du quotidien plus naturels."
-      }
-    },
-    {
-      "symbol": "tray.full",
-      "title": {
-        "en": "A livelier download basket",
-        "fr": "Un panier de téléchargements plus vivant"
-      },
-      "detail": {
-        "en": "Hover over the basket and its contents grow while the basket itself stays in place. The four recent files appear above it with large native thumbnails, names and relative dates, without a surrounding panel. They rise into view in a smooth sequence, with the newest file at the bottom, closest to the button.",
-        "fr": "Au survol du panier, son contenu grandit tandis que le panier reste en place. Les quatre fichiers récents apparaissent au-dessus avec de grandes vignettes natives, leur nom et leur date relative, sans cadre autour. Ils remontent progressivement avec une animation fluide ; le plus récent reste en bas, au plus près du bouton."
-      }
-    },
-    {
-      "symbol": "photo.on.rectangle",
-      "title": {
-        "en": "Media cards with their own rhythm",
-        "fr": "Des cartes Médias qui ont leur propre rythme"
-      },
-      "detail": {
-        "en": "Entering Media sets the two illustrated cards in motion independently. Each dips slightly, makes a small jump, tilts and settles, with a deliberate offset between them. The animation plays when switching into the section, so clicking an already selected section does not restart it.",
-        "fr": "En ouvrant Médias, les deux cartes illustrées s’animent indépendamment. Chacune prend un peu d’élan, saute légèrement, s’incline puis se repose, avec un décalage volontaire entre les deux. L’animation accompagne le changement de rubrique ; cliquer sur une rubrique déjà sélectionnée ne la relance pas."
-      }
-    },
-    {
-      "symbol": "arrow.down.circle",
-      "title": {
-        "en": "Downloads with a softer bounce",
-        "fr": "Un rebond plus souple pour Téléchargements"
-      },
-      "detail": {
-        "en": "The download arrow and its circle now move separately. The arrow compresses its shaft as it gathers momentum, then rebounds and returns to its original shape. The circle follows with its own timing and a subtle bounce, giving the icon the layered motion seen in Arc Browser.",
-        "fr": "La flèche de téléchargement et son cercle bougent désormais séparément. La tige de la flèche se raccourcit pendant la prise d’élan, puis rebondit et retrouve sa forme. Le cercle suit son propre rythme avec un rebond discret, pour retrouver ce mouvement en plusieurs temps présent dans Arc Browser."
-      }
-    },
-    {
-      "symbol": "rectangle.on.rectangle",
-      "title": {
-        "en": "Spaces become animated pages",
-        "fr": "Des pages animées pour les Espaces"
-      },
-      "detail": {
-        "en": "The Spaces icon now uses two upright pages with carefully rounded corners. They move toward each other, push apart and return to rest with independent rotations and timing. Their shape and movement have both been refined to match the spirit of Arc’s library.",
-        "fr": "L’icône Espaces représente maintenant deux pages verticales aux coins arrondis. Elles se rapprochent, se repoussent puis retrouvent leur position, chacune avec sa rotation et son rythme. Leur silhouette comme leur mouvement ont été retravaillés pour retrouver l’esprit de la bibliothèque d’Arc."
-      }
-    },
-    {
-      "symbol": "archivebox",
-      "title": {
-        "en": "An archive icon animated in three parts",
-        "fr": "Une icône Archives animée en trois parties"
-      },
-      "detail": {
-        "en": "The archive box, its white line and its lid each have their own anticipation and rebound. The lid tilts during its jump, while the line travels almost to the bottom of the box before rising toward the top and settling. The result is a small, playful movement instead of a single rigid jump.",
-        "fr": "Le corps de la boîte, son trait blanc et son couvercle ont chacun leur élan et leur rebond. Le couvercle s’incline pendant son saut ; le trait descend presque jusqu’au fond, remonte vers le haut, puis reprend sa place. L’ensemble retrouve un mouvement léger et vivant."
-      }
-    },
-    {
-      "symbol": "paintpalette",
-      "title": {
-        "en": "Vivid colors that follow your Space",
-        "fr": "Des couleurs vives qui suivent ton espace"
-      },
-      "detail": {
-        "en": "The selected Media, Downloads, Spaces and Archived Tabs icons take their fill color from the current Space and make it brighter and more saturated. Each section keeps its own artwork and motion while sharing the same color treatment. Reduced Motion is respected by the new animations.",
-        "fr": "Les icônes sélectionnées de Médias, Téléchargements, Espaces et Onglets archivés reprennent la couleur de l’espace et la rendent plus lumineuse et plus intense. Chaque rubrique garde son dessin et son animation, avec un traitement de couleur commun. Les nouvelles animations respectent aussi le réglage Réduire les animations."
-      }
-    },
-    {
-      "symbol": "arrow.triangle.2.circlepath",
-      "title": {
-        "en": "Updates directly in the sidebar",
-        "fr": "Les mises à jour directement dans la barre latérale"
-      },
-      "detail": {
-        "en": "When an update is available, a compact notice appears above the Space controls. Hovering expands it smoothly into a card with the automatic updates option and the update action; when ready, you can restart and update from there. The action button follows your Space color, and the card blocks clicks on tabs behind it.",
-        "fr": "Lorsqu’une mise à jour est disponible, un bandeau compact apparaît au-dessus des espaces. Au survol, il se déploie en une carte avec l’option de mises à jour automatiques et l’action de mise à jour ; une fois prête, tu peux redémarrer et l’installer depuis cet endroit. Le bouton suit la couleur de ton espace et la carte bloque les clics sur les onglets derrière elle."
+        "en": "Arc Reborn now supports macOS Handoff for web pages. With Handoff enabled on your devices and Arc Reborn set as your Mac’s default browser, an incoming page opens in a new tab, even when the browser needs to launch. The active page can also be offered to your other compatible Apple devices. Private windows and internal browser pages are never advertised.",
+        "fr": "Arc Reborn prend désormais en charge Handoff pour les pages web. Avec Handoff activé sur vos appareils et Arc Reborn défini comme navigateur par défaut du Mac, une page reçue s’ouvre dans un nouvel onglet, même si le navigateur doit démarrer. La page active peut aussi être proposée à vos autres appareils Apple compatibles. Les fenêtres privées et les pages internes du navigateur ne sont jamais partagées."
       }
     },
     {
       "symbol": "arrow.up.arrow.down",
       "title": {
-        "en": "Find your active tab again",
-        "fr": "Retrouve immédiatement ton onglet actif"
+        "en": "Tabs move into place smoothly",
+        "fr": "Des onglets qui glissent vers leur place"
       },
       "detail": {
-        "en": "If scrolling moves your active tab completely out of view, a round arrow appears at the appropriate edge of the list. It slides in from that edge, grows and finishes with a tiny rebound. Clicking smoothly brings the tab to the top or bottom of the visible list, without changing the page or tab order. Scrolling manually interrupts the return movement.",
-        "fr": "Si le défilement fait sortir complètement ton onglet actif de la zone visible, une flèche ronde apparaît du bon côté de la liste. Elle arrive depuis le bord, grandit et termine par un mini-rebond. Un clic ramène doucement l’onglet en haut ou en bas de la zone visible, sans changer de page ni réordonner les onglets. Un défilement manuel interrompt le mouvement."
+        "en": "Reordering tabs now animates the surrounding rows and the dragged item’s arrival. Moving between folders, pinned tabs and other sidebar positions feels continuous instead of jumping instantly. The motion respects Reduce Motion and keeps the existing page alive.",
+        "fr": "Réorganiser les onglets anime désormais les lignes voisines et l’arrivée de l’élément déplacé. Les déplacements entre dossiers, onglets épinglés et autres positions de la barre latérale restent continus, sans téléportation instantanée. L’animation respecte Réduire les animations et conserve la page existante."
       }
     },
     {
-      "symbol": "sidebar.left",
+      "symbol": "rectangle.split.2x1",
       "title": {
-        "en": "Cleaner scrolling and more precise hover states",
-        "fr": "Un défilement plus propre et des survols précis"
+        "en": "A clearer, more reliable Split View preview",
+        "fr": "Un aperçu Split View plus clair et plus fiable"
       },
       "detail": {
-        "en": "The scrollbar sits closer to the outer edge and has been tuned to remain easy to see without taking more room from tab titles. Reused rows no longer retain ghost hover highlights while scrolling. The close button’s rounded background appears only when the pointer is actually over the button.",
-        "fr": "La barre de défilement se rapproche du bord extérieur, avec une épaisseur ajustée pour rester lisible sans grignoter davantage les titres. Les lignes réutilisées ne conservent plus de faux survols pendant le défilement. Le fond arrondi de la croix apparaît uniquement quand la souris se trouve réellement sur ce bouton."
+        "en": "Hold a dragged tab briefly over the left or right side of another tab to reveal an animated split preview. A short delay leaves ordinary reordering easy, while small pointer movements no longer restart the wait. Adjacent tabs and a stationary pointer are handled reliably, and the preview follows the side where the tab will be placed.",
+        "fr": "Maintenez brièvement un onglet sur la partie gauche ou droite d’un autre pour afficher un aperçu animé du partage. Le court délai facilite la réorganisation classique, tandis que les petits mouvements de souris ne relancent plus l’attente. Les onglets voisins et une souris immobile sont correctement pris en compte ; l’aperçu suit le côté où l’onglet sera placé."
       }
     },
     {
-      "symbol": "line.3.horizontal",
+      "symbol": "rectangle.portrait.and.arrow.right",
       "title": {
-        "en": "Subtle boundaries, protected controls",
-        "fr": "Des séparations discrètes et des contrôles protégés"
+        "en": "Separate split panes without surprises",
+        "fr": "Séparez les volets sans mauvaise surprise"
       },
       "detail": {
-        "en": "Fine separators appear at the top and bottom only when content extends beyond those edges. The update area and the footer remain separate from the scrolling tabs, with input handling that prevents clicks from reaching covered rows. These interactions also work with the automatically hidden sidebar.",
-        "fr": "De fins séparateurs apparaissent en haut et en bas uniquement lorsque du contenu dépasse de ces bords. La zone de mise à jour et le pied de la barre restent séparés des onglets qui défilent, avec une gestion des clics qui protège les lignes recouvertes. Ces interactions fonctionnent aussi avec le masquage automatique de la barre latérale."
-      }
-    },
-    {
-      "symbol": "clock.arrow.circlepath",
-      "title": {
-        "en": "A library that remembers, archives with favicons",
-        "fr": "Une bibliothèque qui se souvient, des archives avec leurs favicons"
-      },
-      "detail": {
-        "en": "Reopening the library returns to the last section you selected, including after restarting the browser. Archived tabs now recover their available favicons from the local cache, for both manual and automatic archives. Icons remain separated by profile, and restoring them does not reopen a page or alter your navigation.",
-        "fr": "En rouvrant la bibliothèque, tu retrouves la dernière rubrique sélectionnée, y compris après un redémarrage du navigateur. Les onglets archivés récupèrent désormais leurs favicons disponibles dans le cache local, aussi bien pour les archives manuelles qu’automatiques. Les icônes restent séparées par profil ; leur restauration ne rouvre aucune page et ne modifie pas ta navigation."
+        "en": "Dragging one tab out of a Split View moves only that tab and preserves the remaining panes. The sidebar refreshes the group immediately, avoiding misleading duplicate tabs. A crash at the end of a drag has also been fixed. Handoff updates only page metadata and does not reload or redirect your current navigation.",
+        "fr": "Extraire un onglet d’une vue partagée déplace uniquement cet onglet et conserve les autres volets. La barre latérale actualise immédiatement le groupe, sans faux doublons. Un plantage à la fin d’un glisser-déposer a également été corrigé. Handoff actualise uniquement les informations de la page et ne recharge ni ne redirige votre navigation."
       }
     }
   ]

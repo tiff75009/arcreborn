@@ -204,6 +204,21 @@ final class TabCell: NSTableCellView, NSTextFieldDelegate {
         if !inside { soundButton.setHovered(false) }
     }
     func clearHover() { updateHover(at:nil) }
+    func setDepth(_ value:Int, animated:Bool) {
+        guard depth != value else { return }
+        layoutSubtreeIfNeeded()
+        let views = [icon,titleLabel,soundButton] + (folderIcon.map { [$0 as NSView] } ?? [])
+        let previous = views.map(\.frame)
+        depth = value; layoutSubtreeIfNeeded()
+        guard animated, window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let target = views.map(\.frame)
+        for (i,view) in views.enumerated() { view.frame = previous[i] }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.30
+            context.timingFunction = CAMediaTimingFunction(controlPoints:0.22,0.80,0.24,1)
+            for (i,view) in views.enumerated() { view.animator().frame = target[i] }
+        }
+    }
     override func layout() {
         super.layout()
         developerOutline.update(in:bounds,enabled:developerMode)
