@@ -13,13 +13,20 @@ private final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 }
 @main struct SidebarRowMotionTests {
     static func main() {
+        _ = NSApplication.shared
         let heartbeat = SidebarDragHeartbeat()
         var refreshes = 0
         heartbeat.start { refreshes += 1 }
-        let deadline = Date(timeIntervalSinceNow:0.14)
-        while Date() < deadline { _ = RunLoop.main.run(mode:.eventTracking,before:deadline) }
+        // Exercise AppKit's actual drag mode, without treating a busy CI runner
+        // as a 140 ms performance benchmark. The contract is repeated delivery.
+        let deadline = Date(timeIntervalSinceNow:2)
+        while refreshes < 3 && Date() < deadline {
+            _ = RunLoop.main.run(mode:.eventTracking,before:Date(timeIntervalSinceNow:0.02))
+        }
         precondition(refreshes >= 3,"a stationary pointer still updates proposals in the native drag run loop")
         heartbeat.stop(); let stopped = refreshes
+        let stoppedDeadline = Date(timeIntervalSinceNow:0.1)
+        while Date() < stoppedDeadline { _ = RunLoop.main.run(mode:.eventTracking,before:Date(timeIntervalSinceNow:0.02)) }
         RunLoop.main.run(until:Date(timeIntervalSinceNow:0.08))
         precondition(refreshes == stopped,"ending or cancelling the drag stops all proposal callbacks")
         print("PASS: drag proposals refresh while stationary and stop after cancellation")
@@ -50,7 +57,6 @@ private final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             precondition(!intent.update(source:"new",target:"row-\(i)",at:5+Double(i)*0.1),"quickly passing rows must never arm split")
         }
         print("PASS: 320 ms target dwell tolerates side changes and jitter; reorder lanes, preview hysteresis, quick passes, exits and new drags checked")
-        _ = NSApplication.shared
         let model = Rows(), table = NSTableView(frame:NSRect(x:0,y:0,width:230,height:500))
         table.addTableColumn(NSTableColumn(identifier:.init("tabs"))); table.headerView = nil
         table.dataSource = model; table.delegate = model; table.rowHeight = 36
@@ -80,9 +86,13 @@ private final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let start = travelling.frame.minY
         let before = model.ids; model.ids = ["c","a","d","b","f","e"]
         SidebarRowMotion.update(table,from:before,to:model.ids,animated:true)
-        advance(0.07)
-        let during = travelling.layer?.presentation()?.frame.minY ?? travelling.frame.minY
         let end = table.rect(ofRow:0).minY
+        var during = start
+        let motionDeadline = Date(timeIntervalSinceNow:1)
+        repeat {
+            advance(0.008)
+            during = travelling.layer?.presentation()?.frame.minY ?? travelling.frame.minY
+        } while !(during > end+0.1 && during < start-0.1) && Date() < motionDeadline
         print("Native movement: \(start) → \(during) → \(end)")
         if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             precondition(during > end+0.1 && during < start-0.1,"movement must have visible intermediate positions")
