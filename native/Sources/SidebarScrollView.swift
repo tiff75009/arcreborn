@@ -37,6 +37,58 @@ final class SidebarScroller: NSScroller {
     }
 }
 
+final class SidebarClipView: NSClipView {
+    var dragFinished: (() -> Void)?
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with:event)
+        dragFinished?()
+    }
+
+    override func autoscroll(with event: NSEvent) -> Bool {
+        // NSTableView asks the clip to autoscroll even on the initial press.
+        // Dragged events still get the native edge scrolling.
+        if event.type == .leftMouseDown { return false }
+        return super.autoscroll(with: event)
+    }
+}
+
+/// Keep the extra scrolling room inside the document. A scroll-view content
+/// inset also changes AppKit's visible selection area and scrolls on mouse-down.
+class SidebarTabsTableView: NSTableView {
+    private var trailingSpace: CGFloat = 0
+    private var pressedRow: Int?
+
+    override func mouseDown(with event: NSEvent) {
+        pressedRow = row(at: convert(event.locationInWindow, from: nil))
+        defer { pressedRow = nil }
+        super.mouseDown(with: event)
+    }
+
+    override func scrollRowToVisible(_ row: Int) {
+        // A partially visible row is already under the mouse. Keep its position
+        // through selection, including AppKit's mouse-up tracking loop.
+        if pressedRow == row, row >= 0, row < numberOfRows,
+           rect(ofRow: row).intersects(visibleRect) { return }
+        super.scrollRowToVisible(row)
+    }
+
+    func updateTrailingSpace(for viewportHeight: CGFloat) {
+        let space = min(144, (viewportHeight * 0.25).rounded())
+        guard space != trailingSpace else { return }
+        trailingSpace = space
+        setFrameSize(NSSize(width: frame.width, height: viewportHeight))
+    }
+
+    override func setFrameSize(_ proposed: NSSize) {
+        var size = proposed
+        if trailingSpace > 0, numberOfRows > 0 {
+            let lastRow = rect(ofRow: numberOfRows - 1)
+            size.height = max(size.height, lastRow.maxY + trailingSpace)
+        }
+        super.setFrameSize(size)
+    }
+}
+
 final class SidebarScrollView: NSScrollView {
     override init(frame:NSRect) {
         super.init(frame:frame)
@@ -44,23 +96,9 @@ final class SidebarScrollView: NSScrollView {
         scrollerStyle = .overlay
     }
     required init?(coder:NSCoder) { fatalError() }
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point) else { return nil }
-        let local = convert(point, from: superview)
-        let clip = contentView
-        guard clip.frame.contains(local), contentInsets.bottom > 0, let document = documentView else { return hit }
-        let position = clip.convert(local, from: self)
-        let distanceFromBottom = clip.isFlipped ? clip.bounds.maxY - position.y : position.y - clip.bounds.minY
-        guard distanceFromBottom < contentInsets.bottom else { return hit }
-        // AppKit draws an inset backdrop over the document. Route this strip
-        // to the table (including its row controls) or the empty clip below it.
-        return document.hitTest(position) ?? clip
-    }
-
     override func tile() {
-        let bottom = min(144, (bounds.height * 0.25).rounded())
-        if contentInsets.bottom != bottom { contentInsets.bottom = bottom }
         super.tile()
+        (documentView as? SidebarTabsTableView)?.updateTrailingSpace(for: contentView.bounds.height)
         guard hasVerticalScroller, let scroller = verticalScroller else { return }
         var clip = contentView.frame
         clip.size.width = max(0,bounds.width-clip.minX-SidebarScroller.railWidth)

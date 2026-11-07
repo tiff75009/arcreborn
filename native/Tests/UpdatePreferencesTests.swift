@@ -53,6 +53,9 @@ struct UpdatePreferencesTests {
             if let url = Bundle.main.url(forResource:"PreviousVisibleReleaseNotes",withExtension:"json") {
                 let previous = try! JSONDecoder().decode(ReleaseNotes.self,from:Data(contentsOf:url))
                 precondition(previous.showOnLaunch != false && previous.build < notes.build)
+                defaults.set(previous.build, forKey:key)
+                updates.presentNewsAfterUpgrade(existingInstallation:true) { fatalError("Already viewed the previous visible release") }
+                precondition(defaults.integer(forKey:key) == notes.build)
                 for last in [previous.build-1, 1, nil] as [Int?] {
                     if let last { defaults.set(last,forKey:key) } else { defaults.removeObject(forKey:key) }
                     defaults.set("fr",forKey:"BrowserLanguage")

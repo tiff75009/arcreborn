@@ -23,13 +23,6 @@ private final class SidebarSurface: ThemeBackdropView {
         dragFinished?()
     }
 }
-private final class SidebarClipView: NSClipView {
-    var dragFinished: (() -> Void)?
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with:event)
-        dragFinished?()
-    }
-}
 private struct ProfileReload {
     var profileID: String
     var waiting: Set<String>
@@ -243,7 +236,7 @@ private final class ActionPopUp: NSPopUpButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     @objc private func invokeAction() { invoke?() }
 }
-private final class SidebarTable: NSTableView {
+private final class SidebarTable: SidebarTabsTableView {
     override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         SidebarTabDrag.operation(in: context, pasteboard: session.draggingPasteboard)
     }
@@ -1937,7 +1930,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let visible = rowsScroll.documentVisibleRect
         let content = table.bounds
         listTopSeparator.setShown(!rows.isEmpty && visible.minY > content.minY + 0.5)
-        listBottomSeparator.setShown(!rows.isEmpty && visible.maxY < content.maxY - 0.5)
+        let lastRowBottom = table.numberOfRows > 0 ? table.rect(ofRow: table.numberOfRows - 1).maxY : 0
+        listBottomSeparator.setShown(!rows.isEmpty && visible.maxY < lastRowBottom - 0.5)
         updateActiveTabReturn()
     }
     private func activeSidebarRowRect() -> NSRect? {

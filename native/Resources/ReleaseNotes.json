@@ -1,25 +1,25 @@
 {
-  "version": "1.3.1",
-  "build": 31,
+  "version": "1.3.2",
+  "build": 32,
   "showOnLaunch": false,
   "title": {
-    "en": "Sidebar tab clicks",
-    "fr": "Clic sur les onglets de la barre latérale"
+    "en": "Stable sidebar selection",
+    "fr": "Sélection des onglets dans la barre latérale"
   },
   "subtitle": {
-    "en": "Tabs near the bottom of the sidebar respond to clicks throughout scrolling.",
-    "fr": "Les onglets en bas de la barre latérale répondent au clic quelle que soit la position de défilement."
+    "en": "Selecting a tab now keeps the sidebar at its current scroll position.",
+    "fr": "La liste garde sa position lorsque vous cliquez sur un onglet."
   },
   "highlights": [
     {
       "symbol": "cursorarrow",
       "title": {
-        "en": "Select every visible tab",
-        "fr": "Sélectionnez chaque onglet visible"
+        "en": "Open the tab under the pointer",
+        "fr": "Ouvrez l’onglet sous le pointeur"
       },
       "detail": {
-        "en": "Click a tab anywhere in the list, including near the bottom. You can still scroll past the last tab to leave some space below it.",
-        "fr": "Vous pouvez sélectionner un onglet même tout en bas de la liste. Vous pouvez toujours faire défiler la liste au-delà du dernier onglet pour laisser un espace vide."
+        "en": "Clicking the last or next-to-last tab opens the intended page, even when only part of its row is visible. You can still scroll past the last tab to leave space below it.",
+        "fr": "Cliquer sur le dernier ou l’avant-dernier onglet ouvre la page choisie, même si la ligne n’est visible qu’en partie. Vous pouvez toujours faire défiler la liste au-delà du dernier onglet pour laisser de l’espace en dessous."
       }
     }
   ]

@@ -7,6 +7,7 @@ import AppKit
         let window = NSWindow(contentRect:NSRect(x:0,y:0,width:440,height:400),styleMask:[.borderless],backing:.buffered,defer:false)
         let scroll = SidebarScrollView(frame:NSRect(x:5,y:0,width:240,height:400))
         window.contentView!.addSubview(scroll)
+        scroll.contentView = SidebarClipView()
         scroll.hasVerticalScroller = true; scroll.borderType = .noBorder
         scroll.drawsBackground = false; scroll.automaticallyAdjustsContentInsets = false
         let document = NSView(frame:NSRect(x:0,y:0,width:234,height:1800))
@@ -39,11 +40,14 @@ import AppKit
                 }
             }
         }
-        let table = NSTableView()
+        let table = SidebarTabsTableView()
         let data = TabRows()
         table.headerView = nil; table.intercellSpacing = .zero; table.rowHeight = 36
         table.addTableColumn(NSTableColumn(identifier:.init("tab"))); table.dataSource = data
+        let clicks = ClickRecorder()
+        table.target = clicks; table.action = #selector(ClickRecorder.clicked(_:))
         scroll.documentView = table
+        window.orderBack(nil)
         for height:CGFloat in [240,500,800] {
             window.setContentSize(NSSize(width:440, height:height))
             scroll.frame.size.height = height
@@ -65,21 +69,68 @@ import AppKit
                                      "visible row \(row) must receive clicks, including at the bottom edge")
                     }
                 }
-                var end = clip.bounds; end.origin.y = 10000
-                clip.scroll(to:clip.constrainBoundsRect(end).origin)
+                if count == 36 {
+                    var middle = clip.bounds; middle.origin.y = 203
+                    clip.scroll(to:clip.constrainBoundsRect(middle).origin)
+                    // Exercise both partially visible edges with fixed window coordinates.
+                    let viewport = scroll.documentVisibleRect
+                    let ys = [viewport.maxY-2, viewport.minY+2, viewport.maxY-39]
+                    checkClicks(ys, in: table, recorder: clicks, window: window)
+                }
+                let wheel = CGEvent(scrollWheelEvent2Source:nil, units:.pixel, wheelCount:1,
+                                    wheel1:-300, wheel2:0, wheel3:0)!
+                for _ in 0..<12 { scroll.scrollWheel(with:NSEvent(cgEvent:wheel)!) }
                 let gap = scroll.documentVisibleRect.maxY-table.rect(ofRow:count-1).maxY
                 let expected = min(144,(height*0.25).rounded())
                 if count != 2 {
                     precondition(gap >= expected-1 && gap <= expected+12,"stable space below the last row at the scroll limit")
                     precondition(table.row(at:NSPoint(x:15,y:scroll.documentVisibleRect.maxY-5)) == -1,"the gap contains no tab")
                 } else { precondition(clip.bounds.minY == 0,"short lists need no extra scroll") }
+                let lastCenters = [count-2, count-1, count-2].map { table.rect(ofRow:$0).midY }
+                checkClicks(lastCenters, in:table, recorder:clicks, window:window)
+                table.scrollRowToVisible(0)
+                precondition(scroll.documentVisibleRect.minY == 0, "explicit row reveal still works")
             }
         }
-        print("PASS: visible rows receive clicks through the full viewport, with space below the last tab and a separate scrollbar")
+        print("PASS: scrolling leaves space below the tabs and clicks keep the original row and viewport")
     }
+
+    private static func checkClicks(_ positions: [CGFloat], in table: NSTableView, recorder: ClickRecorder, window: NSWindow) {
+        let clip = table.enclosingScrollView!.contentView
+        let origin = clip.bounds.origin
+        let clicks = positions.map { y -> (Int, NSPoint) in
+            let point = NSPoint(x:35, y:y)
+            return (table.row(at:point), table.convert(point, to:nil))
+        }
+        clip.postsBoundsChangedNotifications = true
+        let observer = NotificationCenter.default.addObserver(forName:NSView.boundsDidChangeNotification, object:clip, queue:nil) { _ in
+            precondition(clip.bounds.origin == origin, "the list moved during the click")
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        for (row, point) in clicks {
+            precondition(row >= 0)
+            let time = ProcessInfo.processInfo.systemUptime
+            func event(_ type: NSEvent.EventType) -> NSEvent {
+                NSEvent.mouseEvent(with:type, location:point, modifierFlags:[], timestamp:time,
+                                   windowNumber:window.windowNumber, context:nil, eventNumber:1,
+                                   clickCount:1, pressure:type == .leftMouseDown ? 1 : 0)!
+            }
+            recorder.row = nil
+            NSApp.postEvent(event(.leftMouseUp), atStart:true)
+            window.sendEvent(event(.leftMouseDown))
+            precondition(recorder.row == row, "clicked a different row from the one under the pointer")
+            precondition(clip.bounds.origin == origin, "the list shifted on selection")
+        }
+    }
+}
+
+private final class ClickRecorder: NSObject {
+    var row: Int?
+    @objc func clicked(_ table: NSTableView) { row = table.clickedRow }
 }
 
 private final class TabRows: NSObject, NSTableViewDataSource {
     var count = 0
+    func tableView(_ tableView:NSTableView, objectValueFor column:NSTableColumn?, row:Int) -> Any? { "Tab \(row)" }
     func numberOfRows(in tableView:NSTableView) -> Int { count }
 }
