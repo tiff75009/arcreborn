@@ -156,6 +156,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             if state.splitShortcuts != base.splitShortcuts { updated.splitShortcuts = state.splitShortcuts }
             if state.language != base.language { updated.language = state.language }
             if state.interfaceStyle != base.interfaceStyle { updated.interfaceStyle = state.interfaceStyle }
+            if state.tabPreviewsEnabled != base.tabPreviewsEnabled { updated.tabPreviewsEnabled = state.tabPreviewsEnabled }
             if state.themeAppearance != base.themeAppearance { updated.themeAppearance = state.themeAppearance }
             if state.savePasswords != base.savePasswords { updated.savePasswords = state.savePasswords }
             if state.automaticSignIn != base.automaticSignIn { updated.automaticSignIn = state.automaticSignIn }
@@ -205,6 +206,8 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private func publishStandaloneNavigation() {
         for item in controllers where (item.windowKind != .normal || item.isPrivateWindow) && !item.isClosingWindow {
             item.receiveInterfaceStyle(sharedSession.interfaceStyle)
+            item.receiveTabPreviews(sharedSession.tabPreviewsEnabled)
+            baselines[item.windowID]?.tabPreviewsEnabled = sharedSession.tabPreviewsEnabled
             baselines[item.windowID]?.interfaceStyle = sharedSession.interfaceStyle
             for local in item.windowSession.profiles {
                 let regular = privateOrigins[local.id] ?? local.id

@@ -101,6 +101,39 @@ extension BrowserSession {
             return nil
         }
     }
+    /// The table shows a single row for every split, including older sessions
+    /// where its member tabs can be interleaved in the stored sidebar order.
+    func nextSidebarRow(after item: SidebarItem, in siblings: [SidebarItem]) -> SidebarItem? {
+        var seen = Set<String>()
+        var found = false
+        for sibling in siblings {
+            if case .tab(let id) = sibling, let group = splitGroup(containing: id),
+               !seen.insert(group.id).inserted { continue }
+            if found { return sibling }
+            found = sibling == item
+        }
+        return nil
+    }
+
+    /// An overshoot reorders within the current list. Explicit drops on rows
+    /// can still move items between folders or the pinned and temporary lists.
+    func sidebarEdgeDestination(for item:SidebarItem, spaceID:String, first:Bool) -> SidebarDestination? {
+        let parent: String?
+        let temporary: Bool
+        switch item {
+        case .folder(let id):
+            guard let folder = folders.first(where:{ $0.id == id && $0.spaceID == spaceID }) else { return nil }
+            parent = folder.parentID
+            temporary = false
+        case .tab(let id):
+            guard let tab = tabs.first(where:{ $0.id == id && ($0.favorite || $0.spaceID == spaceID) }) else { return nil }
+            parent = tab.folderID
+            temporary = parent == nil && (!tab.pinned || tab.favorite)
+        }
+        let anchor = first ? sidebarChildren(spaceID:spaceID,parentID:parent,temporary:temporary).first : nil
+        return SidebarDestination(parentID:parent,before:anchor,temporary:temporary)
+    }
+
     func canMoveSidebarItem(_ item: SidebarItem, spaceID: String, to destination: SidebarDestination) -> Bool {
         guard spaces.contains(where: { $0.id == spaceID }) else { return false }
         if destination.temporary && destination.parentID != nil { return false }
@@ -118,6 +151,7 @@ extension BrowserSession {
             }
         case .tab(let id):
             guard tabs.contains(where: { $0.id == id && ($0.spaceID == spaceID || $0.favorite) }) else { return false }
+            if case .tab(let anchor) = destination.before, splitGroup(containing: id)?.tabIDs.contains(anchor) == true { return false }
         }
         if let before = destination.before {
             guard before != item, sidebarChildren(spaceID:spaceID,parentID:destination.parentID,temporary:destination.temporary).contains(before) else { return false }
@@ -135,18 +169,25 @@ extension BrowserSession {
             guard candidate.moveSidebarItem(.tab(local),spaceID:spaceID,to:destination) else { return false }
             self = candidate; return true
         }
-        var peers = sidebarChildren(spaceID:spaceID,parentID:destination.parentID,temporary:destination.temporary).filter { $0 != item }
+        let moving: [SidebarItem]
+        if case .tab(let id) = item, let group = splitGroup(containing: id) {
+            moving = group.tabIDs.map(SidebarItem.tab)
+        } else { moving = [item] }
+        var peers = sidebarChildren(spaceID:spaceID,parentID:destination.parentID,temporary:destination.temporary).filter { !moving.contains($0) }
         let index = destination.before.flatMap { peers.firstIndex(of:$0) } ?? peers.count
-        peers.insert(item,at:index)
+        peers.insert(contentsOf:moving,at:index)
         switch item {
         case .folder(let id):
             guard let i = folders.firstIndex(where: { $0.id == id }) else { return false }
             folders[i].parentID = destination.parentID
-        case .tab(let id):
-            guard let i = tabs.firstIndex(where: { $0.id == id }) else { return false }
-            if tabs[i].favorite { detachFavoriteReferences(to:id) }
-            tabs[i].lastViewedAt = Date(); tabs[i].favoriteSourceID = nil
-            tabs[i].folderID = destination.parentID; tabs[i].pinned = !destination.temporary; tabs[i].favorite = false
+        case .tab:
+            let members = Set(moving)
+            for i in tabs.indices where members.contains(.tab(tabs[i].id)) {
+                if tabs[i].favorite { detachFavoriteReferences(to:tabs[i].id) }
+                if moving.count == 1 { tabs[i].lastViewedAt = Date() }
+                tabs[i].favoriteSourceID = nil
+                tabs[i].folderID = destination.parentID; tabs[i].pinned = !destination.temporary; tabs[i].favorite = false
+            }
         }
         orderSidebarItems(peers)
         if let parentID = destination.parentID, let i = folders.firstIndex(where: { $0.id == parentID }) { folders[i].collapsed = false }

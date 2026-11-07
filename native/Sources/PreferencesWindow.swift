@@ -134,6 +134,9 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
     var onCommandBindings: (([String:SplitKeyBinding])->Void)?
     var onLanguage: ((String)->Void)?
     var onInterfaceChange: ((BrowserInterface) -> Bool)?
+    var onTabPreviewsChange: ((Bool) -> Bool)?
+    private weak var previewControl: NSSwitch?
+    var tabPreviewsEnabled = false { didSet { previewControl?.state = tabPreviewsEnabled ? .on : .off } }
     var onSidebarVisibilityChange: ((Bool) -> Void)?
     private var sidebarHidden: Bool
     private weak var visibilityControl: NSSegmentedControl?
@@ -426,10 +429,23 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         control.setAccessibilityLabel(tr("Visibilité de la barre latérale","Sidebar visibility"))
         control.isEnabled = onSidebarVisibilityChange != nil
         panel.addSubview(control); visibilityControl = control; refreshSidebarVisibility(sidebarHidden)
+        let previews = card(NSRect(x:inset+2,y:448,width:panel.frame.width,height:66))
+        let previewLabel = tr("Aperçu des onglets", "Tab previews")
+        text(previewLabel,NSRect(x:17,y:9,width:previews.bounds.width-90,height:21),size:14,weight:.semibold,in:previews)
+        text(tr("Afficher une miniature du site au survol d’un onglet.", "Show a preview of the page when hovering over a tab."),
+             NSRect(x:17,y:34,width:previews.bounds.width-84,height:22),size:12,color:.secondaryLabelColor,in:previews)
+        let preview = PreferenceSwitch(value:tabPreviewsEnabled) { [weak self] enabled in
+            guard let self else { return }
+            if self.onTabPreviewsChange?(enabled) == true { self.tabPreviewsEnabled = enabled }
+            self.previewControl?.state = self.tabPreviewsEnabled ? .on : .off
+        }
+        preview.frame = NSRect(x:previews.bounds.width-57,y:21,width:40,height:24)
+        preview.identifier = .init("interface.tabPreviews"); preview.setAccessibilityLabel(previewLabel)
+        previews.addSubview(preview); previewControl = preview
         text(tr("Les couleurs, le dégradé et le grain suivent le thème de l’espace actif.",
                 "Colors, gradient and grain follow the active Space’s theme."),
-             NSRect(x:inset+4,y:452,width:bodyWidth-2*inset-8,height:35),size:12,color:.secondaryLabelColor)
-        pageContent.frame.size.height = max(scroll.bounds.height,495)
+             NSRect(x:inset+4,y:530,width:bodyWidth-2*inset-8,height:35),size:12,color:.secondaryLabelColor)
+        pageContent.frame.size.height = max(scroll.bounds.height,573)
     }
 
     private func drawProfiles() {

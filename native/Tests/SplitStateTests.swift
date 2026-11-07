@@ -46,42 +46,54 @@ import Foundation
             let roundTrip = try JSONDecoder().decode(BrowserSession.self,from:JSONEncoder().encode(order))
             require(roundTrip.splitGroup(containing:tabs[3])?.tabIDs == pair,"left/right pane order persists")
         }
-        for before in [false,true] {
-            var panes = BrowserSession.fresh()
-            let ids = (0..<6).map { panes.createTab(url:"https://example.com/extract/\($0)") }
-            require(panes.mergeSplit(ids[1],onto:ids[0]),"pair for extraction")
-            require(panes.mergeSplit(ids[2],onto:ids[0]),"triple for extraction")
-            let originalID = panes.splitGroup(containing:ids[0])!.id
-            let originalCount = panes.tabs.count
-            require(panes.splitMergeIDs(ids[1],onto:ids[3],sourceOnly:true)?.count == 2,"preview counts one incoming pane")
-            require(panes.mergeSplit(ids[1],onto:ids[3],sourceBefore:before,sourceOnly:true),"extract exactly one pane onto another tab")
-            require(panes.splitGroup(containing:ids[0])?.id == originalID,"unmoved peers keep their group")
-            require(panes.splitGroup(containing:ids[0])?.tabIDs == [ids[0],ids[2]],"original group loses only the dragged pane")
-            require(panes.splitGroup(containing:ids[3])?.tabIDs == (before ? [ids[1],ids[3]] : [ids[3],ids[1]]),"target receives one pane, not the source group")
-            require(panes.tabs.count == originalCount,"no tab is created during extraction")
-            let priorGroups = panes.splitGroups
-            require(!panes.mergeSplit(ids[1],onto:ids[3],sourceOnly:true),"dropping onto own group does not merge it again")
-            require(panes.splitGroups == priorGroups,"rejected merge does not detach anything")
-            panes.detachSplitTab(ids[1])
-            require(panes.moveSidebarItem(.tab(ids[1]),spaceID:panes.activeSpaceID,to:SidebarDestination(parentID:nil,before:.tab(ids[5]),temporary:true)),"extract into the ordinary list")
-            require(panes.splitGroup(containing:ids[1]) == nil && panes.splitGroup(containing:ids[3]) == nil,"both sides of the former pair become standalone tabs")
-            require(panes.splitGroup(containing:ids[0])?.tabIDs == [ids[0],ids[2]],"unrelated group remains intact")
-        }
         for size in 2...4 {
-            var panes = BrowserSession.fresh()
-            let ids = (0..<8).map { panes.createTab(url:"https://example.com/capacity/\($0)") }
-            for i in 1..<size { require(panes.mergeSplit(ids[i],onto:ids[0]),"source group for capacity check") }
-            for i in 5...7 { require(panes.mergeSplit(ids[i],onto:ids[4]),"full destination group") }
-            let unchanged = panes.splitGroups
-            let urls = panes.tabs.map { ($0.id,$0.url) }
-            require(!panes.mergeSplit(ids[0],onto:ids[4],sourceOnly:true),"reject pane into full destination")
-            require(panes.splitGroups == unchanged,"rejected extraction keeps source and target intact")
-            panes.detachSplitTab(ids[7])
-            require(panes.mergeSplit(ids[0],onto:ids[4],sourceOnly:true),"one extracted pane fits in a triple")
-            require(panes.splitGroup(containing:ids[4])?.tabIDs == [ids[4],ids[5],ids[6],ids[0]],"only the dragged pane joins the destination")
-            require(panes.splitGroup(containing:ids[1])?.tabIDs == (size == 2 ? nil : Array(ids[1..<size])),"remaining source panes stay together")
-            require(panes.tabs.count == urls.count && zip(panes.tabs,urls).allSatisfy { $0.id == $1.0 && $0.url == $1.1 },"extraction preserves every tab and URL")
+            for grabbed in 0..<size {
+                var state = BrowserSession.fresh()
+                let space = state.activeSpaceID
+                let ids = (0..<(size+3)).map { state.createTab(url:"https://example.com/group/\($0)") }
+                let members = Array(ids.prefix(size))
+                let tail = Array(ids.dropFirst(size))
+                let selected = members.last!
+                for id in members.dropFirst() { require(state.mergeSplit(id,onto:ids[0]),"fixture split") }
+                state.splitGroups![0].name = "Café"
+                state.splitGroups![0].vertical = true
+                state.splitGroups![0].weights = (1...size).map { 2 * Double($0) / Double(size*(size+1)) }
+                state.selectTab(id:selected)
+                state.folders = [NativeFolder(id:"folder",spaceID:space,name:"Dossier",collapsed:true)]
+                let original = state.splitGroups
+                let urls = state.tabs.map(\.url)
+                let chip = SidebarItem.tab(members[grabbed])
+                let end = SidebarDestination(parentID:nil,before:nil,temporary:true)
+                let before = SidebarDestination(parentID:nil,before:.tab(tail[1]),temporary:true)
+                let peers = { (s: BrowserSession) in s.sidebarChildren(spaceID:space,parentID:nil,temporary:true) }
+                require(state.moveSidebarItem(chip,spaceID:space,to:end),"move group to end from every pane")
+                require(peers(state) == (tail + members).map(SidebarItem.tab),"group stays contiguous and ordered")
+                let first = state.sidebarEdgeDestination(for:chip,spaceID:space,first:true)!
+                require(state.moveSidebarItem(chip,spaceID:space,to:first),"overshooting the top moves every pane to the start")
+                require(peers(state) == (members + tail).map(SidebarItem.tab),"first row after overshooting")
+                let last = state.sidebarEdgeDestination(for:chip,spaceID:space,first:false)!
+                require(state.moveSidebarItem(chip,spaceID:space,to:last),"overshooting the bottom appends the group")
+                require(peers(state) == (tail + members).map(SidebarItem.tab),"last row after overshooting")
+                require(state.moveSidebarItem(chip,spaceID:space,to:before),"move back between rows")
+                require(peers(state) == ([tail[0]] + members + tail.dropFirst()).map(SidebarItem.tab),"precise insertion")
+                require(state.nextSidebarRow(after:.tab(members[0]),in:peers(state)) == .tab(tail[1]),"drop below a split skips its hidden peers")
+                let snapshot = state
+                require(!state.moveSidebarItem(chip,spaceID:space,to:.init(parentID:nil,before:.tab(selected),temporary:true)),"reject own group as anchor")
+                require(!state.moveToFavorites(members[grabbed],spaceID:space,at:0),"a favorite drop cannot extract a pane")
+                require(state == snapshot,"invalid drop has no side effects")
+                require(state.moveSidebarItem(chip,spaceID:space,to:.init(parentID:"folder",before:nil)),"drop complete group inside a folder")
+                require(state.sidebarEdgeDestination(for:chip,spaceID:space,first:false) == .init(parentID:"folder",before:nil),"overshoot keeps a folder group in its own list")
+                require(state.sidebarChildren(spaceID:space,parentID:"folder") == members.map(SidebarItem.tab),"all members in folder")
+                require(state.moveSidebarItem(chip,spaceID:space,to:.init(parentID:nil,before:.folder("folder"))),"move group into pinned section")
+                require(state.moveSidebarItem(chip,spaceID:space,to:end),"return group to ordinary tabs")
+                require(state.splitGroups == original && state.spaces.first?.selectedTabID == selected,"preserve identity, geometry, and focus")
+                require(state.tabs.map(\.url) == urls,"preserve original pages")
+                let restored = try JSONDecoder().decode(BrowserSession.self,from:JSONEncoder().encode(state))
+                require(restored.splitGroups == original && peers(restored) == peers(state),"reopen with same group and order")
+                state.detachSplitTab(members[grabbed])
+                require(state.splitGroup(containing:members[grabbed]) == nil,"explicit separation remains available")
+            }
         }
-        print("Split state: pane extraction, no duplication, intact peers, legacy checks, left/right drop order, destination anchoring, persistence and unchanged URLs passed")
+        print("Split state: whole-group moves from every pane, folders, pinned tabs, favorites, persistence, focus and explicit separation passed")
     }
 }

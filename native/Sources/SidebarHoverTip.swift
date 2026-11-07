@@ -7,6 +7,7 @@ final class SidebarHoverTip {
     enum Target: Equatable { case tab(String), sound(String), space(String) }
     enum Content: Equatable {
         case tab(title:String, hint:String?)
+        case preview(title:String, host:String, image:NSImage?, icon:NSImage?, dark:Bool)
         case space(name:String, keys:[String])
     }
     struct Presentation { let content:Content; let anchor:NSRect } // screen coordinates
@@ -50,6 +51,12 @@ final class SidebarHoverTip {
         let size = view.frame.size
         var x:CGFloat, y:CGFloat
         switch p.content {
+        case .preview:
+            x = p.anchor.maxX + 7
+            if x + size.width > screen.maxX - 4, p.anchor.minX - size.width - 7 >= screen.minX {
+                x = p.anchor.minX - size.width - 7
+            }
+            y = p.anchor.midY - min(47, size.height / 3)
         case .space: x = p.anchor.midX-size.width/2; y = p.anchor.maxY+3
         case .tab:
             x = p.anchor.midX+9; y = p.anchor.midY-10-size.height
@@ -65,6 +72,15 @@ final class SidebarHoverTip {
             let animated = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             w.alphaValue = animated ? 0 : 1; parent.addChildWindow(w,ordered:.above); w.orderFront(nil)
             if animated {
+                if case .preview = p.content, let layer = view.layer {
+                    let motion = CASpringAnimation(keyPath:"transform")
+                    motion.mass = 1; motion.stiffness = 370; motion.damping = 33
+                    let transform = CATransform3DMakeTranslation(-5, -3, 0)
+                    motion.fromValue = NSValue(caTransform3D: CATransform3DScale(transform, 0.94, 0.94, 1))
+                    motion.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+                    motion.duration = min(0.38,motion.settlingDuration)
+                    layer.add(motion,forKey:"preview-enter")
+                }
                 NSAnimationContext.runAnimationGroup { ctx in
                     ctx.duration = 0.14; ctx.timingFunction = CAMediaTimingFunction(name:.easeOut)
                     w.animator().alphaValue = 1
@@ -107,6 +123,39 @@ final class SidebarTipBubble: NSView {
         title.isSelectable = false; title.allowsExpansionToolTips = false
         addSubview(title)
         switch content {
+        case .preview(let caption, let host, let image, let icon, let dark):
+            let width = min(258, maxSize.width)
+            let pictureHeight = round(width * 0.57)
+            layer?.cornerRadius = 13
+            layer?.backgroundColor = NSColor(white:dark ? 0.12 : 0.965,alpha:1).cgColor
+            layer?.borderColor = NSColor(white:dark ? 1 : 0,alpha:0.12).cgColor
+            let picture = NSView(frame:NSRect(x:0,y:0,width:width,height:pictureHeight))
+            picture.wantsLayer = true
+            picture.layer?.masksToBounds = true
+            picture.layer?.backgroundColor = NSColor(white:dark ? 0.17 : 0.915,alpha:1).cgColor
+            if let image {
+                picture.layer?.contents = image
+                picture.layer?.contentsGravity = .resizeAspectFill
+            } else {
+                let mark = NSImageView(frame:NSRect(x:(width-34)/2,y:(pictureHeight-34)/2,width:34,height:34))
+                mark.image = icon ?? NSImage(systemSymbolName:"globe",accessibilityDescription:nil)
+                mark.imageScaling = .scaleProportionallyUpOrDown; picture.addSubview(mark)
+            }
+            addSubview(picture)
+            title.stringValue = caption
+            title.font = .systemFont(ofSize:13,weight:.semibold)
+            title.textColor = dark ? .white : NSColor(white:0.11,alpha:1)
+            title.maximumNumberOfLines = 2; title.lineBreakMode = .byTruncatingTail
+            let titleWidth = width-26
+            let titleHeight = min(33,max(17,ceil(title.cell!.cellSize(forBounds:NSRect(x:0,y:0,width:titleWidth,height:100)).height)))
+            title.frame = NSRect(x:13,y:pictureHeight+10,width:titleWidth,height:titleHeight)
+            let domain = NSTextField(labelWithString:host)
+            domain.font = .systemFont(ofSize:11)
+            domain.textColor = NSColor(white:dark ? 0.72 : 0.38,alpha:1)
+            domain.lineBreakMode = .byTruncatingTail
+            domain.frame = NSRect(x:13,y:title.frame.maxY+3,width:titleWidth,height:15)
+            addSubview(domain)
+            setFrameSize(NSSize(width:width,height:(host.isEmpty ? title.frame.maxY : domain.frame.maxY)+10))
         case .tab(let caption,let hint):
             title.stringValue = caption
             let detail = hint.map { hint -> NSTextField in

@@ -65,6 +65,18 @@ private final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         window.contentView = scroll; window.orderFront(nil)
         model.ids = ["a","b","c","d","e","f"]
         table.reloadData(); table.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+        // With a scrolled list, offscreen rows still have valid table indices.
+        // Vertical overshoots must win over those indices at both boundaries.
+        let viewport = NSRect(x:0,y:table.rect(ofRow:1).minY,width:220,height:table.rect(ofRow:3).maxY-table.rect(ofRow:1).minY)
+        func hit(_ x:CGFloat, _ y:CGFloat) -> SidebarDropHit {
+            SidebarDropHit.resolve(.init(x:x,y:y),in:table,viewport:viewport)
+        }
+        precondition(hit(40,viewport.minY-1) == .aboveList)
+        precondition(hit(40,viewport.maxY) == .belowList)
+        precondition(hit(40,table.rect(ofRow:2).midY) == .row(2))
+        precondition(hit(230,viewport.midY) == .unavailable)
+        let tallViewport = NSRect(x:0,y:0,width:220,height:800)
+        precondition(SidebarDropHit.resolve(.init(x:40,y:700),in:table,viewport:tallViewport) == .belowList)
         func advance(_ time:TimeInterval) { RunLoop.main.run(until:Date(timeIntervalSinceNow:time)) }
         func change(_ next:[String], animated:Bool = true) {
             let old = model.ids

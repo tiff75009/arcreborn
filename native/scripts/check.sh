@@ -11,14 +11,20 @@ xcrun swiftc -O Sources/TabSoundButton.swift Tests/TabSoundButtonTests.swift -o 
 build/checks/tab-sound-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,FavoritesGrid,ActionButton,FolderDisclosureIcon,SidebarTabCell}.swift Tests/SidebarTabHoverTests.swift -o build/checks/sidebar-tab-hover-tests
 build/checks/sidebar-tab-hover-tests
+xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,FavoritesGrid,ActionButton,FolderDisclosureIcon,SidebarTabCell,SidebarSplitGroupCell,SpaceIconPicker}.swift Tests/SidebarSplitGroupCellTests.swift -o build/checks/sidebar-split-group-tests
+build/checks/sidebar-split-group-tests
 xcrun swiftc Sources/SidebarRowMotion.swift Tests/SidebarRowMotionTests.swift -o build/checks/sidebar-row-motion-tests
 build/checks/sidebar-row-motion-tests
 xcrun swiftc Sources/SidebarSplitDropPreview.swift Tests/SidebarSplitDropPreviewTests.swift -o build/checks/sidebar-split-drop-preview-tests
 build/checks/sidebar-split-drop-preview-tests
+xcrun swiftc Sources/PageSplitDropView.swift Tests/PageSplitDropTests.swift -o build/checks/page-split-drop-tests
+build/checks/page-split-drop-tests
 xcrun swiftc -O Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation}.swift Tests/SplitStateTests.swift -o build/checks/split-state-tests
 build/checks/split-state-tests
 xcrun swiftc -O Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserHandoff}.swift Tests/BrowserHandoffTests.swift -o build/checks/handoff-tests
 build/checks/handoff-tests Resources/Info.plist
+xcrun swiftc Sources/TabPreviewImages.swift Tests/TabPreviewImagesTests.swift -o build/checks/tab-preview-images-tests
+build/checks/tab-preview-images-tests
 xcrun swiftc Sources/SidebarScrollView.swift Tests/SidebarScrollerTests.swift -o build/checks/sidebar-scroller-tests
 build/checks/sidebar-scroller-tests
 xcrun swiftc Sources/SidebarTabReturn.swift Tests/SidebarTabReturnTests.swift -o build/checks/sidebar-tab-return-tests

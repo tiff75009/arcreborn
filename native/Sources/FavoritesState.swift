@@ -101,6 +101,7 @@ extension BrowserSession {
     }
     @discardableResult mutating func moveToFavorites(_ id: String, spaceID: String, at position: Int) -> Bool {
         guard spaces.contains(where: { $0.id == spaceID }), let index = tabs.firstIndex(where: { $0.id == id && ($0.spaceID == spaceID || $0.favorite) }) else { return false }
+        guard splitGroup(containing: id) == nil else { return false }
         if let source = tabs[index].favoriteSourceID { return moveToFavorites(source,spaceID:spaceID,at:position) }
         var order = favoriteTabs(spaceID:spaceID).map(\.id).filter { $0 != id }
         order.insert(id,at:max(0,min(position,order.count)))

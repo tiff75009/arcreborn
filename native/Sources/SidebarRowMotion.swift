@@ -2,6 +2,24 @@
 import AppKit
 import QuartzCore
 
+/// Use the pointer at release, even if AppKit last proposed an insertion row
+/// before an autoscroll or while the pointer was over another section.
+enum SidebarDropHit: Equatable {
+    case aboveList, belowList, row(Int), unavailable
+
+    static func resolve(_ point:NSPoint, in table:NSTableView, viewport:NSRect) -> Self {
+        guard table.numberOfRows > 0, !viewport.isEmpty else { return .unavailable }
+        if point.y < viewport.minY || point.y < table.rect(ofRow:0).minY { return .aboveList }
+        let last = table.rect(ofRow:table.numberOfRows-1)
+        if point.y >= viewport.maxY || point.y >= last.maxY { return .belowList }
+        guard point.x >= viewport.minX, point.x < viewport.maxX else { return .unavailable }
+        let index = table.row(at:point)
+        if index >= 0 { return .row(index) }
+        let next = table.row(at:NSPoint(x:point.x,y:point.y+table.intercellSpacing.height))
+        return next >= 0 ? .row(next) : .unavailable
+    }
+}
+
 /// NSTableView may cache a proposal while the pointer is stationary. Keep the
 /// dwell alive in AppKit's drag-tracking run-loop mode, not only on mouse moves.
 final class SidebarDragHeartbeat {

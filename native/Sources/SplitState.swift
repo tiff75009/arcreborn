@@ -35,20 +35,17 @@ extension BrowserSession {
             return group
         }
     }
-    func splitMergeIDs(_ source: String, onto target: String, sourceBefore:Bool = false, sourceOnly:Bool = false) -> [String]? {
+    func splitMergeIDs(_ source: String, onto target: String, sourceBefore:Bool = false) -> [String]? {
         guard source != target, let a = tabs.first(where: { $0.id == source }), let b = tabs.first(where: { $0.id == target }),
               a.spaceID == b.spaceID, !a.favorite, !b.favorite else { return nil }
         let destination = splitGroup(containing: target)?.tabIDs ?? [target]
         guard !destination.contains(source) else { return nil }
-        let incoming = sourceOnly ? [source] : (splitGroup(containing: source)?.tabIDs ?? [source])
+        let incoming = splitGroup(containing: source)?.tabIDs ?? [source]
         return sourceBefore ? incoming + destination : destination + incoming
     }
-    @discardableResult mutating func mergeSplit(_ source: String, onto target: String, sourceBefore:Bool = false, sourceOnly:Bool = false) -> Bool {
-        guard let ids = splitMergeIDs(source, onto: target, sourceBefore:sourceBefore, sourceOnly:sourceOnly), ids.count <= 4,
+    @discardableResult mutating func mergeSplit(_ source: String, onto target: String, sourceBefore:Bool = false) -> Bool {
+        guard let ids = splitMergeIDs(source, onto: target, sourceBefore:sourceBefore), ids.count <= 4,
               let destination = tabs.first(where: { $0.id == target }) else { return false }
-        // A chip represents one pane, not its entire group. Validate first, so
-        // rejected drops leave both groups untouched, then detach only this pane.
-        if sourceOnly { detachSplitTab(source) }
         var group = splitGroup(containing: target) ?? NativeSplitGroup(tabIDs: [target])
         let destinationIDs = Set(group.tabIDs), mergedIDs = Set(ids)
         let peers = sidebarChildren(spaceID:destination.spaceID,parentID:destination.folderID,temporary:!destination.pinned)

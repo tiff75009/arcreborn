@@ -40,6 +40,20 @@ private final class TipTestWindow: NSWindow { override var isKeyWindow: Bool { t
         active = true; tips.refreshIfVisible()
         precondition(labels(panel()!.contentView!) == ["Étude des couleurs et de la lumière","Cliquez pour renommer"])
         try snapshot(panel()!.contentView!,"onglet.png")
+        var thumb: NSImage?
+        tips.track(.tab("page")) {
+            .init(content:.preview(title:"Carnet de voyage",host:"example.com",image:thumb,icon:nil,dark:true),anchor:anchor)
+        }
+        wait(0.82)
+        let previewPanel = panel()!
+        precondition(labels(previewPanel.contentView!) == ["Carnet de voyage","example.com"])
+        precondition(previewPanel.frame.minX >= anchor.maxX && previewPanel.ignoresMouseEvents && !previewPanel.canBecomeKey)
+        thumb = NSImage(size:NSSize(width:360,height:200),flipped:false) { bounds in
+            NSColor.systemTeal.setFill(); bounds.fill(); return true
+        }
+        tips.refreshIfVisible()
+        precondition(panel() === previewPanel && previewPanel.contentView!.subviews.contains { $0.layer?.contents != nil })
+        try snapshot(previewPanel.contentView!,"apercu.png")
         var soundAction = "Couper le son de cet onglet"
         tips.track(.sound("c")) { .init(content:.tab(title:soundAction,hint:nil),anchor:anchor) }
         precondition(panel() == nil)

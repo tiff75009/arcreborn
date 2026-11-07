@@ -153,6 +153,7 @@ struct BrowserSession: Codable, Equatable {
     var activeSpaceID: String
     var themeAppearance: ThemeAppearance? = nil
     var interfaceStyle: BrowserInterface? = nil
+    var tabPreviewsEnabled: Bool? = nil
     // Read once when migrating early development builds with layout-specific visibility.
     var classicSidebarHidden: Bool? = nil
 
@@ -315,6 +316,9 @@ struct BrowserSession: Codable, Equatable {
         tab.favoriteSourceID = nil
         let oldPeers = tabs.filter { $0.spaceID == tab.spaceID }
         let position = oldPeers.firstIndex(where: { $0.id == id }) ?? 0
+        let paneIDs = splitGroup(containing:id)?.tabIDs
+        let remainingPanes = paneIDs?.filter { $0 != id }
+        let paneIndex = paneIDs?.firstIndex(of:id) ?? 0
         detachSplitTab(id)
         tabs.remove(at: index)
         closedTabs.removeAll { $0.id == id }
@@ -322,7 +326,11 @@ struct BrowserSession: Codable, Equatable {
         if closedTabs.count > 50 { closedTabs = Self.boundedArchive(closedTabs) }
         if let spaceIndex = spaces.firstIndex(where: { $0.id == tab.spaceID }), spaces[spaceIndex].selectedTabID == id {
             let peers = tabs.filter { $0.spaceID == tab.spaceID }
-            spaces[spaceIndex].selectedTabID = peers.isEmpty ? nil : peers[min(position, peers.count - 1)].id
+            if let remainingPanes, !remainingPanes.isEmpty {
+                spaces[spaceIndex].selectedTabID = remainingPanes[min(paneIndex,remainingPanes.count-1)]
+            } else {
+                spaces[spaceIndex].selectedTabID = peers.isEmpty ? nil : peers[min(position, peers.count - 1)].id
+            }
         }
         repairTabSelections()
     }

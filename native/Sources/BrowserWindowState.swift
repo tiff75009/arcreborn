@@ -78,6 +78,7 @@ extension BrowserSession {
             next.spaces[0].color = source?.color ?? "#5747D8"; next.spaces[0].theme = source?.theme
         }
         next.interfaceStyle = interfaceStyle
+        next.tabPreviewsEnabled = tabPreviewsEnabled
         next.themeAppearance = themeAppearance; next.sidebarWidth = sidebarWidth; next.sidebarHidden = compact || sidebarHidden
         next.commandShortcuts = commandShortcuts; next.splitShortcuts = splitShortcuts
         next.savePasswords = privateProfile == nil ? savePasswords : false

@@ -62,6 +62,11 @@ final class FavoritesGrid: NSView {
         placeholder.isHidden = true; addSubview(placeholder)
     }
     required init?(coder: NSCoder) { fatalError() }
+    // A split is one sidebar item. Let the enclosing sidebar receive its drop
+    // above the list instead of offering to turn one pane into a favorite.
+    func allowFavoriteDrops(_ enabled:Bool) {
+        if enabled { registerForDraggedTypes([dragType]) } else { unregisterDraggedTypes() }
+    }
     func trackPointer(_ event: NSEvent) { for tile in tiles.values { tile.trackPointer(event) } }
     func ownsDrag(_ source: Any?) -> Bool { (source as? FavoriteTile)?.grid === self }
     func frameForItem(_ id:String) -> NSRect? { tiles[id]?.frame }

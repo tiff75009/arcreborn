@@ -5,6 +5,18 @@ private class FlippedView: NSView { override var isFlipped: Bool { true } }
 private final class SidebarSurface: ThemeBackdropView {
     var contextMenu: (() -> NSMenu?)?
     var dragFinished: (() -> Void)?
+    var edgeProposal: ((NSDraggingInfo) -> NSDragOperation)?
+    var edgeDrop: ((NSDraggingInfo) -> Bool)?
+    var edgeExited: (() -> Void)?
+    override func draggingEntered(_ sender:NSDraggingInfo) -> NSDragOperation { edgeProposal?(sender) ?? [] }
+    override func draggingUpdated(_ sender:NSDraggingInfo) -> NSDragOperation { edgeProposal?(sender) ?? [] }
+    override func draggingExited(_ sender:NSDraggingInfo?) { edgeExited?() }
+    override func prepareForDragOperation(_ sender:NSDraggingInfo) -> Bool {
+        guard edgeProposal?(sender) == .move else { return false }
+        SidebarRowMotion.prepare(sender)
+        return true
+    }
+    override func performDragOperation(_ sender:NSDraggingInfo) -> Bool { edgeDrop?(sender) ?? false }
     override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() }
     override func mouseDown(with event: NSEvent) {
         window?.performDrag(with:event)
@@ -272,7 +284,7 @@ private final class SidebarTable: NSTableView {
     override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
         // NSTableView normally delays text editing and may reclaim the click for
         // row selection/dragging. Once editing starts, the text system owns it.
-        if responder is SplitTabChip { return true }
+        if responder is SplitTabChip || responder is TabCloseButton { return true }
         if let field = responder as? TabTitleField { return field.isEditable }
         if let editor = responder as? NSTextView, editor.isFieldEditor, editor.isDescendant(of: self) { return true }
         return super.validateProposedFirstResponder(responder, for: event)
@@ -315,8 +327,8 @@ private final class SidebarTable: NSTableView {
     }
     override func wantsPeriodicDraggingUpdates() -> Bool { true }
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        _ = refreshDragProposal?(sender)
         stopDragTracking()
+        guard refreshDragProposal?(sender) == .move else { return false }
         let accepted = super.prepareForDragOperation(sender)
         if accepted { SidebarRowMotion.prepare(sender) }; return accepted
     }
@@ -411,6 +423,7 @@ private final class ResizeStrip: NSView {
     }
 }
 private final class FavoritesHint: FlippedView {
+    var acceptedID: ((NSDraggingInfo) -> String?)?
     var acceptTab: ((String, NSDraggingInfo) -> Bool)?
     var ink = NSColor.black
     var accent = NSColor.systemPink
@@ -439,9 +452,9 @@ private final class FavoritesHint: FlippedView {
         NSColor.white.withAlphaComponent(0.32).setStroke(); path.lineWidth = 1; path.stroke()
         accent.withAlphaComponent(0.30).setStroke(); path.setLineDash([5,5], count: 2, phase: 0); path.stroke()
     }
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { sender.draggingPasteboard.string(forType: NSPasteboard.PasteboardType("local.browser.tab")) == nil ? [] : .move }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { acceptedID?(sender) == nil ? [] : .move }
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { SidebarRowMotion.prepare(sender); return true }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { guard let id = sender.draggingPasteboard.string(forType: NSPasteboard.PasteboardType("local.browser.tab")) else { return false }; return acceptTab?(id,sender) ?? false }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { guard let id = acceptedID?(sender) else { return false }; return acceptTab?(id,sender) ?? false }
 }
 private struct TabStatus { var unread = FavoriteUnread(); var sound: TabSoundState = .silent; var progress: Double = 0; var hasLoaded = false; var loading = false; var back = false; var forward = false; var error: NavigationFailure? }
 private enum SidebarRow: Equatable { case tab(String), folder(String), heading(String), newTab }
@@ -502,10 +515,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
 
     private let content = NSView()
     private let splitHost = SplitHostView()
+    private let pageSplitDrop = PageSplitDropView(frame: .zero)
     private var developerBars: [String:DeveloperToolbar] = [:]
     private var portraitCapture: PortraitCapture?
     private var pageCapture: PageCapture?
     private var pendingCaptures = Set<String>()
+    private weak var draggingSplitChip: SplitTabChip?
     private var splitDropTarget: String?
     private var splitDropIntent = SidebarSplitDropIntent()
     private var splitDropBefore = false
@@ -522,6 +537,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private weak var sidebarTitleEditor: TabCell?
     private weak var hoveredSoundButton: TabSoundButton?
     private lazy var sidebarTip = SidebarHoverTip(parent:window)
+    private let previewImages = TabPreviewImages()
     private let favorites = FavoritesGrid(frame:.zero)
     private let favoritesHint = FavoritesHint(frame: .zero)
     private let addressBackground = FlippedView()
@@ -794,6 +810,20 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarTint.wantsLayer = true
         pageShadow.wantsLayer = true; pageShadow.layer?.cornerRadius = 6; pageShadow.layer?.backgroundColor = NSColor.black.cgColor; pageShadow.layer?.shadowColor = NSColor.black.cgColor; pageShadow.layer?.shadowOpacity = 0.24; pageShadow.layer?.shadowRadius = 3; pageShadow.layer?.shadowOffset = NSSize(width: 0, height: -1)
         root.addSubview(sidebar); root.addSubview(sidebarTint); root.addSubview(pageShadow); root.addSubview(content)
+        root.addSubview(pageSplitDrop)
+        pageSplitDrop.accepts = { [weak self] drag, info in
+            guard let self, case .tab(let id) = self.draggedItem(info), id == drag.source,
+                  let current = self.pageSplitDrag(source: id) else { return false }
+            return current.target == drag.target && current.incomingCount == drag.incomingCount && current.totalCount == drag.totalCount
+        }
+        pageSplitDrop.commit = { [weak self] drag, side in
+            guard let self, self.session.mergeSplit(drag.source, onto: drag.target, sourceBefore: side == .left) else { return false }
+            self.session.selectTab(id: drag.source)
+            self.render(movingSidebarItem: true)
+            self.showSelectedTab()
+            self.persist()
+            return true
+        }
         sidebarHost.wantsLayer = true
         sidebarHost.contextMenu = { [weak self] in guard let self, let space = self.activeSpace else { return nil }; return self.spaceMenu(space) }
         root.addSubview(classicHeader)
@@ -857,9 +887,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         favorites.accept = { [weak self] id, index, info in self?.acceptFavorite(id,at:index,drag:info) ?? false }
         favorites.acceptedID = { [weak self] info in
             guard let self, case .tab(let id) = self.draggedItem(info),
+                  self.session.splitGroup(containing:id) == nil,
                   self.session.tabs.contains(where: { $0.id == id && ($0.spaceID == self.session.activeSpaceID || $0.favorite) }) else { return nil }
             return id
         }
+        favoritesHint.acceptedID = favorites.acceptedID
         favorites.draggingChanged = { [weak self] active in
             guard let self else { return }
             if active { self.favoriteDragBaseline = self.favorites.frame.height }
@@ -897,11 +929,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         table.clicked = { [weak self] row in self?.clickSidebarRow(row) }
         table.target = table; table.action = #selector(SidebarTable.handleClick(_:))
         table.dragExited = { [weak self] in self?.clearDropProposal() }
-        table.refreshDragProposal = { [weak self] info in
-            guard let self else { return [] }
-            let row = self.table.row(at:self.table.convert(info.draggingLocation,from:nil))
-            return self.tableView(self.table,validateDrop:info,proposedRow:row,proposedDropOperation:.above)
-        }
+        table.refreshDragProposal = { [weak self] info in self?.updateSidebarDrop(info) ?? [] }
+        sidebarHost.registerForDraggedTypes([dragType,folderDragType])
+        sidebarHost.edgeProposal = { [weak self] info in self?.updateSidebarDrop(info,edgesOnly:true) ?? [] }
+        sidebarHost.edgeDrop = { [weak self] info in self?.commitSidebarDrop(info,edgesOnly:true) ?? false }
+        sidebarHost.edgeExited = { [weak self] in self?.clearDropProposal() }
         table.draggingDestinationFeedbackStyle = .none
         table.registerForDraggedTypes([dragType,folderDragType]); table.setDraggingSourceOperationMask(.move, forLocal: true)
         let finishSidebarTracking: () -> Void = { [weak self] in
@@ -1110,6 +1142,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             if compact { sidebarHost.isHidden = true; resizeStrip.isHidden = true }
         } else { windowChrome?.isHidden = true }
         pageShadow.frame = content.frame
+        if pageSplitDrop.drag != nil {
+            pageSplitDrop.resize(to: content.frame)
+            pageSplitDrop.coveredLeadingWidth = floating && sidebarRevealed ? max(0, sidebarHost.frame.maxX - content.frame.minX) : 0
+        }
         home.frame = content.bounds
         let favoriteCount = session.tabs.filter { $0.favorite }.count
         let favoriteHeight: CGFloat = showFavoritesHint ? 94 : max(favorites.preferredHeight, sidebarDragActive ? max(favoriteDragBaseline,favoriteCount == 0 ? 46 : 0) : 0)
@@ -1277,7 +1313,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func updateSidebarRowHover(at point:NSPoint?) {
         table.enumerateAvailableRowViews { rowView,_ in
-            for case let cell as TabCell in rowView.subviews { cell.updateHover(at:point) }
+            for view in rowView.subviews {
+                (view as? TabCell)?.updateHover(at:point)
+                (view as? SplitGroupCell)?.updateHover(at:point)
+            }
         }
     }
     private func handleSidebarBackgroundClick(_ event: NSEvent) -> Bool {
@@ -1331,9 +1370,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarPointer = event.type != .mouseExited && event.window === window && root.bounds.contains(location) ? location : nil
         updateCard.trackPointer(sidebarPointer == nil ? nil : event.locationInWindow)
         if sidebarOverlayContains(event.locationInWindow) {
-            table.enumerateAvailableRowViews { rowView,_ in
-                for case let cell as TabCell in rowView.subviews { cell.clearHover() }
-            }
+            updateSidebarRowHover(at:nil)
         }
         updateFolderHover(); updateRecentPeekHover()
         updateSidebarHover()
@@ -1367,7 +1404,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             if !cell.closeButton.isHidden && cell.closeButton.bounds.contains(cell.closeButton.convert(p,from:nil)) { return nil }
             return .tab(id)
         }
-        if let cell = view as? SplitGroupCell, let chip = cell.chips.first(where:{ $0.bounds.contains($0.convert(p,from:nil)) }) { return .tab(chip.id) }
+        if let cell = view as? SplitGroupCell, let parent = cell.superview, cell.hitTest(parent.convert(p,from:nil)) is SplitTabChip,
+           let chip = cell.chips.first(where:{ $0.bounds.contains($0.convert(p,from:nil)) }) { return .tab(chip.id) }
         return nil
     }
     private func trackSidebarTip(at point:NSPoint) {
@@ -1392,6 +1430,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                              anchor:self.window.convertToScreen(slot.view.convert(slot.view.bounds,to:nil)))
             case .tab(let id):
                 guard let tab = self.session.tabs.first(where:{ $0.id == id }) else { return nil }
+                if self.session.tabPreviewsEnabled == true {
+                    let point = self.table.convert(p, from: nil)
+                    let row = self.table.row(at: point)
+                    guard row >= 0 else { return nil }
+                    var anchor = self.table.convert(self.table.rect(ofRow: row).intersection(self.table.visibleRect), to: nil)
+                    anchor.size.width = self.sidebarHost.convert(self.sidebarHost.bounds, to: nil).maxX - anchor.minX
+                    let document = self.previewDocument(tab)
+                    self.captureTabPreview(id)
+                    return .init(content: .preview(title:tab.hoverTitle(untitled:self.t("newTab")),
+                        host:URL(string:tab.url)?.host ?? "", image:document.flatMap(self.previewImages.image),
+                        icon:self.splitTabIcon(tab), dark:self.darkTheme), anchor:self.window.convertToScreen(anchor))
+                }
                 return .init(content:.tab(title:tab.hoverTitle(untitled:self.t("newTab")),hint:self.renameHint(for:id)),
                              anchor:NSRect(origin:self.window.convertPoint(toScreen:p),size:.zero))
             }
@@ -1404,6 +1454,26 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         spaceCreation == nil && swipeTarget == nil && addMenu == nil && siteMenu?.isShown != true &&
         iconPicker?.isShown != true && themeEditor == nil && trackingMenus == 0 &&
         !sidebarDragActive && sidebarTitleEditor?.isEditingTitle != true
+    }
+    private func previewDocument(_ tab: NativeTab) -> TabPreviewImages.Document? {
+        guard let space = session.spaces.first(where: { $0.id == tab.spaceID }),
+              let scheme = URL(string: tab.url)?.scheme?.lowercased(), ["https","http","file"].contains(scheme) else { return nil }
+        return .init(tabID: tab.id, profileID: space.profileID, url: tab.url)
+    }
+    private func captureTabPreview(_ id: String) {
+        guard session.tabPreviewsEnabled == true, !isQuitting, !closingWindow, window.isVisible,
+              let container = containers[id], !container.isHiddenOrHasHiddenAncestor,
+              let state = status[id], state.hasLoaded, !state.loading, state.error == nil,
+              let tab = session.tabs.first(where: { $0.id == id }), let document = previewDocument(tab) else { return }
+        previewImages.capture(document, request: { completion in
+            engine.capturePage(id, completion: completion)
+        }, isCurrent: { [weak self] in
+            guard let self, self.session.tabPreviewsEnabled == true, !self.isQuitting, !self.closingWindow,
+                  let current = self.session.tabs.first(where: { $0.id == id }) else { return false }
+            return self.previewDocument(current) == document
+        }, ready: { [weak self] in
+            if self?.sidebarTip.target == .tab(id) { self?.sidebarTip.refreshIfVisible() }
+        })
     }
     private func collapsedFolderForPeek(_ id:String) -> NativeFolder? {
         session.folders.first { $0.id == id && $0.spaceID == session.activeSpaceID && $0.collapsed }
@@ -1554,6 +1624,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             // Retained cells keep their views, but indentation and active state
             // can change when crossing a folder, a section or a Space.
             table.enumerateAvailableRowViews { view, row in
+                if let group = view.view(atColumn:0) as? SplitGroupCell { group.setFocus(self.activeTab?.id) }
                 guard self.rows.indices.contains(row), let cell = view.view(atColumn:0) as? TabCell else { return }
                 self.configureSidebarCell(cell,row:row,animatedDepth:true)
             }
@@ -2046,6 +2117,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let ids = activeSplit?.tabIDs ?? activeTab.map { [$0.id] } ?? []
         let visible = Set(ids)
         if visible != archiveVisible {
+            for id in archiveVisible.subtracting(visible) { captureTabPreview(id) }
             let changed = visible.symmetricDifference(archiveVisible), now = Date()
             archiveVisible = visible
             var recorded = false
@@ -2297,21 +2369,46 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard self.rows.indices.contains(row), case .tab(let id) = self.rows[row],
                   let tab = self.session.tabs.first(where:{ $0.id == id }) else { return }
             let frame = self.table.rect(ofRow:row)
+            if let group = self.table.view(atColumn:0,row:row,makeIfNecessary:false) as? SplitGroupCell, let image = group.dragImage() {
+                item.setDraggingFrame(self.table.convert(group.bounds,from:group),contents:image)
+                return
+            }
             item.setDraggingFrame(frame,contents:SidebarSplitDropPreview.dragImage(item:.init(title:self.displayTitle(tab),image:self.splitTabIcon(tab)),size:frame.size,ink:self.sidebarInk))
         }
         table.didDrag = true; favoriteDragBaseline = favorites.frame.height; sidebarDragActive = true; cancelSidebarHover(); clearDropProposal(); layoutFavorites(animated:true)
+        if let row = rowIndexes.first, rows.indices.contains(row), case .tab(let id) = rows[row] {
+            favorites.allowFavoriteDrops(session.splitGroup(containing:id) == nil)
+            beginPageSplitDrag(source: id)
+        }
     }
     func tableView(_ tableView: NSTableView, draggingSession: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        pageSplitDrop.finish(animated: true)
+        favorites.allowFavoriteDrops(true)
         table.stopDragTracking()
         sidebarDragActive = false; favoriteDragBaseline = 0; sidebarMousePressed = false; favorites.clearPreview(); clearDropProposal(); layoutFavorites(animated:true); updateSidebarHover()
     }
     private func acceptFavorite(_ id: String, at position: Int, drag:NSDraggingInfo) -> Bool {
         guard session.moveToFavorites(id,spaceID:session.activeSpaceID,at:position) else { return false }
-        session.detachSplitTab(id)
         render(movingSidebarItem:true); landSidebarItem(.tab(id),drag:drag)
         showSelectedTab(); persist(); return true
     }
-    private func landSidebarItem(_ item:SidebarItem, drag:NSDraggingInfo, folderID:String? = nil) {
+    private func pageSplitDrag(source: String) -> PageSplitDropView.Drag? {
+        guard !isQuitting, !closingWindow, library == nil, spaceCreation == nil, sheet == nil,
+              window.attachedSheet == nil, commandPalette == nil, let target = activeTab?.id,
+              activeSplit?.vertical != true, session.splitGroup(containing: source) == nil,
+              let ids = session.splitMergeIDs(source, onto: target),
+              ids.count <= 4 else { return nil }
+        return .init(source: source, target: target,
+                     incomingCount: ids.count - (activeSplit?.tabIDs.count ?? 1), totalCount: ids.count)
+    }
+    private func beginPageSplitDrag(source: String) {
+        guard let drag = pageSplitDrag(source: source),
+              let tab = session.tabs.first(where: { $0.id == source }) else { return }
+        pageSplitDrop.coveredLeadingWidth = session.sidebarHidden && sidebarRevealed ? max(0, sidebarHost.frame.maxX - content.frame.minX) : 0
+        pageSplitDrop.begin(drag, page: content, shadow: pageShadow, title: displayTitle(tab),
+                            icon: splitTabIcon(tab), dark: darkTheme)
+    }
+    private func landSidebarItem(_ item:SidebarItem, drag:NSDraggingInfo, folderID:String? = nil, wholeRow:Bool = false) {
         if case .tab(let id) = item, session.favoriteTabs(spaceID:session.activeSpaceID).contains(where:{ $0.id == id }),
            let frame = favorites.frameForItem(id) {
             SidebarRowMotion.land(drag,in:favorites,frame:frame); return
@@ -2325,7 +2422,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         } ?? folderID.flatMap { id in rows.firstIndex(of:.folder(id)) }
         guard let index else { return }
         var frame = table.rect(ofRow:index)
-        if case .tab(let id) = item,
+        if !wholeRow, case .tab(let id) = item,
            let cell = table.view(atColumn:0,row:index,makeIfNecessary:true) as? SplitGroupCell {
             cell.layoutSubtreeIfNeeded()
             if let chip = cell.chips.first(where:{ $0.id == id }) {
@@ -2337,7 +2434,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func clearSplitPreview(animated:Bool) {
         splitDropPreview?.close(animated:animated); if !animated { splitDropPreview = nil }
     }
-    private func showSplitPreview(source:String,target:String,row:Int,point:NSPoint,sourceOnly:Bool) {
+    private func showSplitPreview(target:String,row:Int,point:NSPoint) {
         let rect = table.rect(ofRow:row)
         // A small dead zone avoids flipping sides while hovering the divider.
         let before = splitDropTarget != target || splitDropPreview == nil ? point.x < rect.midX :
@@ -2350,7 +2447,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                 guard let tab = session.tabs.first(where:{ $0.id == id }) else { return nil }
                 return .init(title:displayTitle(tab),image:splitTabIcon(tab))
             }
-            let preview = SidebarSplitDropPreview(items:items,incomingCount:sourceOnly ? 1 : (session.splitGroup(containing:source)?.tabIDs.count ?? 1),ink:sidebarInk)
+            let preview = SidebarSplitDropPreview(items:items,incomingCount:1,ink:sidebarInk)
             preview.present(in:table,covering:view,frame:rect,before:before)
             splitDropPreview = preview
         } else {
@@ -2360,20 +2457,31 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func clearDropProposal() { clearSplitPreview(animated:false); splitDropIntent.cancel(); splitDropTarget = nil; splitLimitTarget = nil; dropDestination = nil; dropItem = nil; lastDropFeedback = nil; table.insertion = nil }
     private func draggedItem(_ info: NSDraggingInfo) -> SidebarItem? {
-        guard (info.draggingSource as? NSTableView) === table || favorites.ownsDrag(info.draggingSource) || (info.draggingSource as? SplitTabChip)?.window === window else { return nil }
+        guard (info.draggingSource as? NSTableView) === table || favorites.ownsDrag(info.draggingSource) || (draggingSplitChip != nil && info.draggingSource as? SplitTabChip === draggingSplitChip) else { return nil }
         if let id = info.draggingPasteboard.string(forType:folderDragType) { return .folder(id) }
         if let id = info.draggingPasteboard.string(forType:dragType) { return .tab(id) }
         return nil
     }
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation {
-        guard let item = draggedItem(info) else { clearDropProposal(); return [] }
+        updateSidebarDrop(info)
+    }
+    private func updateSidebarDrop(_ info:NSDraggingInfo, edgesOnly:Bool = false) -> NSDragOperation {
+        guard let item = draggedItem(info), library == nil, !sidebarHost.isHiddenOrHasHiddenAncestor,
+              sidebarHost.bounds.contains(sidebarHost.convert(info.draggingLocation,from:nil)) else { clearDropProposal(); return [] }
         let point = table.convert(info.draggingLocation,from:nil)
-        let hit = table.row(at:point)
+        let viewport = table.convert(rowsScroll.contentView.bounds,from:rowsScroll.contentView)
+        let location = SidebarDropHit.resolve(point,in:table,viewport:viewport)
+        let hit: Int
+        switch location {
+        case .row(let index) where !edgesOnly && rows.indices.contains(index): hit = index
+        case .aboveList, .belowList: hit = -1
+        default: clearDropProposal(); return []
+        }
         var hoveringSplitCandidate = false
-        if case .tab(let source) = item, rows.indices.contains(hit), case .tab(let target) = rows[hit] {
+        if case .tab(let source) = item, session.splitGroup(containing: source) == nil, rows.indices.contains(hit), case .tab(let target) = rows[hit] {
             let rect = table.rect(ofRow:hit)
             if SidebarSplitDropIntent.contains(point,in:rect,retainingPreview:splitDropTarget == target),
-               let ids = session.splitMergeIDs(source,onto:target,sourceOnly:info.draggingSource is SplitTabChip) {
+               let ids = session.splitMergeIDs(source,onto:target) {
                 hoveringSplitCandidate = true
                 if splitDropIntent.update(source:source,target:target,at:CACurrentMediaTime()) {
                     if ids.count > 4 {
@@ -2381,7 +2489,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                         clearSplitPreview(animated:false); splitDropTarget = nil; table.insertion = nil; return []
                     }
                     if splitDropTarget != target { NSHapticFeedbackManager.defaultPerformer.perform(.alignment,performanceTime:.now) }
-                    showSplitPreview(source:source,target:target,row:hit,point:point,sourceOnly:info.draggingSource is SplitTabChip)
+                    showSplitPreview(target:target,row:hit,point:point)
                     splitDropTarget = target; dropItem = item; dropDestination = nil
                     table.setDropRow(hit,dropOperation:.on); table.insertion = nil
                     return .move
@@ -2391,9 +2499,31 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if !hoveringSplitCandidate { splitDropIntent.cancel() }
         clearSplitPreview(animated:true)
         splitDropTarget = nil; splitLimitTarget = nil
-        var destination = SidebarDestination(parentID:nil,before:nil)
+        var destination: SidebarDestination
         var markerRow = treeRows.count, depth = 0, inside = false
-        if treeRows.indices.contains(hit) {
+        if hit == -1 || hit == treeRows.count || hit == treeRows.count+1 {
+            // The new-tab button sits above the first temporary tab. Its row
+            // has no tab ID, so a nil insertion anchor here used to mean "last".
+            let isTab: Bool
+            if case .tab = item { isTab = true } else { isTab = false }
+            if isTab && hit == treeRows.count+1 {
+                destination = .init(parentID:nil,before:session.sidebarChildren(spaceID:session.activeSpaceID,parentID:nil,temporary:true).first,temporary:true)
+            } else {
+                let first = location == .aboveList || hit == treeRows.count
+                guard let edge = session.sidebarEdgeDestination(for:item,spaceID:session.activeSpaceID,first:first) else { clearDropProposal(); return [] }
+                destination = edge
+            }
+            if destination.temporary {
+                markerRow = destination.before == nil ? rows.count : treeRows.count+2
+            } else if let parent = destination.parentID, let index = treeRows.firstIndex(where:{ $0.item == .folder(parent) }) {
+                depth = treeRows[index].depth+1
+                markerRow = index+1
+                if destination.before == nil {
+                    while markerRow < treeRows.count && treeRows[markerRow].depth >= depth { markerRow += 1 }
+                }
+            } else { markerRow = destination.before == nil ? treeRows.count : 0 }
+        } else if treeRows.indices.contains(hit) {
+            destination = SidebarDestination(parentID:nil,before:nil)
             let entry = treeRows[hit], rect = table.rect(ofRow:hit)
             let fraction = (point.y-rect.minY)/rect.height
             if case .folder(let id) = entry.item, fraction > 0.25 && fraction < 0.75 {
@@ -2411,21 +2541,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                 } else { markerRow = hit+(below ? 1 : 0) }
                 destination.parentID = anchor.parentID; depth = anchor.depth
                 let siblings = session.sidebarChildren(spaceID:session.activeSpaceID,parentID:anchor.parentID)
-                if below, let index = siblings.firstIndex(of:anchor.item) {
-                    destination.before = index+1 < siblings.count ? siblings[index+1] : nil
+                if below {
+                    destination.before = session.nextSidebarRow(after:anchor.item,in:siblings)
                     while markerRow < treeRows.count && treeRows[markerRow].depth > depth { markerRow += 1 }
                 } else { destination.before = anchor.item }
             }
-        } else if case .tab = item, hit > treeRows.count || hit == -1 && point.y > table.rect(ofRow:max(0,rows.count-1)).maxY {
-            destination.temporary = true
-            markerRow = max(treeRows.count+2,min(row,rows.count))
-            if rows.indices.contains(hit), case .tab(let id) = rows[hit] {
-                let below = point.y > table.rect(ofRow:hit).midY
-                let peers = session.sidebarChildren(spaceID:session.activeSpaceID,parentID:nil,temporary:true)
-                if below, let index = peers.firstIndex(of:.tab(id)) { destination.before = index+1 < peers.count ? peers[index+1] : nil; markerRow = hit+1 }
-                else { destination.before = .tab(id); markerRow = hit }
-            }
-        }
+        } else if case .tab = item, case .tab(let id) = rows[hit] {
+            let below = point.y > table.rect(ofRow:hit).midY
+            let peers = session.sidebarChildren(spaceID:session.activeSpaceID,parentID:nil,temporary:true)
+            destination = .init(parentID:nil,before:below ? session.nextSidebarRow(after:.tab(id),in:peers) : .tab(id),temporary:true)
+            markerRow = below ? hit+1 : hit
+        } else { clearDropProposal(); return [] }
         guard session.canMoveSidebarItem(item,spaceID:session.activeSpaceID,to:destination) else {
             if hoveringSplitCandidate {
                 // Inserting immediately before oneself is a no-op, but splitting
@@ -2438,7 +2564,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             clearDropProposal(); return []
         }
         dropDestination = destination; dropItem = item
-        table.setDropRow(markerRow,dropOperation:inside ? .on : .above)
+        if !edgesOnly { table.setDropRow(markerRow,dropOperation:inside ? .on : .above) }
         table.insertion = (markerRow,min(depth,8),inside)
         if lastDropFeedback != destination {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment,performanceTime:.now)
@@ -2447,15 +2573,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         return .move
     }
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+        commitSidebarDrop(info)
+    }
+    private func commitSidebarDrop(_ info:NSDraggingInfo, edgesOnly:Bool = false) -> Bool {
+        guard updateSidebarDrop(info,edgesOnly:edgesOnly) == .move else { return false }
         if let target = splitDropTarget, case .tab(let source)? = draggedItem(info) {
-            let accepted = session.mergeSplit(source,onto:target,sourceBefore:splitDropBefore,sourceOnly:info.draggingSource is SplitTabChip)
+            let accepted = session.mergeSplit(source,onto:target,sourceBefore:splitDropBefore)
             clearDropProposal(); if accepted { render(movingSidebarItem:true); landSidebarItem(.tab(source),drag:info); showSelectedTab(); persist() }; return accepted
         }
         guard let item = draggedItem(info), item == dropItem, let destination = dropDestination,
               session.canMoveSidebarItem(item,spaceID:session.activeSpaceID,to:destination) else { clearDropProposal(); return false }
-        if case .tab(let id) = item { session.detachSplitTab(id) }
         guard session.moveSidebarItem(item,spaceID:session.activeSpaceID,to:destination) else { clearDropProposal(); return false }
-        clearDropProposal(); render(movingSidebarItem:true); landSidebarItem(item,drag:info,folderID:destination.parentID); showSelectedTab(); persist(); return true
+        clearDropProposal(); render(movingSidebarItem:true); landSidebarItem(item,drag:info,folderID:destination.parentID,wholeRow:true); showSelectedTab(); persist(); return true
     }
     private func addMenu(_ menu: NSMenu, _ title: String, _ kind: String, _ id: String, _ value: String = "") {
         let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: ""); item.target = self; item.representedObject = MenuAction(kind, id, value); menu.addItem(item)
@@ -3026,6 +3155,16 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if windowKind != .compact {
             preferences.onSidebarVisibilityChange = { [weak self] hidden in self?.setSidebarHidden(hidden) }
         }
+        preferences.tabPreviewsEnabled = session.tabPreviewsEnabled == true
+        preferences.onTabPreviewsChange = { [weak self] enabled in
+            guard let self else { return false }
+            var changed = self.session
+            changed.tabPreviewsEnabled = enabled
+            do { try self.store.save(changed) }
+            catch { self.showError(self.t("saveError"),detail:error.localizedDescription); return false }
+            self.receiveTabPreviews(enabled)
+            return true
+        }
         preferences.previewTheme = { [weak self] in self?.activeSpace?.theme ?? .solid(self?.activeSpace?.color ?? "#5747D8") }
         preferences.onInterfaceChange = { [weak self] mode in
             guard let self else { return false }
@@ -3517,9 +3656,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard !isQuitting else { return }
         guard let i = session.tabs.firstIndex(where: { $0.id == tabID }), isAllowedBrowserURL(url) else { return }
         if pageCapture?.tabID == tabID, session.tabs[i].url != url { pageCapture?.close() }
+        if session.tabs[i].url != url, let previous = previewDocument(session.tabs[i]) { previewImages.remove(previous) }
         let hostChanged = URL(string:session.tabs[i].url)?.host != URL(string:url)?.host
         let previousIcon = tabFavicon(session.tabs[i])
         session.tabs[i].url = url
+        if sidebarTip.target == .tab(tabID) { sidebarTip.refreshIfVisible() }
         let wasUnread = status[tabID]?.unread.visible
         status[tabID]?.unread.navigate(to:url)
         if wasUnread != status[tabID]?.unread.visible || tabFavicon(session.tabs[i]) !== previousIcon { refreshTabVisual(tabID) }
@@ -3545,6 +3686,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard spaceCreation == nil, !closingWindow else { return }
         let visible = activeSplit.map { $0.tabIDs.contains(tabID) } ?? (tabID == activeTab?.id)
         guard visible, let tab = session.tabs.first(where:{ $0.id == tabID }) else { return }
+        if !loading && wasLoading { captureTabPreview(tabID) }
         if tabID == activeTab?.id { buildHome() }
         if state.error != nil || tab.url.isEmpty || tab.url == "about:blank" {
             hideDocument(tabID)
@@ -3672,7 +3814,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             DispatchQueue.main.async { [weak self] in self?.showSelectedTab() }; return
         }
         let preservingSharedFavorite = session.tabs.contains { $0.id == tabID && $0.favorite } && pendingSpaceClosures.values.contains { $0.contains(tabID) }
-        if !preservingSharedFavorite { session.closeTab(id:tabID,automaticallyAt:archivedAutomatically ? Date() : nil) }
+        if !preservingSharedFavorite {
+            if let tab = session.tabs.first(where: { $0.id == tabID }), let document = previewDocument(tab) { previewImages.remove(document) }
+            session.closeTab(id:tabID,automaticallyAt:archivedAutomatically ? Date() : nil)
+        }
         for key in Array(pendingSpaceClosures.keys) { pendingSpaceClosures[key]?.remove(tabID); if pendingSpaceClosures[key]?.isEmpty == true { session.removeSpace(id: key); pendingSpaceClosures.removeValue(forKey: key) } }
         persist()
         // Avoid creating a lazy replacement browser inside CEF OnBeforeClose.
@@ -3869,7 +4014,7 @@ extension BrowserController {
     private func makeSplitCell(_ group:NativeSplitGroup) -> NSView {
         let chips = group.tabIDs.compactMap { id -> SplitTabChip? in
             guard let tab = session.tabs.first(where: { $0.id == id }) else { return nil }
-            let chip = SplitTabChip(id:id,title:displayTitle(tab),image:splitTabIcon(tab),active:id == activeTab?.id)
+            let chip = SplitTabChip(id:id,title:displayTitle(tab),image:splitTabIcon(tab))
             configureSound(chip.soundButton, id:id)
             styleSidebarTab(tab, icon:chip.icon, title:chip.label)
             chip.developerMode = tab.developerMode == true && id == activeTab?.id
@@ -3877,12 +4022,46 @@ extension BrowserController {
                 guard let self else { return }; if self.activeSplit?.id == group.id { self.focusSplitPane(id) } else { self.selectTab(id) }
             }
             chip.setAccessibilityHelp(tabHoverHint(tab))
-            if id == activeTab?.id { chip.rename = { [weak self] in self?.beginTabRename(id) } }
+            chip.rename = { [weak self] in self?.beginTabRename(id) }
+            let archiveLabel = splitText("Archiver cet onglet","Archive This Tab")
+            chip.archive.setAccessibilityLabel(archiveLabel + " — " + displayTitle(tab))
+            chip.archive.toolTip = archiveLabel
+            chip.archive.invoke = { [weak self] in
+                guard let self, self.activeSplit?.id == group.id, self.session.splitGroup(containing:id)?.id == group.id else { return }
+                self.requestCloseTab(id)
+            }
             chip.context = { [weak self] in self?.splitGroupMenu(group) ?? NSMenu() }
-            chip.dragChanged = { [weak self] active in self?.sidebarDragActive = active; if !active { self?.table.stopDragTracking(); self?.clearDropProposal(); self?.updateSidebarHover() } }
+            chip.dragChanged = { [weak self, weak chip] active in
+                guard let self else { return }
+                self.sidebarDragActive = active
+                self.draggingSplitChip = active ? chip : nil
+                self.favorites.allowFavoriteDrops(!active)
+                if active {
+                    self.cancelSidebarHover()
+                    self.dismissSidebarTip()
+                    self.dismissFolderPeek(animated:false)
+                } else {
+                    self.pageSplitDrop.finish(animated: true)
+                    self.table.stopDragTracking()
+                    self.clearDropProposal()
+                    self.updateSidebarHover()
+                }
+            }
             return chip
         }
-        return SplitGroupCell(chips:chips,ink:sidebarInk,title:group.name,icon:group.icon)
+        let cell = SplitGroupCell(chips:chips,ink:sidebarInk,title:group.name,icon:group.icon,focusedID:activeTab?.id)
+        cell.acceptsPointerAt = { [weak self] point in
+            guard let self else { return false }
+            return !self.sidebarDragActive && self.table.acceptsPointerAt?(point) == true
+        }
+        let archiveLabel = splitText("Archiver le groupe","Archive Group")
+        cell.archive.setAccessibilityLabel(archiveLabel)
+        cell.archive.toolTip = archiveLabel
+        cell.archive.invoke = { [weak self] in
+            guard let self, self.activeSplit?.id != group.id else { return }
+            self.archiveSplitGroup(group.id)
+        }
+        return cell
     }
     private func selectCommandTab(_ id:String,newTab:Bool) {
         guard !newTab, let blank = activeTab, blank.url == "about:blank", let group = activeSplit,
@@ -3921,6 +4100,10 @@ extension BrowserController {
         return rows.dropFirst(index+1).flatMap { row -> [String] in
             if case .tab(let value) = row { return session.splitGroup(containing:value)?.tabIDs ?? [value] }; return []
         }
+    }
+    private func archiveSplitGroup(_ id:String) {
+        guard let group = session.splitGroups?.first(where:{ $0.id == id }) else { return }
+        group.tabIDs.forEach { requestCloseTab($0) }
     }
     private func splitGroupMenu(_ group:NativeSplitGroup) -> NSMenu {
         let menu = NSMenu(); menu.autoenablesItems = false
@@ -4050,7 +4233,7 @@ extension BrowserController {
             guard let group = session.splitGroups?.first(where: { $0.id == command.id }) else { return true }
             switch command.kind {
             case "splitShare": shareSplitItems(group.tabIDs); return true
-            case "splitArchive": group.tabIDs.forEach { requestCloseTab($0) }; return true
+            case "splitArchive": archiveSplitGroup(group.id); return true
             case "splitSeparate": session.splitGroups?.removeAll { $0.id == group.id }
             case "splitOrientation": if let i = session.splitGroups?.firstIndex(where: { $0.id == group.id }) { session.splitGroups?[i].vertical.toggle() }
             case "splitDuplicate":
@@ -4406,6 +4589,18 @@ extension BrowserController {
         commandPalette?.close(); siteMenu?.close()
         render()
     }
+    func receiveTabPreviews(_ enabled: Bool?) {
+        guard session.tabPreviewsEnabled != enabled else { return }
+        session.tabPreviewsEnabled = enabled
+        applyTabPreviewSetting()
+    }
+    private func applyTabPreviewSetting() {
+        dismissSidebarTip()
+        preferencesWindow?.tabPreviewsEnabled = session.tabPreviewsEnabled == true
+        if session.tabPreviewsEnabled == true {
+            for id in archiveVisible { captureTabPreview(id) }
+        } else { previewImages.reset() }
+    }
     func receiveSharedSession(_ shared:BrowserSession) {
         guard !isQuitting, !closingWindow else { return }
         let previous = session
@@ -4418,6 +4613,7 @@ extension BrowserController {
         }
         guard next != previous else { return }
         session = next
+        if previous.tabPreviewsEnabled != next.tabPreviewsEnabled { applyTabPreviewSetting() }
         for profile in next.profiles where previous.profiles.first(where: { $0.id == profile.id })?.engine != profile.engine {
             configureEngine(profile.engine,profileID:profile.id)
         }

@@ -2,7 +2,8 @@
 import AppKit
 import QuartzCore
 
-private final class TabCloseButton: ActionButton {
+final class TabCloseButton: ActionButton {
+    var acceptsPointerAt: ((NSPoint) -> Bool)?
     private var hovered = false
     private var tracking: NSTrackingArea?
     override func updateTrackingAreas() {
@@ -17,7 +18,7 @@ private final class TabCloseButton: ActionButton {
     func updateHover(at point:NSPoint?) {
         let inside = point.map {
             window != nil && !isHiddenOrHasHiddenAncestor && bounds.intersection(visibleRect).contains(convert($0,from:nil)) &&
-            (superview as? TabCell)?.acceptsPointerAt?($0) != false
+            acceptsPointerAt?($0) != false
         } ?? false
         guard inside != hovered else { return }
         hovered = inside; needsDisplay = true
@@ -81,10 +82,10 @@ final class TabCell: NSTableCellView, NSTextFieldDelegate {
         return CATransform3DScale(CATransform3DMakeTranslation(dx*(1-scale),dy*(1-scale),0),scale,scale,1)
     }
     private let titleEditingBackground = CALayer()
-    let icon = NSImageView(); let titleLabel = TabTitleField(frame: .zero); let closeButton: ActionButton
+    let icon = NSImageView(); let titleLabel = TabTitleField(frame: .zero); let closeButton: TabCloseButton
     var rename: ((String) -> Void)?
     var titleEditingEnded: (() -> Void)?
-    var acceptsPointerAt: ((NSPoint) -> Bool)?
+    var acceptsPointerAt: ((NSPoint) -> Bool)? { didSet { closeButton.acceptsPointerAt = acceptsPointerAt } }
     private(set) var isEditingTitle = false
     private var originalTitle = ""
     var depth = 0 { didSet { needsLayout = true } }
@@ -200,7 +201,7 @@ final class TabCell: NSTableCellView, NSTextFieldDelegate {
             closeButton.isHidden = isEditingTitle || !canClose || !inside
             updateLayer()
         }
-        (closeButton as? TabCloseButton)?.updateHover(at:inside ? point : nil)
+        closeButton.updateHover(at:inside ? point : nil)
         if !inside { soundButton.setHovered(false) }
     }
     func clearHover() { updateHover(at:nil) }

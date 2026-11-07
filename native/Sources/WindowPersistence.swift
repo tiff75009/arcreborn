@@ -21,6 +21,7 @@ struct BrowserWindowRecord: Codable {
         guard kind == .normal || kind == .blank else { return nil }
         var state = kind == .normal ? shared : standalone ?? shared
         state.interfaceStyle = shared.interfaceStyle
+        state.tabPreviewsEnabled = shared.tabPreviewsEnabled
         state.classicSidebarHidden = nil
         if kind == .blank {
             for i in state.profiles.indices {
