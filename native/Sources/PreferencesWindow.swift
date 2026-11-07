@@ -1,4 +1,5 @@
 import AppKit
+import Translation
 import QuartzCore
 
 struct PreferenceProfile {
@@ -180,6 +181,7 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         savePasswords = save; automaticSignIn = signIn; formSuggestions = suggestions
         let window = NSWindow(contentRect:NSRect(x:0,y:0,width:908,height:638),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
         super.init(window:window)
+        NotificationCenter.default.addObserver(self,selector:#selector(refreshTranslationDestination),name:PageTranslationSettings.changed,object:nil)
         window.isReleasedWhenClosed = false; window.title = tr("Préférences","Preferences"); window.delegate = self
         window.titlebarAppearsTransparent = true
         window.contentMinSize = NSSize(width:858,height:535); window.contentMaxSize = NSSize(width:1240,height:1000)
@@ -314,6 +316,12 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         let form = ArcAccountForm(frame:NSRect(x:22,y:18,width:panel.bounds.width-44,height:444),chapterLanguage:language); panel.addSubview(form)
         pageContent.frame.size.height = max(scroll.bounds.height,515)
     }
+    private weak var translationDestination:NSPopUpButton?
+    @objc private func refreshTranslationDestination() {
+        guard let to = translationDestination else { return }
+        let code = PageTranslationSettings.choice
+        to.selectItem(at:code.isEmpty ? 0 : max(0,to.indexOfItem(withRepresentedObject:code)))
+    }
     private func drawGeneral() {
         heading(tr("Au quotidien.","Every day."),tr("Apparence, langue et mises à jour de votre navigateur.","Appearance, language and updates for your browser."))
         let x:CGFloat = 28, w:CGFloat = (bodyWidth-72)/2, r = x+w+16
@@ -377,7 +385,35 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
             if !BrowserEngine.changeDownloadPrompt(enabled) { self?.downloadSettingFailed() }
         }
         ask.frame = NSRect(x:w-56,y:66,width:40,height:24); ask.setAccessibilityLabel(askLabel); transfers.addSubview(ask)
+        sectionLabel(tr("Traduction","Translation"),x:r,y:546,width:w)
+        let translation = card(NSRect(x:r,y:567,width:w,height:102))
+        if #available(macOS 15, *) {
+            let targetLabel = tr("Traduire vers","Translate to")
+            text(tr("Langue d’origine","Source language"),NSRect(x:15,y:15,width:126,height:22),weight:.medium,in:translation)
+            text(tr("Détection automatique","Detected automatically"),NSRect(x:144,y:16,width:w-154,height:23),size:12,color:.secondaryLabelColor,in:translation)
+            line(translation,y:50)
+            text(targetLabel,NSRect(x:15,y:65,width:115,height:22),weight:.medium,in:translation)
+            let to = NSPopUpButton(frame:NSRect(x:128,y:58,width:w-142,height:30),pullsDown:false)
+            to.setAccessibilityLabel(targetLabel); to.target = self; to.action = #selector(translationLanguageChanged(_:))
+            translationDestination = to
+            to.addItem(withTitle:tr("Langue du navigateur","Browser language")); translation.addSubview(to)
+            let locale = language
+            Task { @MainActor [weak to] in
+                let codes = await PageTranslationSettings.destinations(language:locale)
+                guard let to else { return }
+                for code in codes {
+                    let name = PageTranslationSettings.name(code,language:locale)
+                    let item = NSMenuItem(title:name,action:nil,keyEquivalent:""); item.representedObject = code; to.menu?.addItem(item)
+                    if UserDefaults.standard.string(forKey:PageTranslationSettings.targetKey) == code { to.select(item) }
+                }
+            }
+        } else {
+            text(tr("La traduction sur l’appareil nécessite macOS 15 ou ultérieur.","On-device translation requires macOS 15 or later."),NSRect(x:17,y:19,width:w-34,height:60),color:.secondaryLabelColor,in:translation)
+        }
         pageContent.frame.size.height = max(scroll.bounds.height,686)
+    }
+    @objc private func translationLanguageChanged(_ sender:NSPopUpButton) {
+        PageTranslationSettings.choose(sender.selectedItem?.representedObject as? String ?? "")
     }
     func refreshDownloadSettings() { if section == 1 { rebuild() } }
     private func chooseDownloadFolder() {

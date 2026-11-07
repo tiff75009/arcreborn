@@ -1,5 +1,10 @@
 #import <Cocoa/Cocoa.h>
 NS_ASSUME_NONNULL_BEGIN
+// Implemented by the application; all requests originate in the native page menu.
+@protocol BrowserTranslationPresenter <NSObject>
+- (void)translateStrings:(NSArray<NSString *> *)texts hint:(NSString *)hint page:(BOOL)page owner:(NSString *)owner inWindow:(NSWindow *)window completion:(void (^)(NSArray<NSString *> * _Nullable))completion NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(translate(_:hint:page:owner:in:completion:));
+- (void)dismissTranslationForOwner:(NSString *)owner NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(dismissTranslation(for:));
+@end
 @protocol BrowserEngineDelegate <NSObject>
 - (void)browserTitleChanged:(NSString *)tabID title:(NSString *)title NS_SWIFT_NAME(browserTitleChanged(_:title:));
 - (void)browserURLChanged:(NSString *)tabID url:(NSString *)url NS_SWIFT_NAME(browserURLChanged(_:url:));

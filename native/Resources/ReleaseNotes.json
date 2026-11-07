@@ -1,69 +1,58 @@
 {
-  "version": "1.2.0",
-  "build": 27,
+  "version": "1.2.1",
+  "build": 28,
   "showOnLaunch": true,
   "title": {
-    "en": "Find, share and open links on Mac",
-    "fr": "Rechercher, partager et ouvrir des liens sur Mac"
+    "en": "Translate as you browse",
+    "fr": "Traduisez pendant votre navigation"
   },
   "subtitle": {
-    "en": "Find your place on a long page and move links between Arc Reborn and your Mac apps.",
-    "fr": "Retrouvez un passage dans une longue page et partagez vos liens entre Arc Reborn et vos apps Mac."
+    "en": "Read a passage or a whole page in your preferred language with Apple Translation on macOS 15 or later.",
+    "fr": "Lisez un passage ou une page entière dans la langue de votre choix avec la traduction d’Apple, à partir de macOS 15."
   },
   "highlights": [
     {
-      "symbol": "magnifyingglass",
+      "symbol": "translate",
       "title": {
-        "en": "Find in both directions",
-        "fr": "Parcourez les résultats dans les deux sens"
+        "en": "Translate a selection",
+        "fr": "Traduisez une sélection"
       },
       "detail": {
-        "en": "Press ⌘F to search. ⌘G or Return selects the next match, and ⇧⌘G or Shift-Return selects the previous one. The counter shows your position, for example 3 of 18.",
-        "fr": "Ouvrez la recherche avec ⌘F. ⌘G ou Entrée passe au résultat suivant, ⇧⌘G ou Majuscule-Entrée revient au précédent. Le compteur indique votre position, par exemple 3 sur 18."
+        "en": "Select text and choose Translate Selection from the context menu. Arc Reborn detects the source language and shows a translation you can copy.",
+        "fr": "Sélectionnez du texte, puis choisissez « Traduire la sélection… » au clic droit. Arc Reborn détecte la langue d’origine et affiche une traduction que vous pouvez copier."
       }
     },
     {
-      "symbol": "link",
+      "symbol": "globe",
       "title": {
-        "en": "Drag a tab to another app",
-        "fr": "Glissez un onglet vers une autre app"
+        "en": "Read the whole page",
+        "fr": "Lisez toute la page"
       },
       "detail": {
-        "en": "Drag a web tab, a favorite or a pane of a split view into a Mail draft to insert its link. Drop it on the Desktop to create a .webloc with its title and full address.",
-        "fr": "Glissez un onglet web, un favori ou un panneau de vue partagée dans un brouillon Mail pour y insérer son lien. Déposez-le sur le Bureau pour créer un fichier .webloc avec son titre et son adresse complète."
+        "en": "Right-click without a selection, choose Translate Page, then apply the translation. Choose Show Original to return to the original text without reloading or losing a draft.",
+        "fr": "Faites un clic droit sans sélection, choisissez « Traduire la page… », puis appliquez la traduction. « Afficher l’original » rétablit le texte sans recharger la page ni perdre votre saisie."
       }
     },
     {
-      "symbol": "arrow.up.forward.app",
+      "symbol": "character.bubble",
       "title": {
-        "en": "Open links in Mac apps",
-        "fr": "Ouvrez les liens dans vos apps Mac"
+        "en": "Choose your translation language",
+        "fr": "Choisissez votre langue de traduction"
       },
       "detail": {
-        "en": "When you click an email or Zoom link, Arc Reborn names the site and the app before handing it over. If your Mac has no app for the link, the browser tells you.",
-        "fr": "Quand vous cliquez sur un lien de messagerie ou de réunion Zoom, Arc Reborn indique le site et le nom de l’app avant de l’ouvrir. Si aucune app ne peut ouvrir le lien, le navigateur vous le signale."
+        "en": "Translations follow your browser language by default. Pick another language in the translation window to update the result and save your choice in Settings → General.",
+        "fr": "Par défaut, la traduction suit la langue du navigateur. Choisissez une autre langue dans la boîte de traduction pour actualiser le résultat et mémoriser ce choix dans Réglages → Général."
       }
     },
     {
-      "symbol": "doc",
+      "symbol": "waveform",
       "title": {
-        "en": "Open local files",
-        "fr": "Ouvrez vos fichiers locaux"
+        "en": "Ask Siri about a passage",
+        "fr": "Interrogez Siri sur un passage"
       },
       "detail": {
-        "en": "Open HTML, PDF and SVG files and .webloc shortcuts from Finder, the Dock or the File menu with ⌘O.",
-        "fr": "Ouvrez vos fichiers HTML, PDF et SVG et vos raccourcis .webloc depuis le Finder, le Dock ou le menu Fichier avec ⌘O."
-      }
-    },
-    {
-      "symbol": "sidebar.left",
-      "title": {
-        "en": "Swipe to your Library",
-        "fr": "Accédez à la bibliothèque au trackpad"
-      },
-      "detail": {
-        "en": "Scroll left in the sidebar of your first space to open the Library. The drawer follows your fingers. Scroll right to close it from any space.",
-        "fr": "Dans la barre latérale du premier espace, faites défiler vers la gauche pour ouvrir la bibliothèque. Le tiroir suit vos doigts. Faites défiler vers la droite pour le fermer depuis n’importe quel espace."
+        "en": "The native macOS context menu now offers Ask Siri on supported Macs. Select a passage and right-click to bring it to Siri.",
+        "fr": "Sur les Mac compatibles, le menu contextuel de macOS propose désormais « Demander à Siri ». Sélectionnez un passage et faites un clic droit pour interroger Siri à son sujet."
       }
     }
   ]

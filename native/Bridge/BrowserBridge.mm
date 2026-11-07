@@ -332,6 +332,7 @@ static void PrepareChromePopup(NSString *key, NSView *container, CefRefPtr<CefCl
 static void CancelChromePopup(const std::string& key);
 static NSView *VisibleChromePage(NSString *key);
 static NSWindow *ChromeDocumentWindow(NSString *key);
+static void ForgetPageTranslation(NSString *key);
 static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> params,
                               CefRefPtr<CefMenuModel> model, CefRefPtr<CefRunContextMenuCallback> callback);
 static void RegisterNativeExtensionTabs(bool enabled);
@@ -654,6 +655,7 @@ class NativeClient : public CefClient,
     ++favicon_->generation;
     CloseTabDeveloperTools(tabID_.UTF8String);
     ForgetPictureInPicture(tabID_);
+    ForgetPageTranslation(tabID_);
     FinishArchiveProbe(tabID_.UTF8String,false); capturingTabs.erase(tabID_.UTF8String);
     audibleTabs.erase(tabID_.UTF8String);
     automaticallyClosing.erase(tabID_.UTF8String);
@@ -676,6 +678,7 @@ class NativeClient : public CefClient,
     if (!embedded_ || !frame->IsMain()) return;
     DismissExternalAppSheet(tabID_.UTF8String);
     CancelNativeInspection(tabID_.UTF8String);
+    ForgetPageTranslation(tabID_);
     ++favicon_->generation;
     favicon_->candidates.clear();
   }
@@ -1011,6 +1014,7 @@ static void QuitNext() {
 // They share the exact request context used by the AppKit tab containers.
 #include "ExtensionWindows.inc"
 #include "ChromeTabs.inc"
+#include "PageTranslation.inc"
 #include "NativePageMenus.inc"
 #include "NativeExtensionTabs.inc"
 

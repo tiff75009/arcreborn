@@ -64,11 +64,64 @@ static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> par
   if (quitting || !view.window || view.hiddenOrHasHiddenAncestor) { callback->Cancel(); return true; }
   BrowserPageMenuTarget *target = [[BrowserPageMenuTarget alloc] init];
   NSMenu *menu = CopyNativePageMenu(model, target);
+  NSString *selection = Str(params->GetSelectionText());
+  const bool hasSelection = [selection stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length > 0;
+  NSString *documentURL = Str(params->GetPageUrl());
+  NSString *scheme = [NSURL URLWithString:documentURL].scheme.lowercaseString;
+  const bool web = [scheme isEqual:@"https"] || [scheme isEqual:@"http"] || [scheme isEqual:@"file"];
+  if (@available(macOS 15.0, *)) {
+    if (web && TranslationPresenter() && (!params->IsEditable() || (hasSelection && (params->GetEditStateFlags() & CM_EDITFLAG_CAN_COPY)))) {
+      for (NSMenuItem *item in [menu.itemArray copy]) {
+        if (item.tag >= 0 && (item.tag == cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_TRANSLATE") ||
+                              item.tag == cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE"))) [menu removeItem:item];
+      }
+      auto existing = pageTranslations.find(key.UTF8String);
+      const bool restore = !hasSelection && existing != pageTranslations.end() && existing->second->applied();
+      NSString *label = hasSelection ? L(@"Traduire la sélection…",@"Translate Selection…")
+                             : restore ? L(@"Afficher l’original",@"Show Original")
+                                       : L(@"Traduire la page…",@"Translate Page…");
+      if (menu.numberOfItems && ![menu itemAtIndex:0].isSeparatorItem) [menu insertItem:NSMenuItem.separatorItem atIndex:0];
+      NSMenuItem *action = [menu insertItemWithTitle:label action:@selector(choose:) keyEquivalent:@"" atIndex:0];
+      action.target = target; action.tag = restore ? -3 : -2;
+      action.enabled = hasSelection || restore || existing == pageTranslations.end();
+      action.image = [NSImage imageWithSystemSymbolName:@"translate" accessibilityDescription:nil];
+    }
+  }
   if (!menu.numberOfItems) { callback->Cancel(); return true; }
   NSPoint point = NSMakePoint(params->GetXCoord(), params->GetYCoord());
   if (!view.isFlipped) point.y = view.bounds.size.height - point.y;
   BrowserTrace(@"tab.context-menu",@{@"tab":key,@"items":@(menu.numberOfItems)});
-  [menu popUpMenuPositioningItem:nil atLocation:point inView:view];
+  // A positioning pop-up is not a contextual menu: AppKit skips macOS
+  // selection services, including Ask Siri. Use the actual document responder.
+  NSPoint location = [view convertPoint:point toView:nil];
+  NSView *context = [view.window.firstResponder isKindOfClass:NSView.class] ? (NSView *)view.window.firstResponder : nil;
+  if (!context || ![context isDescendantOf:view]) context = view;
+  NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:location
+                                 modifierFlags:NSApp.currentEvent.modifierFlags timestamp:NSProcessInfo.processInfo.systemUptime
+                                  windowNumber:view.window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:1];
+  [NSMenu popUpContextMenu:menu withEvent:event forView:context];
+  if (target.command == -2 || target.command == -3) {
+    callback->Cancel();
+    const bool restore = target.command == -3;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      auto browser = browsers.find(key.UTF8String);
+      NSWindow *window = VisibleChromePage(key).window;
+      if (quitting || !window || window.attachedSheet || browser == browsers.end() || !browser->second->IsValid()) return;
+      auto frame = browser->second->GetMainFrame();
+      if (!frame || ![Str(frame->GetURL()) isEqual:documentURL]) return;
+      if (hasSelection) {
+        [TranslationPresenter() translateStrings:@[selection] hint:@"" page:NO owner:key inWindow:window completion:^(NSArray *unused) {}];
+      } else {
+        auto existing = pageTranslations.find(key.UTF8String);
+        if (restore && existing != pageTranslations.end()) existing->second->Restore();
+        else if (!restore && existing == pageTranslations.end()) {
+          CefRefPtr<PageTranslationJob> job = new PageTranslationJob(key);
+          pageTranslations[key.UTF8String] = job; job->Start(browser->second);
+        }
+      }
+    });
+    return true;
+  }
   if (target.command >= 0 && !quitting) callback->Continue((int)target.command, target.flags);
   else callback->Cancel();
   return true;
