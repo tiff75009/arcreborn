@@ -26,7 +26,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.0</string>
+	<string>1.1.1</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -42,7 +42,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>25</string>
+	<string>26</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSEnvironment</key>
@@ -56,6 +56,8 @@
 	<string>13.0</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Vous pouvez inclure le son de votre Mac dans un partage d’écran.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Arc Reborn utilise le Bluetooth pour vérifier que votre téléphone ou votre tablette est à proximité lorsque vous utilisez une clé d’accès.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Un site autorisé peut utiliser votre caméra.</string>
 	<key>NSHighResolutionCapable</key>

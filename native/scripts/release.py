@@ -47,6 +47,9 @@ def bundle_digest(path):
 def metadata():
     notes = json.loads((NATIVE/'Resources/ReleaseNotes.json').read_text())
     info = plistlib.loads((NATIVE/'Resources/Info.plist').read_bytes())
+    bluetooth = info.get('NSBluetoothAlwaysUsageDescription')
+    if not isinstance(bluetooth,str) or not bluetooth.strip():
+        raise ValueError('Missing Bluetooth purpose string for phone and tablet passkeys')
     if not re.fullmatch(r'\d+\.\d+\.\d+',notes['version']) or type(notes['build']) is not int or notes['build'] <= 0:
         raise ValueError('Stable version x.y.z and positive integer build required')
     if info['CFBundleShortVersionString'] != notes['version'] or info['CFBundleVersion'] != str(notes['build']):
@@ -127,10 +130,15 @@ def prepare(args,notes,info):
     out = Path(args.output).resolve(); out.mkdir(parents=True,exist_ok=True)
     source = Path(args.app).resolve()
     bundle_info = plistlib.loads((source/'Contents/Info.plist').read_bytes())
-    for key in ['CFBundleVersion','CFBundleShortVersionString','CFBundleIdentifier','SUFeedURL','SUPublicEDKey',
+    for key in ['CFBundleVersion','CFBundleShortVersionString','CFBundleIdentifier','NSBluetoothAlwaysUsageDescription','SUFeedURL','SUPublicEDKey',
                 'SURequireSignedFeed','SUVerifyUpdateBeforeExtraction','SUEnableAutomaticChecks','SUAutomaticallyUpdate',
                 'SUScheduledCheckInterval','SUScheduledImpatientCheckInterval']:
         if bundle_info.get(key) != info[key]: raise ValueError('Bundle metadata mismatch: '+key)
+    for language in LANGUAGES:
+        strings = Path(language+'.lproj/InfoPlist.strings')
+        packaged = run('plutil','-extract','NSBluetoothAlwaysUsageDescription','raw',source/'Contents/Resources'/strings,capture=True)
+        expected = run('plutil','-extract','NSBluetoothAlwaysUsageDescription','raw',NATIVE/'Resources'/strings,capture=True)
+        if not packaged or packaged != expected: raise ValueError('Bluetooth purpose string mismatch: '+language)
     if bundle_info.get('ArcRebornDevelopmentBuild'): raise ValueError('Cannot release a development bundle')
     if json.loads((source/'Contents/Resources/ReleaseNotes.json').read_text()) != notes:
         raise ValueError('Bundle release notes mismatch')

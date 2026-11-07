@@ -19,6 +19,14 @@ def module(name):
 release = module('release'); public = module('public-source'); engine = module('engine')
 
 class ReleaseTests(unittest.TestCase):
+    def test_phone_passkey_bluetooth_purpose_in_every_app_language(self):
+        _, info = release.metadata()
+        key = 'NSBluetoothAlwaysUsageDescription'
+        for language in info['CFBundleLocalizations']:
+            localized = subprocess.check_output(['plutil','-extract',key,'raw',ROOT/'Resources'/(language+'.lproj')/'InfoPlist.strings'],text=True)
+            self.assertIn('Bluetooth',localized)
+            self.assertIn('Bluetooth',info[key])
+
     def test_github_notes_keep_both_complete_translations(self):
         notes,_ = release.metadata()
         english,french = release.github_notes(notes).split('<summary>Français</summary>')

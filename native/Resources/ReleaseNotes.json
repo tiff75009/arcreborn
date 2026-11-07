@@ -1,58 +1,25 @@
 {
-  "version": "1.1.0",
-  "build": 25,
-  "showOnLaunch": true,
+  "version": "1.1.1",
+  "build": 26,
+  "showOnLaunch": false,
   "title": {
-    "en": "Split a page with a drag",
-    "fr": "Partagez la page d’un geste"
+    "en": "Passkey sign-in fix",
+    "fr": "Correctif de connexion par clé d’accès"
   },
   "subtitle": {
-    "en": "Drag a tab to either side of the page, move a split as a group and preview a tab by hovering over its title.",
-    "fr": "Glissez un onglet sur le côté de la page, déplacez une vue partagée d’un seul geste et survolez un titre pour retrouver son site."
+    "en": "Fixed a crash when choosing a phone or tablet to sign in with a passkey.",
+    "fr": "Correction d’un plantage au moment de choisir un téléphone ou une tablette pour se connecter avec une clé d’accès."
   },
   "highlights": [
     {
-      "symbol": "rectangle.split.2x1",
+      "symbol": "qrcode.viewfinder",
       "title": {
-        "en": "Drag a tab onto the page",
-        "fr": "Glissez un onglet sur la page"
+        "en": "Sign in with a nearby device",
+        "fr": "Connectez-vous avec un appareil à proximité"
       },
       "detail": {
-        "en": "Drag a sidebar tab to the left or right side of the current page. The page slides aside to show where the tab will open. Release to create the split, or return to the center to cancel.",
-        "fr": "Glissez un onglet de la barre latérale vers la gauche ou la droite de la page ouverte. La page se décale pour montrer où le volet s’ouvrira. Relâchez pour créer la vue partagée ou revenez au centre pour annuler."
-      }
-    },
-    {
-      "symbol": "arrow.up.arrow.down",
-      "title": {
-        "en": "Move the whole group",
-        "fr": "Déplacez le groupe entier"
-      },
-      "detail": {
-        "en": "Grab any pane to move all its tabs together. Overshooting the top or bottom of the list places the group first or last. To separate a pane, use the Split View menu.",
-        "fr": "Attrapez n’importe quel volet pour déplacer tous les onglets du groupe ensemble. Si vous dépassez le haut ou le bas de la liste, le groupe prend la première ou la dernière place. Pour séparer un volet, utilisez le menu de la vue partagée."
-      }
-    },
-    {
-      "symbol": "archivebox",
-      "title": {
-        "en": "Archive a group or a single pane",
-        "fr": "Archivez un groupe ou un seul volet"
-      },
-      "detail": {
-        "en": "Inactive groups have a fine divider between tabs. Hover over an inactive group to archive it with one click. In the active group, each pane has its own archive button. Closing the focused pane selects a neighboring pane.",
-        "fr": "Un trait fin sépare les onglets d’un groupe inactif. Survolez-le pour archiver tout le groupe en un clic. Dans le groupe actif, chaque volet a sa propre croix. Si vous archivez le volet sélectionné, le volet voisin prend le relais."
-      }
-    },
-    {
-      "symbol": "rectangle.on.rectangle",
-      "title": {
-        "en": "See a tab before switching to it",
-        "fr": "Retrouvez une page en survolant son onglet"
-      },
-      "detail": {
-        "en": "Turn on Tab Previews in Settings → Interface. Hovering shows a thumbnail of the last captured page, its title and its site. When a thumbnail is unavailable, the card shows the site icon. Sleeping tabs stay asleep.",
-        "fr": "Activez l’aperçu des onglets dans Réglages → Interface. Au survol, une carte affiche la dernière miniature de la page, son titre et son site. Si aucune miniature n’est disponible, la carte affiche l’icône du site. Les onglets en veille restent endormis."
+        "en": "Arc Reborn can now request Bluetooth access and show the QR code to scan with your device. You can cancel and try again from the same tab.",
+        "fr": "Arc Reborn peut désormais demander l’accès au Bluetooth et afficher le QR code à scanner avec votre appareil. Vous pouvez annuler et réessayer depuis le même onglet."
       }
     }
   ]

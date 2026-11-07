@@ -1,4 +1,5 @@
 "NSAudioCaptureUsageDescription" = "You can include audio from your Mac when sharing your screen.";
+"NSBluetoothAlwaysUsageDescription" = "Arc Reborn uses Bluetooth to verify that your phone or tablet is nearby when you use a passkey.";
 "NSCameraUsageDescription" = "An authorized website may use your camera.";
 "NSMicrophoneUsageDescription" = "An authorized website may use your microphone.";
 "NSLocationUsageDescription" = "An authorized website may use your location.";
