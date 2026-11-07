@@ -9,6 +9,9 @@ SPARKLE_ROOT="$NATIVE_ROOT/vendor/sparkle-2.10.1"
 mkdir -p "$UPDATE_TEST_APP/Contents/MacOS" "$UPDATE_TEST_APP/Contents/Resources"
 cp "$NATIVE_ROOT/Resources/Info.plist" "$UPDATE_TEST_APP/Contents/Info.plist"
 cp "$NATIVE_ROOT/Resources/ReleaseNotes.json" "$UPDATE_TEST_APP/Contents/Resources/"
+if [[ -f "$NATIVE_ROOT/Resources/PreviousVisibleReleaseNotes.json" ]]; then
+  cp "$NATIVE_ROOT/Resources/PreviousVisibleReleaseNotes.json" "$UPDATE_TEST_APP/Contents/Resources/"
+fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier local.arcreborn.update-test.$(uuidgen)" "$UPDATE_TEST_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable UpdatePreferencesTests' "$UPDATE_TEST_APP/Contents/Info.plist"
 xcrun swiftc -parse-as-library -F "$SPARKLE_ROOT" -framework Sparkle -framework AppKit \

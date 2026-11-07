@@ -76,10 +76,10 @@ static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> par
                               item.tag == cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE"))) [menu removeItem:item];
       }
       auto existing = pageTranslations.find(key.UTF8String);
-      const bool restore = !hasSelection && existing != pageTranslations.end() && existing->second->applied();
+      const bool restore = !hasSelection && existing != pageTranslations.end() && existing->second->canRestore();
       NSString *label = hasSelection ? L(@"Traduire la sélection…",@"Translate Selection…")
                              : restore ? L(@"Afficher l’original",@"Show Original")
-                                       : L(@"Traduire la page…",@"Translate Page…");
+                                       : L(@"Traduire la page",@"Translate Page");
       if (menu.numberOfItems && ![menu itemAtIndex:0].isSeparatorItem) [menu insertItem:NSMenuItem.separatorItem atIndex:0];
       NSMenuItem *action = [menu insertItemWithTitle:label action:@selector(choose:) keyEquivalent:@"" atIndex:0];
       action.target = target; action.tag = restore ? -3 : -2;
@@ -110,7 +110,7 @@ static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> par
       auto frame = browser->second->GetMainFrame();
       if (!frame || ![Str(frame->GetURL()) isEqual:documentURL]) return;
       if (hasSelection) {
-        [TranslationPresenter() translateStrings:@[selection] hint:@"" page:NO owner:key inWindow:window completion:^(NSArray *unused) {}];
+        [TranslationPresenter() translateSelection:selection owner:key inWindow:window];
       } else {
         auto existing = pageTranslations.find(key.UTF8String);
         if (restore && existing != pageTranslations.end()) existing->second->Restore();

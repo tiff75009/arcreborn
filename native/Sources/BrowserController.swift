@@ -2946,6 +2946,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
               ["http","https","file"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         return url
     }
+    func showTranslationNotice(_ message: String) {
+        undoToast.show(in:window,message:message,suffix:"",undoLabel:"",color:tint(),offersUndo:false)
+    }
     private func showNotice(_ key:String) {
         undoToast.show(in:window,message:"✓  "+t(key),suffix:"",undoLabel:"",color:tint(),offersUndo:false)
     }

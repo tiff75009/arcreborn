@@ -2,7 +2,12 @@
 NS_ASSUME_NONNULL_BEGIN
 // Implemented by the application; all requests originate in the native page menu.
 @protocol BrowserTranslationPresenter <NSObject>
-- (void)translateStrings:(NSArray<NSString *> *)texts hint:(NSString *)hint page:(BOOL)page owner:(NSString *)owner inWindow:(NSWindow *)window completion:(void (^)(NSArray<NSString *> * _Nullable))completion NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(translate(_:hint:page:owner:in:completion:));
+- (void)translateSelection:(NSString *)text owner:(NSString *)owner inWindow:(NSWindow *)window NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(translateSelection(_:owner:in:));
+- (void)translatePageStrings:(NSArray<NSString *> *)texts hint:(NSString *)hint owner:(NSString *)owner inView:(NSView *)view
+                      update:(void (^)(NSInteger index, NSString *text))update completion:(void (^)(NSString * _Nullable errorMessage))completion
+    NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(translatePage(_:hint:owner:in:update:completion:));
+- (void)cancelInlineTranslation:(NSString *)owner NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(cancelInlineTranslation(_:));
+- (void)showTranslationNotice:(NSString *)message inWindow:(NSWindow *)window NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(showTranslationNotice(_:in:));
 - (void)dismissTranslationForOwner:(NSString *)owner NS_SWIFT_UI_ACTOR NS_SWIFT_NAME(dismissTranslation(for:));
 @end
 @protocol BrowserEngineDelegate <NSObject>

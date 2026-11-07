@@ -68,49 +68,72 @@ final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
 
     /// Fresh installs establish a baseline. An upgrade is shown once, never on
     /// downgrade, and only after onboarding/other launch sheets have finished.
-    func presentNewsAfterUpgrade(ready: @escaping () -> Bool) {
+    func presentNewsAfterUpgrade(existingInstallation: Bool = false, ready: @escaping () -> Bool) {
         guard !disabled, let current = Int(Self.build) else { return }
         let defaults = UserDefaults.standard, key = "ArcRebornLastNewsBuild"
-        if defaults.object(forKey: key) == nil { defaults.set(current, forKey: key); return }
-        guard current > defaults.integer(forKey: key) else { return }
-        guard let notes = releaseNotes else { return }
-        if notes.showOnLaunch == false {
-            defaults.set(current, forKey: key)
+        guard defaults.object(forKey:key) != nil || existingInstallation else {
+            defaults.set(current, forKey:key)
+            return
+        }
+        // Versions predating the read marker can still have a saved profile.
+        let last = defaults.integer(forKey:key)
+        guard last < current, let installed = releaseNotes else { return }
+        let candidate = installed.showOnLaunch == false ? previousVisibleNotes : installed
+        guard let notes = candidate, notes.build > last else {
+            defaults.set(current, forKey:key)
             return
         }
         func attempt(_ remaining: Int) {
-            guard remaining > 0 else { return } // Retry at next launch if busy.
+            guard remaining > 0, defaults.integer(forKey:key) < notes.build else { return }
             if ready(), NSApp.modalWindow == nil, !NSApp.windows.contains(where: { $0.attachedSheet != nil }) {
-                if self.showNews() { defaults.set(current, forKey: key) }
+                self.showNews(notes)
+                defaults.set(current, forKey:key)
             } else { DispatchQueue.main.asyncAfter(deadline: .now()+2) { attempt(remaining-1) } }
         }
         DispatchQueue.main.asyncAfter(deadline: .now()+2) { attempt(60) }
     }
+    private func loadNotes(_ resource:String) -> ReleaseNotes? {
+        guard let url = Bundle.main.url(forResource:resource, withExtension:"json"),
+              let data = try? Data(contentsOf:url) else { return nil }
+        return try? JSONDecoder().decode(ReleaseNotes.self,from:data)
+    }
     private lazy var releaseNotes: ReleaseNotes? = {
-        guard let url = Bundle.main.url(forResource: "ReleaseNotes", withExtension: "json"),
-              let data = try? Data(contentsOf: url), let notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data),
-              notes.version == Self.version, String(notes.build) == Self.build else { return nil }
+        guard let notes = loadNotes("ReleaseNotes"), notes.version == Self.version,
+              String(notes.build) == Self.build else { return nil }
         return notes
     }()
-    private func localizedNews() -> ReleaseNotesWindow? {
+    private lazy var previousVisibleNotes: ReleaseNotes? = {
+        guard let notes = loadNotes("PreviousVisibleReleaseNotes"), notes.showOnLaunch != false,
+              let current = releaseNotes, notes.build < current.build else { return nil }
+        return notes
+    }()
+    private func localizedNews(_ notes: ReleaseNotes) -> ReleaseNotesWindow {
         let language = ReleaseNotes.Language.current
-        if news?.language != language, let notes = releaseNotes {
-            let previous = news?.window
-            news = ReleaseNotesWindow(notes: notes, language: language)
-            if let previous, previous.isVisible, let window = news?.window {
+        if let news, news.language == language, news.notes.build == notes.build { return news }
+        let previous = news?.window
+        let localized = ReleaseNotesWindow(notes:notes, language:language)
+        news = localized
+        if let previous {
+            if previous.isVisible, let window = localized.window {
                 window.setFrameTopLeftPoint(NSPoint(x: previous.frame.minX, y: previous.frame.maxY))
                 window.order(.above, relativeTo: previous.windowNumber)
                 if previous.isKeyWindow { window.makeKey() }
             }
-            previous?.close()
+            previous.close()
         }
-        return news
+        return localized
     }
-    @objc private func refreshVisibleNews() { if news?.window?.isVisible == true { _ = localizedNews() } }
+    @objc private func refreshVisibleNews() {
+        if let news, news.window?.isVisible == true { _ = localizedNews(news.notes) }
+    }
     @discardableResult func showNews() -> Bool {
-        guard let news = localizedNews() else { return false }
-        news.showWindow(nil); news.window?.makeKeyAndOrderFront(nil)
+        guard let notes = releaseNotes else { return false }
+        showNews(notes)
         return true
+    }
+    private func showNews(_ notes:ReleaseNotes) {
+        let window = localizedNews(notes)
+        window.showWindow(nil); window.window?.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -186,11 +209,13 @@ private final class ReleaseHighlightRow: ReleaseNotesSurface {
 }
 
 private final class ReleaseNotesWindow: NSWindowController {
+    let notes: ReleaseNotes
     let language: ReleaseNotes.Language
     private var entranceViews: [NSView] = []
     private var hasAppeared = false
 
     init(notes: ReleaseNotes, language: ReleaseNotes.Language) {
+        self.notes = notes
         self.language = language
         let english = language == .en
         let width: CGFloat = 520, margin: CGFloat = 38

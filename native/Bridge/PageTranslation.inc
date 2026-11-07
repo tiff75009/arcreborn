@@ -7,14 +7,23 @@ static id<BrowserTranslationPresenter> TranslationPresenter() {
 
 class PageTranslationJob : public CefDevToolsMessageObserver {
  public:
-  explicit PageTranslationJob(NSString *tab) : tab_([tab copy]), token_(NSUUID.UUID.UUIDString) {}
+  explicit PageTranslationJob(NSString *tab) : tab_([tab copy]), token_(NSUUID.UUID.UUIDString), pending_([NSMutableArray array]) {}
   void Start(CefRefPtr<CefBrowser> browser) {
     browser_ = browser;
     registration_ = browser->GetHost()->AddDevToolsMessageObserver(this);
     Send("Page.getFrameTree",nullptr,Stage::Frame);
   }
-  bool applied() const { return !ended_ && stage_ == Stage::Translated; }
-  void Restore() { if (applied()) Eval(@"restore",nil,Stage::Restore); }
+  bool canRestore() const {
+    return !ended_ && (stage_ == Stage::Translating || stage_ == Stage::Apply || stage_ == Stage::Translated);
+  }
+  void Restore() {
+    if (!canRestore()) return;
+    stage_ = Stage::Restore;
+    [TranslationPresenter() cancelInlineTranslation:tab_];
+    [pending_ removeAllObjects];
+    // CDP executes this after any patch already sent to this document.
+    Eval(@"restore",nil,Stage::Restore);
+  }
   void End();
   void OnDevToolsAgentDetached(CefRefPtr<CefBrowser>) override { End(); }
   void OnDevToolsMethodResult(CefRefPtr<CefBrowser>,int msg,bool success,const void *bytes,size_t size) override {
@@ -44,31 +53,59 @@ class PageTranslationJob : public CefDevToolsMessageObserver {
         NSString *error = [value isKindOfClass:NSDictionary.class] ? value[@"error"] : nil;
         Fail(error); return;
       }
-      NSWindow *window = ChromeDocumentWindow(tab_);
-      if (!window || window.attachedSheet || !tabVisibility[tab_.UTF8String] || !TranslationPresenter()) { Eval(@"release",nil,Stage::Release); return; }
-      stage_ = Stage::Presenting;
-      [TranslationPresenter() translateStrings:texts hint:value[@"lang"] ?: @"" page:YES owner:tab_ inWindow:window completion:^(NSArray<NSString *> *translated) {
-        if (keep->ended_) return;
-        if (!translated) keep->Eval(@"release",nil,Stage::Release);
-        else keep->Eval(@"apply",translated,Stage::Apply);
-      }];
+      stage_ = Stage::Translating;
+      NSView *view = VisibleChromePage(tab_);
+      if (!view || !TranslationPresenter()) { Restore(); return; }
+      [TranslationPresenter() translatePageStrings:texts hint:value[@"lang"] ?: @"" owner:tab_ inView:view
+        update:^(NSInteger index, NSString *translated) {
+          if (!keep->acceptingResults()) return;
+          [keep->pending_ addObject:@[@(index),translated]];
+          keep->SchedulePaint();
+        } completion:^(NSString *error) {
+          if (!keep->acceptingResults()) return;
+          if (error) { keep->NotifyReader(error); keep->Restore(); return; }
+          keep->receivedAll_ = true;
+          keep->SchedulePaint();
+        }];
     } else if (stage_ == Stage::Apply) {
       if (![value isEqual:@YES]) { Fail(); return; }
-      stage_ = Stage::Translated; // Keep this context ID until restore or navigation.
+      stage_ = Stage::Translating;
+      SchedulePaint();
     } else End();
   }
  private:
-  enum class Stage { Frame,World,Collect,Presenting,Apply,Translated,Restore,Release };
-  void Fail(NSString *reason = nil) {
-    NSWindow *window = ChromeDocumentWindow(tab_);
-    if (window && tabVisibility[tab_.UTF8String] && !window.attachedSheet && !quitting) {
-      NSAlert *alert = [[NSAlert alloc] init]; alert.messageText = L(@"Traduction de la page",@"Page translation");
-      alert.informativeText = [reason isEqual:@"limit"] ? L(@"Cette page est trop longue. Sélectionnez un passage à traduire.",@"This page is too long. Select a passage to translate.")
-        : [reason isEqual:@"empty"] ? L(@"Aucun texte à traduire sur cette page.",@"There is no text to translate on this page.")
-        : L(@"La page a changé ou son contenu ne peut pas être traduit.",@"The page changed or its content can’t be translated.");
-      [alert beginSheetModalForWindow:window completionHandler:nil];
+  enum class Stage { Frame,World,Collect,Translating,Apply,Translated,Restore };
+  bool acceptingResults() const { return !ended_ && (stage_ == Stage::Translating || stage_ == Stage::Apply); }
+  void SchedulePaint() {
+    if (stage_ != Stage::Translating || paintScheduled_) return;
+    if (!pending_.count) {
+      if (receivedAll_) stage_ = Stage::Translated;
+      return;
     }
-    End();
+    // Coalesce Apple responses while the last renderer edit is in flight.
+    // Never wait for translation of the rest of the document to start painting.
+    paintScheduled_ = true;
+    CefRefPtr<PageTranslationJob> keep(this);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,16*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+      keep->paintScheduled_ = false;
+      if (keep->ended_ || keep->stage_ != Stage::Translating) return;
+      NSArray *batch = [keep->pending_ copy];
+      [keep->pending_ removeAllObjects];
+      keep->Eval(@"apply",batch,Stage::Apply);
+    });
+  }
+  void NotifyReader(NSString *message) {
+    NSWindow *window = VisibleChromePage(tab_).window;
+    if (!quitting && window) [TranslationPresenter() showTranslationNotice:message inWindow:window];
+  }
+  void Fail(NSString *reason = nil) {
+    if (ended_) return;
+    NSString *message = [reason isEqual:@"limit"] ? L(@"Cette page est trop longue. Sélectionnez un passage à traduire.",@"This page is too long. Select a passage to translate.")
+        : [reason isEqual:@"empty"] ? L(@"Aucun texte à traduire sur cette page.",@"There is no text to translate on this page.")
+        : L(@"La traduction de cette page est indisponible.",@"Translation is unavailable for this page.");
+    NotifyReader(message);
+    if (canRestore()) Restore();
+    else End();
   }
   void Send(const char *method,CefRefPtr<CefDictionaryValue> params,Stage next) {
     if (ended_ || !browser_ || !browser_->IsValid()) { End(); return; }
@@ -92,6 +129,8 @@ class PageTranslationJob : public CefDevToolsMessageObserver {
     Send("Runtime.evaluate",params,next);
   }
   NSString *tab_, *token_;
+  NSMutableArray *pending_;
+  bool paintScheduled_ = false, receivedAll_ = false;
   CefRefPtr<CefBrowser> browser_; CefRefPtr<CefRegistration> registration_;
   int message_ = 0, context_ = 0; Stage stage_ = Stage::Frame; bool ended_ = false;
   IMPLEMENT_REFCOUNTING(PageTranslationJob);
@@ -101,6 +140,7 @@ void PageTranslationJob::End() {
   if (ended_) return;
   CefRefPtr<PageTranslationJob> keep(this);
   ended_ = true;
+  [TranslationPresenter() cancelInlineTranslation:tab_];
   auto it = pageTranslations.find(tab_.UTF8String);
   if (it != pageTranslations.end() && it->second.get() == this) pageTranslations.erase(it);
   dispatch_async(dispatch_get_main_queue(),^{ keep->registration_ = nullptr; keep->browser_ = nullptr; });

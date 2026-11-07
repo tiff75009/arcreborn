@@ -70,7 +70,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             target?.focusSidebarUpdate()
         })
         BrowserUpdates.shared.start()
-        BrowserUpdates.shared.presentNewsAfterUpgrade { [weak self] in self?.sharedSession.onboardingComplete == true && self?.quitting == false }
+        BrowserUpdates.shared.presentNewsAfterUpgrade(existingInstallation: initial.onboardingComplete) { [weak self] in self?.sharedSession.onboardingComplete == true && self?.quitting == false }
         if ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil,
            let raw = ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_AUTOCLOSE"], let seconds = Double(raw), seconds >= 10 {
             DispatchQueue.main.asyncAfter(deadline:.now()+seconds) { [weak self] in self?.requestQuit() }

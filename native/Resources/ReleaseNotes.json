@@ -1,58 +1,25 @@
 {
-  "version": "1.2.1",
-  "build": 28,
-  "showOnLaunch": true,
+  "version": "1.2.2",
+  "build": 29,
+  "showOnLaunch": false,
   "title": {
-    "en": "Translate as you browse",
-    "fr": "Traduisez pendant votre navigation"
+    "en": "Read as the page translates",
+    "fr": "Lisez pendant la traduction"
   },
   "subtitle": {
-    "en": "Read a passage or a whole page in your preferred language with Apple Translation on macOS 15 or later.",
-    "fr": "Lisez un passage ou une page entière dans la langue de votre choix avec la traduction d’Apple, à partir de macOS 15."
+    "en": "Full-page translation now updates the page as you read, starting with the text on screen.",
+    "fr": "La traduction de page remplace le texte au fil de la lecture, en commençant par le passage à l’écran."
   },
   "highlights": [
     {
       "symbol": "translate",
       "title": {
-        "en": "Translate a selection",
-        "fr": "Traduisez une sélection"
+        "en": "Translate in place",
+        "fr": "Traduisez directement dans la page"
       },
       "detail": {
-        "en": "Select text and choose Translate Selection from the context menu. Arc Reborn detects the source language and shows a translation you can copy.",
-        "fr": "Sélectionnez du texte, puis choisissez « Traduire la sélection… » au clic droit. Arc Reborn détecte la langue d’origine et affiche une traduction que vous pouvez copier."
-      }
-    },
-    {
-      "symbol": "globe",
-      "title": {
-        "en": "Read the whole page",
-        "fr": "Lisez toute la page"
-      },
-      "detail": {
-        "en": "Right-click without a selection, choose Translate Page, then apply the translation. Choose Show Original to return to the original text without reloading or losing a draft.",
-        "fr": "Faites un clic droit sans sélection, choisissez « Traduire la page… », puis appliquez la traduction. « Afficher l’original » rétablit le texte sans recharger la page ni perdre votre saisie."
-      }
-    },
-    {
-      "symbol": "character.bubble",
-      "title": {
-        "en": "Choose your translation language",
-        "fr": "Choisissez votre langue de traduction"
-      },
-      "detail": {
-        "en": "Translations follow your browser language by default. Pick another language in the translation window to update the result and save your choice in Settings → General.",
-        "fr": "Par défaut, la traduction suit la langue du navigateur. Choisissez une autre langue dans la boîte de traduction pour actualiser le résultat et mémoriser ce choix dans Réglages → Général."
-      }
-    },
-    {
-      "symbol": "waveform",
-      "title": {
-        "en": "Ask Siri about a passage",
-        "fr": "Interrogez Siri sur un passage"
-      },
-      "detail": {
-        "en": "The native macOS context menu now offers Ask Siri on supported Macs. Select a passage and right-click to bring it to Siri.",
-        "fr": "Sur les Mac compatibles, le menu contextuel de macOS propose désormais « Demander à Siri ». Sélectionnez un passage et faites un clic droit pour interroger Siri à son sujet."
+        "en": "Right-click and choose Translate Page. You can scroll, follow links, or choose Show Original at any point, even while translation is running.",
+        "fr": "Faites un clic droit et choisissez « Traduire la page ». Vous pouvez faire défiler la page, suivre un lien ou choisir « Afficher l’original », même pendant la traduction."
       }
     }
   ]
