@@ -304,6 +304,7 @@ static bool running = false;
 static bool quitting = false;
 static NSString *Str(const CefString& value) { return [NSString stringWithUTF8String:value.ToString().c_str()] ?: @""; }
 static CefString CefStr(NSString *value) { return CefString(value.UTF8String ?: ""); }
+#include "LocalDocuments.inc"
 static bool Allowed(NSString *value) {
   if ([value hasPrefix:@"view-source:"]) {
     NSString *source = [value substringFromIndex:12];
@@ -491,11 +492,14 @@ static NSString *NetworkErrorName(cef_errorcode_t code) {
   }
 }
 
+#include "ExternalAppLinks.inc"
+
 class NativeClient : public CefClient,
                      public CefCommandHandler,
                      public CefContextMenuHandler,
                      public CefLifeSpanHandler,
                      public CefDisplayHandler,
+                     public CefFindHandler,
                      public CefLoadHandler,
                      public CefRequestHandler,
                      public CefJSDialogHandler,
@@ -565,6 +569,12 @@ class NativeClient : public CefClient,
   }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
+  CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
+  void OnFindResult(CefRefPtr<CefBrowser>, int, int count, const CefRect&, int ordinal, bool finalUpdate) override {
+    if (finalUpdate && embedded_ && !quitting && count >= 0 && (count == 0 || ordinal > 0) &&
+        [engine_.delegate respondsToSelector:@selector(browserFindResult:position:total:)])
+      [engine_.delegate browserFindResult:tabID_ position:(count == 0 ? 0 : ordinal) total:count];
+  }
   void OnMediaAccessChange(CefRefPtr<CefBrowser>, bool video, bool audio) override {
     const std::string tab = tabID_.UTF8String;
     if (video || audio) { capturingTabs.insert(tab); FinishArchiveProbe(tab,false); }
@@ -620,6 +630,7 @@ class NativeClient : public CefClient,
     if (!chrome_ && tabVisibility.count(key)) view.hidden = !tabVisibility[key];
     auto navigation = pendingNavigation.find(key);
     if (navigation != pendingNavigation.end()) {
+      ExpectTabAddress(tabID_,Str(navigation->second));
       browser->GetMainFrame()->LoadURL(navigation->second);
       pendingNavigation.erase(navigation);
     }
@@ -638,6 +649,7 @@ class NativeClient : public CefClient,
     CEF_REQUIRE_UI_THREAD();
     BrowserTrace(@"tab.before-close",@{@"tab":tabID_,@"browser":@(browser->GetIdentifier()),@"quitting":@(quitting)});
     DismissSitePermissionSheet(tabID_.UTF8String);
+    DismissExternalAppSheet(tabID_.UTF8String);
     favicon_->closed = true;
     ++favicon_->generation;
     CloseTabDeveloperTools(tabID_.UTF8String);
@@ -650,6 +662,7 @@ class NativeClient : public CefClient,
     discardedBrowsers.erase(tabID_.UTF8String);
     tabVisibility.erase(tabID_.UTF8String);
     pendingNavigation.erase(tabID_.UTF8String);
+    requestedLocalDocuments.erase(tabID_.UTF8String);
     [engine_.delegate browserClosed:tabID_];
     if (quitting) dispatch_async(dispatch_get_main_queue(), ^{ QuitNext(); });
   }
@@ -661,6 +674,7 @@ class NativeClient : public CefClient,
     CEF_REQUIRE_UI_THREAD();
     FinishArchiveProbe(tabID_.UTF8String,false);
     if (!embedded_ || !frame->IsMain()) return;
+    DismissExternalAppSheet(tabID_.UTF8String);
     CancelNativeInspection(tabID_.UTF8String);
     ++favicon_->generation;
     favicon_->candidates.clear();
@@ -687,7 +701,11 @@ class NativeClient : public CefClient,
         new FaviconDownload(engine_, tabID_, browser, favicon_, favicon_->generation, DocumentURL(browser), 0));
   }
   void OnAddressChange(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& url) override {
-    if (frame->IsMain() && Allowed(Str(url))) [engine_.delegate browserURLChanged:tabID_ url:Str(url)];
+    if (!frame->IsMain()) return;
+    NSString *address = Str(url);
+    if (LocalDocument(address)) requestedLocalDocuments.erase(tabID_.UTF8String);
+    else if (!Allowed(address)) return;
+    [engine_.delegate browserURLChanged:tabID_ url:address];
   }
   void OnLoadingProgressChange(CefRefPtr<CefBrowser> browser, double progress) override {
     CEF_REQUIRE_UI_THREAD();
@@ -702,20 +720,39 @@ class NativeClient : public CefClient,
     NSString *host = [NSURLComponents componentsWithString:Str(failedURL)].host;
     [engine_.delegate browserFailed:tabID_ code:NetworkErrorName(errorCode) host:host];
   }
+  bool HandleExternalLink(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, NSString *url, bool userAction) {
+    NSString *scheme = ExternalAppScheme(url);
+    if (!scheme) return false;
+    if (embedded_ && userAction && !quitting && frame && frame->IsMain()) {
+      NSView *page = chrome_ ? VisibleChromePage(tabID_) : (__bridge NSView *)browser->GetHost()->GetWindowHandle();
+      AskToOpenExternalApp(browser,tabID_,page,url,scheme);
+    }
+    return true;
+  }
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool gesture, bool redirect) override {
     NSString *url = Str(request->GetURL());
     if (chrome_ && frame->IsMain()) {
       NSURLComponents *location = [NSURLComponents componentsWithString:url];
       ExtensionStoreCompatibility(browser, [location.scheme isEqualToString:@"https"] && [location.host isEqualToString:@"chromewebstore.google.com"] && !location.user && !location.password);
     }
+    if (NSURL *file = LocalDocument(url)) {
+      auto main = browser->GetMainFrame();
+      NSURL *current = main ? LocalDocument(Str(main->GetURL())) : nil;
+      if (!frame->IsMain()) return !current;
+      auto expected = requestedLocalDocuments.find(tabID_.UTF8String);
+      bool requested = expected != requestedLocalDocuments.end() && expected->second == file.path.UTF8String;
+      return !requested && !current && (redirect || !(request->GetTransitionType() & TT_FORWARD_BACK_FLAG));
+    }
+    if (HandleExternalLink(browser, frame, url, gesture && !redirect)) return true;
     if (frame->IsMain()) return !Allowed(url);
     NSString *scheme = [NSURLComponents componentsWithString:url].scheme.lowercaseString;
     return [scheme isEqualToString:@"file"] || [scheme isEqualToString:@"chrome"] || [scheme isEqualToString:@"devtools"];
   }
-  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>,
-                        const CefString& target, WindowOpenDisposition disposition, bool) override {
+  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+                        const CefString& target, WindowOpenDisposition disposition, bool gesture) override {
     // Normal new-tab navigations are routed inside the engine with their full
     // OpenURLParams. This callback only exposes a URL, and cannot preserve POST.
+    if (HandleExternalLink(browser, frame, Str(target), gesture)) return true;
     if (!embedded_ || disposition != CEF_WOD_OFF_THE_RECORD) return false;
     NSString *url = Str(target), *source = tabID_;
     if (quitting || !Allowed(url)) return true;
@@ -730,6 +767,7 @@ class NativeClient : public CefClient,
   }
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int popup_id, const CefString& target_url, const CefString& target_frame_name, WindowOpenDisposition disposition, bool gesture, const CefPopupFeatures& features, CefWindowInfo& info, CefRefPtr<CefClient>& client, CefBrowserSettings& settings, CefRefPtr<CefDictionaryValue>& extra, bool* no_javascript_access) override {
     NSString *url = target_url.empty() ? @"about:blank" : Str(target_url);
+    if (HandleExternalLink(browser, frame, url, gesture)) return true;
     if (quitting || !Allowed(url)) return true;
     NSDictionary *prepared = nil;
     if ([engine_.delegate respondsToSelector:@selector(browserPreparePopup:sourceTab:active:)])
@@ -938,8 +976,8 @@ class NativeClient : public CefClient,
         const int key = event.windows_key_code;
         if (command && !option && !control &&
             (key == 'N' || key == 'T' || key == 'W' || key == 'L' ||
-             key == 'S' || key == 'P' || key == 'D' || key == 'R' ||
-             key == 'F' || key == 'Y' || (key == 'J' && shift) ||
+             key == 'S' || key == 'O' || key == 'P' || key == 'D' || key == 'R' ||
+             key == 'F' || key == 'G' || key == 'Y' || (key == 'J' && shift) ||
              (key == 'C' && shift))) return true;
         if (command && !option && !control &&
             ((key >= '0' && key <= '9') || key == 187 || key == 189 ||
@@ -1159,7 +1197,7 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
     if (readyProfiles.count(entry.first)) ApplyWebLanguage(entry.second);
 }
 - (BOOL)createTab:(NSString *)tabID profile:(NSString *)profileID url:(NSString *)url inView:(NSView *)container {
-  if (!running || quitting || !Allowed(url)) return NO;
+  if (!running || quitting || (!Allowed(url) && !LocalDocument(url))) return NO;
   if (browsers.count(tabID.UTF8String) || pendingBrowsers.count(tabID.UTF8String)) return YES;
   auto context = ContextForProfile(profileID);
   if (!context) return NO;
@@ -1195,9 +1233,14 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   if (!running || quitting) return NO;
   return ShowExtensionWindow(profileID, name, store);
 }
-- (void)navigateTab:(NSString *)tabID url:(NSString *)url { if (!Allowed(url)) return; auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetMainFrame()->LoadURL(CefStr(url)); else if (pendingBrowsers.count(tabID.UTF8String)) pendingNavigation[tabID.UTF8String] = url.UTF8String; }
+- (void)navigateTab:(NSString *)tabID url:(NSString *)url {
+  if (!Allowed(url) && !LocalDocument(url)) return;
+  auto i = browsers.find(tabID.UTF8String);
+  if (i != browsers.end()) { ExpectTabAddress(tabID,url); i->second->GetMainFrame()->LoadURL(CefStr(url)); }
+  else if (pendingBrowsers.count(tabID.UTF8String)) pendingNavigation[tabID.UTF8String] = url.UTF8String;
+}
 - (void)resizeTab:(NSString *)tabID inView:(NSView *)container { if (chromeTabs.count(tabID.UTF8String)) { LayoutChromeTab(tabID.UTF8String); return; } auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) return; NSView *view = (__bridge NSView *)i->second->GetHost()->GetWindowHandle(); view.frame = container.bounds; }
-- (void)setTab:(NSString *)tabID visible:(BOOL)visible { SetDeveloperToolsVisible(tabID.UTF8String,visible); if (!visible && tabVisibility[tabID.UTF8String]) { DismissSitePermissionSheet(tabID.UTF8String); CloseNativeExtensionPopup(tabID.UTF8String); } tabVisibility[tabID.UTF8String] = visible; if (chromeTabs.count(tabID.UTF8String)) { LayoutChromeTab(tabID.UTF8String); return; } auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) return; NSView *view = (__bridge NSView *)i->second->GetHost()->GetWindowHandle(); BOOL wasHidden = view.hidden; view.hidden = !visible; if (visible && wasHidden && view.window.isKeyWindow && !view.window.attachedSheet) i->second->GetHost()->SetFocus(true); }
+- (void)setTab:(NSString *)tabID visible:(BOOL)visible { SetDeveloperToolsVisible(tabID.UTF8String,visible); if (!visible && tabVisibility[tabID.UTF8String]) { DismissSitePermissionSheet(tabID.UTF8String); DismissExternalAppSheet(tabID.UTF8String); CloseNativeExtensionPopup(tabID.UTF8String); } tabVisibility[tabID.UTF8String] = visible; if (chromeTabs.count(tabID.UTF8String)) { LayoutChromeTab(tabID.UTF8String); return; } auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) return; NSView *view = (__bridge NSView *)i->second->GetHost()->GetWindowHandle(); BOOL wasHidden = view.hidden; view.hidden = !visible; if (visible && wasHidden && view.window.isKeyWindow && !view.window.attachedSheet) i->second->GetHost()->SetFocus(true); }
 - (void)focusTab:(NSString *)tabID {
   auto chrome = chromeTabs.find(tabID.UTF8String);
   if (chrome != chromeTabs.end() && chrome->second.content) {
@@ -1424,5 +1467,5 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   CefRefPtr<SiteCookieVisitor> visitor = new SiteCookieVisitor(manager, completion);
   visitor->accepted = manager->VisitUrlCookies(CefStr(address), true, visitor);
 }
-- (void)stopFinding:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetHost()->StopFinding(true); }
+- (void)stopFinding:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetHost()->StopFinding(false); }
 @end

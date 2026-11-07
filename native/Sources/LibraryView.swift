@@ -414,6 +414,11 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
     var folderToggle: ((String) -> Void)?
     private(set) var section: Section = .media
     var expanded: Bool { section == .spaces }
+    func canScrollSpaceCards(at pointInWindow: NSPoint, delta: CGFloat) -> Bool {
+        guard expanded, !filterVisible, cardsScroll.visibleRect.contains(cardsScroll.convert(pointInWindow,from:nil)) else { return false }
+        let clip = cardsScroll.contentView.bounds
+        return delta < 0 ? clip.maxX < cards.bounds.maxX-1 : delta > 0 && clip.minX > 1
+    }
     private let store: LibraryStore
     private let archivedIcon: (NativeTab) -> NSImage?
     private var session: BrowserSession

@@ -1,25 +1,69 @@
 {
-  "version": "1.1.1",
-  "build": 26,
-  "showOnLaunch": false,
+  "version": "1.2.0",
+  "build": 27,
+  "showOnLaunch": true,
   "title": {
-    "en": "Passkey sign-in fix",
-    "fr": "Correctif de connexion par clé d’accès"
+    "en": "Find, share and open links on Mac",
+    "fr": "Rechercher, partager et ouvrir des liens sur Mac"
   },
   "subtitle": {
-    "en": "Fixed a crash when choosing a phone or tablet to sign in with a passkey.",
-    "fr": "Correction d’un plantage au moment de choisir un téléphone ou une tablette pour se connecter avec une clé d’accès."
+    "en": "Find your place on a long page and move links between Arc Reborn and your Mac apps.",
+    "fr": "Retrouvez un passage dans une longue page et partagez vos liens entre Arc Reborn et vos apps Mac."
   },
   "highlights": [
     {
-      "symbol": "qrcode.viewfinder",
+      "symbol": "magnifyingglass",
       "title": {
-        "en": "Sign in with a nearby device",
-        "fr": "Connectez-vous avec un appareil à proximité"
+        "en": "Find in both directions",
+        "fr": "Parcourez les résultats dans les deux sens"
       },
       "detail": {
-        "en": "Arc Reborn can now request Bluetooth access and show the QR code to scan with your device. You can cancel and try again from the same tab.",
-        "fr": "Arc Reborn peut désormais demander l’accès au Bluetooth et afficher le QR code à scanner avec votre appareil. Vous pouvez annuler et réessayer depuis le même onglet."
+        "en": "Press ⌘F to search. ⌘G or Return selects the next match, and ⇧⌘G or Shift-Return selects the previous one. The counter shows your position, for example 3 of 18.",
+        "fr": "Ouvrez la recherche avec ⌘F. ⌘G ou Entrée passe au résultat suivant, ⇧⌘G ou Majuscule-Entrée revient au précédent. Le compteur indique votre position, par exemple 3 sur 18."
+      }
+    },
+    {
+      "symbol": "link",
+      "title": {
+        "en": "Drag a tab to another app",
+        "fr": "Glissez un onglet vers une autre app"
+      },
+      "detail": {
+        "en": "Drag a web tab, a favorite or a pane of a split view into a Mail draft to insert its link. Drop it on the Desktop to create a .webloc with its title and full address.",
+        "fr": "Glissez un onglet web, un favori ou un panneau de vue partagée dans un brouillon Mail pour y insérer son lien. Déposez-le sur le Bureau pour créer un fichier .webloc avec son titre et son adresse complète."
+      }
+    },
+    {
+      "symbol": "arrow.up.forward.app",
+      "title": {
+        "en": "Open links in Mac apps",
+        "fr": "Ouvrez les liens dans vos apps Mac"
+      },
+      "detail": {
+        "en": "When you click an email or Zoom link, Arc Reborn names the site and the app before handing it over. If your Mac has no app for the link, the browser tells you.",
+        "fr": "Quand vous cliquez sur un lien de messagerie ou de réunion Zoom, Arc Reborn indique le site et le nom de l’app avant de l’ouvrir. Si aucune app ne peut ouvrir le lien, le navigateur vous le signale."
+      }
+    },
+    {
+      "symbol": "doc",
+      "title": {
+        "en": "Open local files",
+        "fr": "Ouvrez vos fichiers locaux"
+      },
+      "detail": {
+        "en": "Open HTML, PDF and SVG files and .webloc shortcuts from Finder, the Dock or the File menu with ⌘O.",
+        "fr": "Ouvrez vos fichiers HTML, PDF et SVG et vos raccourcis .webloc depuis le Finder, le Dock ou le menu Fichier avec ⌘O."
+      }
+    },
+    {
+      "symbol": "sidebar.left",
+      "title": {
+        "en": "Swipe to your Library",
+        "fr": "Accédez à la bibliothèque au trackpad"
+      },
+      "detail": {
+        "en": "Scroll left in the sidebar of your first space to open the Library. The drawer follows your fingers. Scroll right to close it from any space.",
+        "fr": "Dans la barre latérale du premier espace, faites défiler vers la gauche pour ouvrir la bibliothèque. Le tiroir suit vos doigts. Faites défiler vers la droite pour le fermer depuis n’importe quel espace."
       }
     }
   ]

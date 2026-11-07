@@ -34,6 +34,15 @@ enum ArcSyncCodec {
         result.sidebarHidden = false
         result.activeSpaceID = result.spaces.first?.id ?? result.activeSpaceID
         for i in result.spaces.indices { result.spaces[i].selectedTabID = nil }
+        // A document URL and its title describe a file on this Mac only.
+        let files = Set(result.tabs.lazy.filter { isLocalTabDocument($0.url) }.map(\.id))
+        result.closedTabs.removeAll { isLocalTabDocument($0.url) }
+        if !files.isEmpty {
+            result.tabs.removeAll { files.contains($0.id) }
+            result.splitGroups?.removeAll { $0.tabIDs.contains(where:files.contains) }
+            for i in result.tabs.indices where result.tabs[i].favoriteSourceID.map(files.contains) == true { result.tabs[i].favoriteSourceID = nil }
+            for i in result.closedTabs.indices where result.closedTabs[i].favoriteSourceID.map(files.contains) == true { result.closedTabs[i].favoriteSourceID = nil }
+        }
         return result
     }
     static func encrypt(_ session:BrowserSession,key:Data,owner:String) throws -> String {
@@ -58,18 +67,24 @@ enum ArcSyncCodec {
         return canonical(payload.session)
     }
     static func merge(local:BrowserSession,baseline:BrowserSession?,remote:BrowserSession) throws -> BrowserSession {
+        let hasLocalDocuments = local.tabs.contains { isLocalTabDocument($0.url) } || local.closedTabs.contains { isLocalTabDocument($0.url) }
         let local = canonical(local), remote = canonical(remote)
         if let baseline { return canonical(try BrowserSession.merging(base:canonical(baseline),incoming:local,latest:remote)) }
         // A fresh installation restores the existing workspace without adding an
         // extra empty Personal space. A used installation merges by stable ID.
-        if local.profiles.count == 1 && local.spaces.count == 1 && local.folders.isEmpty && local.closedTabs.isEmpty
+        if !hasLocalDocuments && local.profiles.count == 1 && local.spaces.count == 1 && local.folders.isEmpty && local.closedTabs.isEmpty
             && local.tabs.allSatisfy({ $0.url == "about:blank" && !$0.pinned }) { return remote }
         var empty = local
         empty.profiles = []; empty.spaces = []; empty.tabs = []; empty.closedTabs = []; empty.folders = []; empty.splitGroups = nil
         return canonical(try BrowserSession.merging(base:empty,incoming:local,latest:remote))
     }
-    static func applying(_ merged:BrowserSession,to latest:BrowserSession,checkpointKey:String,checkpoint:NativeCloudCheckpoint) -> BrowserSession {
+    static func applying(_ merged:BrowserSession,to latest:BrowserSession,checkpointKey:String,checkpoint:NativeCloudCheckpoint) throws -> BrowserSession {
         var result = merged
+        func hasLocalData(_ tab:NativeTab) -> Bool { isLocalTabDocument(tab.url) }
+        if latest.tabs.contains(where:hasLocalData) || latest.closedTabs.contains(where:hasLocalData) {
+            // Apply cloud edits over this Mac’s local documents and split groups.
+            result = try BrowserSession.merging(base:canonical(latest),incoming:merged,latest:latest)
+        }
         result.onboardingComplete = latest.onboardingComplete
         result.classicSidebarHidden = nil
         result.sidebarHidden = latest.sidebarHidden

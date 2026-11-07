@@ -39,6 +39,7 @@ enum BrowserCommands {
         add("quit", "Quitter Arc Reborn", "Quit Arc Reborn", "q")
         category = "Fichier"
         add("newTab", "Nouvel onglet…", "New Tab…", "t")
+        add("openFile", "Ouvrir un fichier…", "Open File…", "o")
         add("newWindow", "Nouvelle fenêtre", "New Window", "n")
         add("blankWindow", "Fenêtre vide", "Blank Window", "n", [.command,.control])
         add("incognito", "Nouvelle fenêtre privée", "New Incognito Window", "n", [.command,.control,.shift])
@@ -71,6 +72,8 @@ enum BrowserCommands {
         add("zoomIn", "Zoom avant", "Zoom In", "+")
         add("zoomOut", "Zoom arrière", "Zoom Out", "-")
         add("find", "Rechercher dans la page…", "Find in Page…", "f")
+        add("findNext", "Rechercher l’occurrence suivante", "Find Next", "g")
+        add("findPrevious", "Rechercher l’occurrence précédente", "Find Previous", "g", [.command,.shift])
         add("pip", "Activer l’image dans l’image", "Enter Picture-in-Picture")
         add("cast", "Diffuser…", "Cast…", available:false)
         add("fullscreen", "Activer le mode plein écran", "Enter Full Screen", "f", [.command,.control])

@@ -99,10 +99,16 @@ struct NativeTab: Codable, Equatable {
     var developerCaptureColor: String? = nil
     var lastViewedAt: Date? = nil
     var autoArchivedAt: Date? = nil
-    var displayTitle: String { customTitle ?? title }
+    var displayTitle: String {
+        if let customTitle { return customTitle }
+        if isLocalTabDocument(url), let file = URL(string:url), title.isEmpty || title == url || title == file.path {
+            return file.lastPathComponent
+        }
+        return title
+    }
     func hoverTitle(untitled: String) -> String {
         if let customTitle, !customTitle.isEmpty { return customTitle }
-        let caption = title.trimmingCharacters(in:.whitespacesAndNewlines)
+        let caption = displayTitle.trimmingCharacters(in:.whitespacesAndNewlines)
         // Chromium can temporarily report the address as the title during navigation.
         if !caption.isEmpty, caption != url, !(["https://","http://"].contains { caption.lowercased().hasPrefix($0) }) { return caption }
         return URL(string:url)?.host ?? untitled
@@ -251,7 +257,7 @@ struct BrowserSession: Codable, Equatable {
         }
         let tabsByID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         func validTab(_ tab: NativeTab) -> Bool {
-            guard spaceIDs.contains(tab.spaceID), isAllowedBrowserURL(tab.url), tab.title.utf8.count <= 8192,
+            guard spaceIDs.contains(tab.spaceID), isAllowedTabAddress(tab.url), tab.title.utf8.count <= 8192,
                 !tab.title.contains("\0"), !tab.favorite || tab.pinned else { return false }
             if let name = tab.customTitle, !validLabel(name) { return false }
             if let color = tab.developerCaptureColor, !validColor(color) { return false }
@@ -300,7 +306,7 @@ struct BrowserSession: Codable, Equatable {
         let spaceID = spaceID ?? activeSpaceID
         guard let spaceIndex = spaces.firstIndex(where: { $0.id == spaceID }), tabs.count < 5000 else { return "" }
         let url = explicitURL ?? profile(forSpace: spaceID)?.homepage ?? "about:blank"
-        guard isAllowedBrowserURL(url) else { return "" }
+        guard isAllowedTabAddress(url) else { return "" }
         let id = UUID().uuidString
         tabs.append(NativeTab(id: id, spaceID: spaceID, url: url, title: "", pinned: false, favorite: false, folderID: nil,lastViewedAt:Date()))
         spaces[spaceIndex].selectedTabID = id
@@ -420,6 +426,20 @@ func browserDisplayAddress(_ address: String) -> String {
     return parts.string ?? address
 }
 
+// Structural only: restoring one missing/removable document must never invalidate the session.
+func isLocalTabDocument(_ address: String) -> Bool {
+    guard address.hasPrefix("file:///"), address.utf8.count <= 32768,
+          let parts = URLComponents(string:address), let url = parts.url,
+          (parts.host ?? "").isEmpty, parts.user == nil, parts.password == nil, parts.port == nil,
+          parts.path.hasPrefix("/"), !parts.path.hasPrefix("//"), !parts.percentEncodedPath.contains("%00"),
+          ["html","htm","pdf","svg"].contains(url.pathExtension.lowercased()) else { return false }
+    return true
+}
+
+func isAllowedTabAddress(_ address: String) -> Bool {
+    isAllowedBrowserURL(address) || isLocalTabDocument(address)
+}
+
 func isAllowedBrowserURL(_ input: String) -> Bool {
     guard input.utf8.count <= 32768, input.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
         !input.contains("\\") else { return false }
@@ -436,6 +456,12 @@ func isAllowedBrowserURL(_ input: String) -> Bool {
         ["http", "https"].contains(scheme), let host = components.host, !host.isEmpty,
         components.user == nil, components.password == nil, components.url != nil else { return false }
     return true
+}
+
+func browserWebURL(_ address:String?) -> URL? {
+    guard let address, isAllowedBrowserURL(address), let url = URL(string:address),
+          let scheme = url.scheme?.lowercased(), ["https","http"].contains(scheme) else { return nil }
+    return url
 }
 
 /// Resolve an address or a search query. Unsupported schemes return nil rather than execute.

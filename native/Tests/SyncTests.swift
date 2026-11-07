@@ -38,7 +38,7 @@ import Foundation
         check(reconciled.tabs[0].customTitle == "Titre récent" && reconciled.tabs.contains(where:{$0.id == addedRemote}),"edits during network request preserved")
         let checkpoint = NativeCloudCheckpoint(enabled:true,revision:1,ciphertext:ciphertext,lastSync:Date())
         local.sidebarHidden = true
-        let applied = ArcSyncCodec.applying(merged,to:local,checkpointKey:owner,checkpoint:checkpoint)
+        let applied = try ArcSyncCodec.applying(merged,to:local,checkpointKey:owner,checkpoint:checkpoint)
         check(applied.sidebarHidden && applied.cloudSyncState?[owner] == checkpoint,"local presentation and sync baseline retained")
         let reencrypted = try ArcSyncCodec.encrypt(applied,key:key,owner:owner)
         check(try ArcSyncCodec.decrypt(reencrypted,key:key,owner:owner).cloudSyncState == nil,"encrypted baseline never recursively uploaded")
@@ -56,8 +56,18 @@ import Foundation
         var updated = favorites; updated.tabs[0].title = "Shared favorite title"
         let windowMerge = try BrowserSession.merging(base:favorites,incoming:updated,latest:favorites)
         check(windowMerge.spaces.first { $0.id == sharedSpace }?.selectedTabID == tab && windowMerge.validated(),"window merging preserves shared favorite selections")
-        let syncedFavorites = ArcSyncCodec.applying(ArcSyncCodec.canonical(updated),to:favorites,checkpointKey:owner,checkpoint:checkpoint)
+        let syncedFavorites = try ArcSyncCodec.applying(ArcSyncCodec.canonical(updated),to:favorites,checkpointKey:owner,checkpoint:checkpoint)
         check(syncedFavorites.spaces.first { $0.id == sharedSpace }?.selectedTabID == tab && syncedFavorites.validated(),"sync restores same-profile shared favorite selections")
+        var withFiles = base
+        let file = withFiles.createTab(url:"file:///Users/test/Documents/caf%C3%A9.pdf")
+        let archived = withFiles.createTab(url:"file:///Volumes/Disk/drawing.svg"); withFiles.closeTab(id:archived)
+        _ = withFiles.mergeSplit(file,onto:tab)
+        withFiles.selectTab(id:file)
+        let filtered = try ArcSyncCodec.decrypt(ArcSyncCodec.encrypt(withFiles,key:key,owner:owner),key:key,owner:owner)
+        check(filtered.validated() && !filtered.tabs.contains(where:{$0.id == file}) && !filtered.closedTabs.contains(where:{$0.id == archived}),"open and archived documents stay off the cloud")
+        var changed = filtered; let remoteTab = changed.createTab(url:"https://example.com/elsewhere")
+        let afterSync = try ArcSyncCodec.applying(changed,to:withFiles,checkpointKey:owner,checkpoint:checkpoint)
+        check(afterSync.validated() && afterSync.tabs.contains(where:{$0.id == remoteTab}) && afterSync.spaces.first?.selectedTabID == file && afterSync.splitGroup(containing:file)?.tabIDs.contains(tab) == true && afterSync.closedTabs.contains(where:{$0.id == archived}),"receiving cloud edits keeps this Mac’s selected document, split and archive")
         print("PASS \(count) sync checks; real browser profile untouched")
     }
 }

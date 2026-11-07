@@ -55,7 +55,7 @@ final class BrowserMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
         NSApp.servicesMenu = submenu(text("Services","Services"),in:app)
         add(["privacy","-","hide","hideOthers","showAll","-","signOut","-","quit"],to:app)
         let file = submenu(text("Fichier","File"),in:root)
-        add(["newTab","newWindow","blankWindow","incognito","littleWindow","restoreTab","-","commandBar","-","newProfile","newEasel","-","closeWindow","closeTab","-","sharePage","capture","captureFull","capturePortrait","savePage","print"],to:file)
+        add(["newTab","newWindow","blankWindow","incognito","littleWindow","restoreTab","-","openFile","commandBar","-","newProfile","newEasel","-","closeWindow","closeTab","-","sharePage","capture","captureFull","capturePortrait","savePage","print"],to:file)
         let edit = submenu(text("Édition","Edit"),in:root)
         for (fr,en,selector,key,flags) in [
             ("Annuler","Undo","undo:","z",NSEvent.ModifierFlags.command),
@@ -67,7 +67,7 @@ final class BrowserMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
             let item = NSMenuItem(title:text(fr,en),action:NSSelectorFromString(selector),keyEquivalent:key)
             item.keyEquivalentModifierMask = flags; edit.addItem(item)
         }
-        edit.addItem(.separator()); add(["find"],to:edit)
+        edit.addItem(.separator()); add(["find","findNext","findPrevious"],to:edit)
         let view = submenu(text("Présentation","View"),in:root)
         let appearance = submenu(text("Apparence","Appearance"),in:view)
         add(["appearance.automatic","appearance.light","appearance.dark"],to:appearance)
@@ -109,6 +109,7 @@ final class BrowserMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
             appDelegate?.openWindow(kind,from:controller); return
         }
         if id == "updates" { BrowserUpdates.shared.check(); return }
+        if id == "openFile" { appDelegate?.chooseBrowserDocuments(in:controller); return }
         if id == "whatsNew" { BrowserUpdates.shared.showNews(); return }
         controller?.performBrowserCommand(id)
     }
@@ -116,6 +117,11 @@ final class BrowserMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
         guard let id = item.representedObject as? String else { return false }
         if ["newWindow","blankWindow","incognito","littleWindow"].contains(id) { return appDelegate?.sharedSession.onboardingComplete == true && appDelegate?.quitting == false }
         if id == "updates" { return appDelegate?.quitting == false && BrowserUpdates.shared.canCheck }
+        if id == "openFile" {
+            return appDelegate?.booted == true && appDelegate?.quitting == false &&
+                appDelegate?.sharedSession.onboardingComplete == true &&
+                (controller.map { $0.window.isKeyWindow && $0.window.attachedSheet == nil } ?? (NSApp.keyWindow == nil))
+        }
         if id == "whatsNew" { return appDelegate?.quitting == false }
         guard let controller else { return false }
         let state = controller.browserCommandState(id)

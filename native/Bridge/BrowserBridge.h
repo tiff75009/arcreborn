@@ -8,6 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)browserRequestedNewTab:(NSString *)url sourceTab:(NSString *)tabID NS_SWIFT_NAME(browserRequestedNewTab(_:sourceTab:));
 - (void)browserClosed:(NSString *)tabID NS_SWIFT_NAME(browserClosed(_:));
 @optional
+- (void)browserFindResult:(NSString *)tabID position:(NSInteger)position total:(NSInteger)total NS_SWIFT_NAME(browserFindResult(_:position:total:));
 - (void)browserSoundChanged:(NSString *)tabID audible:(BOOL)audible muted:(BOOL)muted NS_SWIFT_NAME(browserSoundChanged(_:audible:muted:));
 - (void)browserInboxChanged:(NSString *)tabID document:(NSString *)document unread:(BOOL)unread NS_SWIFT_NAME(browserInboxChanged(_:document:unread:));
 - (void)browserLoadProgress:(NSString *)tabID fraction:(double)fraction NS_SWIFT_NAME(browserLoadProgress(_:fraction:));

@@ -54,6 +54,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     func browserSoundChanged(_ id:String,audible:Bool,muted:Bool) { receiver?.browserSoundChanged?(logical(id),audible:audible,muted:muted) }
     func browserInboxChanged(_ id:String,document:String,unread:Bool) { receiver?.browserInboxChanged?(logical(id),document:document,unread:unread) }
     func browserURLChanged(_ id:String,url:String) { receiver?.browserURLChanged(logical(id),url:url) }
+    func browserFindResult(_ id:String,position:Int,total:Int) { receiver?.browserFindResult?(logical(id),position:position,total:total) }
     func browserLoadProgress(_ id:String,fraction:Double) { receiver?.browserLoadProgress?(logical(id),fraction:fraction) }
     func browserLoadingChanged(_ id:String,loading:Bool,back:Bool,forward:Bool) { receiver?.browserLoadingChanged(logical(id),loading:loading,back:back,forward:forward) }
     func browserFailed(_ id:String,code:String,host:String?) { receiver?.browserFailed(logical(id),code:code,host:host) }

@@ -31,6 +31,7 @@ struct FavoriteVisual {
 
 /// Retained tiles: a title/favicon refresh never replaces a running drag source.
 final class FavoritesGrid: NSView {
+    var dragWriter: ((String) -> NSPasteboardItem?)?
     var activate: ((String) -> Void)?
     var accept: ((String,Int,NSDraggingInfo) -> Bool)?
     var acceptedID: ((NSDraggingInfo) -> String?)?
@@ -47,7 +48,7 @@ final class FavoritesGrid: NSView {
     private var isUpdating = false
     private var layoutWidth: CGFloat = 0
     private let placeholder = NSView()
-    private let dragType = NSPasteboard.PasteboardType("local.browser.tab")
+    private let dragType = SidebarTabDrag.tabType
     override var isFlipped: Bool { true }
     var preferredHeight: CGFloat {
         let count = previewID == nil ? items.count : items.filter { $0.id != previewID }.count+1
@@ -266,7 +267,7 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
             let point = convert(next.locationInWindow,from:nil)
             if next.type == .leftMouseUp { if bounds.contains(point) { activate() }; return }
             guard hypot(point.x-start.x,point.y-start.y) > 4 else { continue }
-            let pasteboard = NSPasteboardItem(); pasteboard.setString(id,forType:NSPasteboard.PasteboardType("local.browser.tab"))
+            guard let pasteboard = grid?.dragWriter?(id) else { return }
             let item = NSDraggingItem(pasteboardWriter:pasteboard)
             let image = NSImage(size:bounds.size)
             if let bitmap = bitmapImageRepForCachingDisplay(in:bounds) { cacheDisplay(in:bounds,to:bitmap); image.addRepresentation(bitmap) }
@@ -277,7 +278,9 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
             return
         }
     }
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { context == .withinApplication ? .move : [] }
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        SidebarTabDrag.operation(in: context, pasteboard: session.draggingPasteboard)
+    }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { grid?.endDrag() }
 }
 

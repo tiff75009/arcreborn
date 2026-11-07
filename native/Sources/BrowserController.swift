@@ -244,6 +244,9 @@ private final class ActionPopUp: NSPopUpButton {
     @objc private func invokeAction() { invoke?() }
 }
 private final class SidebarTable: NSTableView {
+    override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        SidebarTabDrag.operation(in: context, pasteboard: session.draggingPasteboard)
+    }
     var context: ((Int) -> NSMenu?)?
     var clicked: ((Int) -> Void)?
     var acceptsPointerAt: ((NSPoint) -> Bool)?
@@ -460,7 +463,7 @@ private struct TabStatus { var unread = FavoriteUnread(); var sound: TabSoundSta
 private enum SidebarRow: Equatable { case tab(String), folder(String), heading(String), newTab }
 private final class MenuAction: NSObject { let kind: String; let id: String; let value: String; init(_ kind: String, _ id: String, _ value: String = "") { self.kind = kind; self.id = id; self.value = value } }
 
-final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate, NSTableViewDataSource, NSTableViewDelegate {
     let window: NSWindow
     private var session: BrowserSession
     private let store: SessionStore
@@ -584,8 +587,14 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var recentPeekTask: DispatchWorkItem?
     private var recentPeekPending: Bool?
     private var library: LibraryView?
-    private var libraryTransition = 0
-    private var libraryClosing = false
+    private let libraryMotion = LibraryDrawerMotion()
+    private static let logsSidebarScroll = ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_SCROLL_LOG"] == "1"
+    private let libraryInputShield = SidebarFooterBarrier()
+    private var libraryGesture = SpaceSwipeState()
+    private var libraryWheelRelease: DispatchWorkItem?
+    private var libraryOwnsMomentum = false
+    private var afterLibraryClose: (() -> Void)?
+    private weak var responderBeforeLibrary: NSResponder?
     private static let downloadRunID = UUID().uuidString
     private var downloadRun:String { Self.downloadRunID }
     private lazy var libraryStore = LibraryStore(directory:store.directory,downloadsDirectory:URL(fileURLWithPath:BrowserEngine.currentDownloadDirectory(),isDirectory:true),persistent:!isPrivateWindow)
@@ -610,9 +619,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var spaceButton: SpaceHeaderButton!
     private var folderButton: ActionButton!
     private var downloadButton: ActionButton!
-    private var findField: NSSearchField!
-    private var findClose: ActionButton!
-    private var isFinding = false
+    private let findBar = PageFindBar()
+    private var findTabID: String?
     private var saveTask: DispatchWorkItem?
     private var lastSaveError: String?
     private var sheet: NSPanel?
@@ -632,7 +640,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var deletionUndo: [DeletionUndo] = []
     private var destructiveClosing = Set<String>()
     private let undoToast = UndoToast()
-    private let dragType = NSPasteboard.PasteboardType("local.browser.tab")
+    private let dragType = SidebarTabDrag.tabType
     private let palette = ["#B367A5", "#A5C4DD", "#A6C9BB", "#E2C1A5", "#B5B3E6", "#B6BFD2"]
 
     init(session: BrowserSession, store: SessionStore, windowID:String = UUID().uuidString, kind:BrowserWindowKind = .normal, privateWindow:Bool = false) {
@@ -778,6 +786,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         layout()
     }
     func windowDidResignKey(_ notification: Notification) {
+        cancelLibraryGesture()
         spaceIndicatorContent.clearHover(); dismissSidebarTip()
         updateRecentPeekHover(); updateSidebarHover()
         DispatchQueue.main.async { [weak self] in
@@ -884,6 +893,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             return self.acceptFavorite(id,at:self.session.favoriteTabs(spaceID:self.session.activeSpaceID).count,drag:info)
         }
         favorites.activate = { [weak self] id in self?.selectTab(id) }
+        favorites.dragWriter = { [weak self] id in self?.tabDragWriter(id) }
         favorites.accept = { [weak self] id, index, info in self?.acceptFavorite(id,at:index,drag:info) ?? false }
         favorites.acceptedID = { [weak self] info in
             guard let self, case .tab(let id) = self.draggedItem(info),
@@ -909,9 +919,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         addressBackground.addSubview(addressMark,positioned:.below,relativeTo:addressButton)
         addressMark.isHidden = true
         sidebarHost.addSubview(downloadButton)
-        findField = NSSearchField(); findField.placeholderString = t("find"); findField.delegate = self; findField.target = self; findField.action = #selector(findNextAction(_:)); findField.isHidden = true
-        findClose = ActionButton(t("close"), symbol: "xmark") { [weak self] in self?.endFind() }; findClose.title = ""; findClose.isHidden = true
-        root.addSubview(findField); root.addSubview(findClose)
+        findBar.queryChanged = { [weak self] in self?.startFindQuery() }
+        findBar.step = { [weak self] forward in self?.stepFind(forward: forward) }
+        findBar.dismiss = { [weak self] in self?.endFind(restoreFocus: true) }
+        findBar.isHidden = true
+        root.addSubview(findBar)
         spaceButton = SpaceHeaderButton() { [weak self] in self?.toggleSpaceFolders() }; spaceButton.font = .systemFont(ofSize: 14, weight: .semibold); spaceButton.alignment = .left
         folderButton = ActionButton(t("newFolder"), symbol: "folder.badge.plus") { [weak self] in self?.newFolder() }; folderButton.title = ""
         sidebarItems.addSubview(spaceButton); sidebarItems.addSubview(folderButton)
@@ -972,7 +984,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         spaceScrollMonitor = NSEvent.addLocalMonitorForEvents(matching:.scrollWheel) { [weak self] event in
             guard let self, event.window === self.window || (event.window == nil && NSApp.keyWindow === self.window) else { return event }
             self.activeTabScroll.cancel()
-            return self.handleSpaceScroll(event) ? nil : event
+            return self.handleLibraryScroll(event) || self.handleSpaceScroll(event) ? nil : event
         }
         spaceIndicatorContent.receivesWindowEvents = true
         spaceIndicators.pointerAfterScroll = { [weak self] event in
@@ -1006,6 +1018,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.dismissFolderPeek(animated:false)
             self?.engine.closeExtensionPopup()
+            self?.cancelLibraryGesture()
             self?.finishSpaceSwitch()
             self?.addMenu?.close()
             self?.sidebarMousePressed = false
@@ -1128,19 +1141,15 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarItems.frame = sidebarHost.bounds
         sidebarTint.frame = root.bounds
         layoutNavigation(side:side)
-        content.frame = browsingFrame(side:side,floating:floating)
-        if let library {
-            library.frame = NSRect(x:0,y:0,width:library.expanded ? max(400,width-64) : min(414,width-180),height:root.bounds.height)
-            content.frame = NSRect(x:library.frame.maxX+2,y:7,width:max(52,width-library.frame.maxX-10),height:root.bounds.height-17)
-            sidebarHost.isHidden = true
-        }
+        if library != nil { layoutLibraryDrawer() }
+        else { content.frame = browsingFrame(side:side,floating:floating) }
         if let windowChrome, !usesClassicInterface, library == nil, spaceCreation == nil {
             let compact = windowKind == .compact
             windowChrome.isHidden = false
             windowChrome.frame = NSRect(x:compact ? 6 : side+2,y:compact ? 4 : 7,width:compact ? width-12 : width-side-10,height:40)
             content.frame = NSRect(x:compact ? 8 : side+2,y:49,width:compact ? width-16 : width-side-10,height:max(100,root.bounds.height-59))
             if compact { sidebarHost.isHidden = true; resizeStrip.isHidden = true }
-        } else { windowChrome?.isHidden = true }
+        } else if library == nil || usesClassicInterface { windowChrome?.isHidden = true }
         pageShadow.frame = content.frame
         if pageSplitDrop.drag != nil {
             pageSplitDrop.resize(to: content.frame)
@@ -1169,8 +1178,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         favoritesHint.isHidden = !showFavoritesHint
         favorites.isHidden = showFavoritesHint
         folderButton.isHidden = true // Folder creation remains in the space context menu and + menu.
-        findField.frame = NSRect(x: max(side+18,width-340), y: usesClassicInterface ? content.frame.minY+8 : 17, width: 270, height: 28)
-        findClose.frame = NSRect(x: width-48, y: usesClassicInterface ? content.frame.minY+9 : 18, width: 25, height: 25)
+        let findWidth = min(362, max(0, content.frame.width - 20))
+        findBar.frame = NSRect(x: content.frame.maxX-findWidth-10, y: content.frame.minY+8, width: findWidth, height: 34)
         layoutWindowButtons()
         if windowKind == .compact {
             sidebarHost.isHidden = true; resizeStrip.isHidden = true
@@ -1576,8 +1585,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         sidebarButton.wantsLayer = true; sidebarButton.layer?.cornerRadius = 8; sidebarButton.layer?.backgroundColor = sidebarInk.withAlphaComponent(0.07).cgColor
         favoritesHint.ink = sidebarInk; favoritesHint.accent = NSColor(srgbRed: 0.70, green: 0, blue: 0.53, alpha: 1)
         favoritesHint.heading.stringValue = t("favoritesHintTitle"); favoritesHint.detail.stringValue = t("favoritesHintDetail"); favoritesHint.dismiss.setAccessibilityLabel(t("dismissHint")); favoritesHint.needsDisplay = true; favoritesHint.needsLayout = true
-        for (button, key) in [(sidebarButton!, "sidebar"), (backButton!, "back"), (forwardButton!, "forward"), (reloadButton!, "reload"), (folderButton!, "newFolder"), (downloadButton!, "library"), (findClose!, "close")] { button.toolTip = t(key); button.setAccessibilityLabel(t(key)) }
-        findField.placeholderString = t("find")
+        for (button, key) in [(sidebarButton!, "sidebar"), (backButton!, "back"), (forwardButton!, "forward"), (reloadButton!, "reload"), (folderButton!, "newFolder"), (downloadButton!, "library")] { button.toolTip = t(key); button.setAccessibilityLabel(t(key)) }
+        findBar.localize(session.language)
         refreshFavorites()
         renderSpaceContent(moving:movingSidebarItem)
         renderSpacesFooter(); updateToolbar(); buildHome(); layoutFavorites(animated:true); style(spaceButton, opacity: 0.7); style(downloadButton, opacity: 0.8)
@@ -1681,12 +1690,68 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         spaceIndicatorContent.fit(width:width)
         addButton.frame = NSRect(x:spacesFooter.bounds.width-31,y:0,width:33,height:32)
     }
+    private func handleLibraryScroll(_ event: NSEvent) -> Bool {
+        // Momentum belongs to the gesture that just ended, even if the content
+        // beneath the pointer has become a web page or a different space.
+        if !event.momentumPhase.isEmpty { return libraryOwnsMomentum }
+        let phase = SpaceSwipeState.Phase(event)
+        if phase == .began && libraryMotion.isTracking { cancelLibraryGesture() }
+        if !libraryMotion.isTracking { libraryOwnsMomentum = false }
+        let point = event.window == nil ? window.convertPoint(fromScreen:NSEvent.mouseLocation) : event.locationInWindow
+        let inSidebar = !sidebarHost.isHidden && sidebarHost.bounds.contains(sidebarHost.convert(point,from:nil))
+        let inLibrary = library.map { $0.visibleRect.contains($0.convert(point,from:nil)) } ?? false
+        let inside = inLibrary || (inSidebar && (library == nil || libraryMotion.isSettling))
+        let boardScroll = library?.canScrollSpaceCards(at:point,delta:event.scrollingDeltaX) == true
+        let canStart = inside && !boardScroll && (library != nil || session.spaces.first?.id == session.activeSpaceID)
+        let blocked = isQuitting || closingWindow || afterLibraryClose != nil || spaceCreation != nil ||
+            sheet != nil || window.attachedSheet != nil || commandPalette != nil || trackingMenus > 0 ||
+            sidebarDragActive || themeEditor != nil || siteMenu?.isShown == true || iconPicker?.isShown == true || addMenu != nil
+        let scale:CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+        let result = libraryGesture.update(dx:event.scrollingDeltaX*scale,dy:event.scrollingDeltaY*scale,
+            phase:phase,momentum:false,eligible:!blocked && (libraryMotion.isTracking || canStart),time:event.timestamp)
+        if Self.logsSidebarScroll {
+            NSLog("LibraryScroll x=%.1f dx=%.1f phase=%lu inside=%d owned=%d p=%.3f",point.x,event.scrollingDeltaX,event.phase.rawValue,inside ? 1 : 0,libraryMotion.isTracking ? 1 : 0,libraryMotion.progress)
+        }
+        if result.cancelled {
+            let owned = libraryMotion.isTracking
+            if owned { cancelLibraryGesture() }
+            return owned
+        }
+        if !libraryMotion.isTracking {
+            guard result.consume, let direction = result.direction else { return false }
+            let opening = direction < 0
+            guard libraryMotion.isSettling || opening != libraryMotion.targetOpen else { return false }
+            if library == nil {
+                guard opening, session.spaces.first?.id == session.activeSpaceID, windowKind != .compact else { return false }
+                finishSpaceSwitch()
+                mountLibrary()
+            }
+        }
+        libraryOwnsMomentum = true
+        libraryMotion.track(offset:result.offset,width:libraryWidth)
+        drawLibraryMotion()
+        libraryWheelRelease?.cancel(); libraryWheelRelease = nil
+        let open = libraryMotion.releaseTarget(velocity:result.velocity,width:libraryWidth)
+        if result.ended { settleLibrary(open:open,velocity:result.velocity) }
+        else if phase == .unphased {
+            let release = DispatchWorkItem { [weak self] in self?.settleLibrary(open:open,velocity:result.velocity) }
+            libraryWheelRelease = release; DispatchQueue.main.asyncAfter(deadline:.now()+0.14,execute:release)
+        }
+        return true
+    }
+
+    private func cancelLibraryGesture() {
+        guard libraryMotion.isTracking else { return }
+        libraryGesture.reset()
+        settleLibrary(open:libraryMotion.targetOpen)
+    }
+
     private func handleSpaceScroll(_ event: NSEvent) -> Bool {
         let blocked = library != nil || spaceCreation != nil || spaceCreationClosing || sheet != nil || window.attachedSheet != nil || commandPalette != nil || siteMenu?.isShown == true || iconPicker?.isShown == true || themeEditor != nil || addMenu != nil || trackingMenus > 0 || sidebarDragActive
         let location = event.window == nil ? window.convertPoint(fromScreen:NSEvent.mouseLocation) : event.locationInWindow
         let inside = !sidebarHost.isHidden && sidebarHost.bounds.contains(sidebarHost.convert(location,from:nil))
         let inFooter = inside && spacesFooter.frame.contains(sidebarHost.convert(location,from:nil))
-        let phase: SpaceSwipeState.Phase = event.phase.contains(.began) || event.phase.contains(.mayBegin) ? .began : event.phase.contains(.cancelled) ? .cancelled : event.phase.contains(.ended) ? .ended : event.phase.isEmpty ? .unphased : .changed
+        let phase = SpaceSwipeState.Phase(event)
         let overDownloads = !recentPeek.isHidden && recentPeek.frame.contains(sidebarHost.convert(location,from:nil))
         if inFooter || overDownloads || blocked || !inside || isQuitting {
             if swipeTarget != nil { finishSpaceSwitch() }
@@ -1716,7 +1781,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             swipeProgress = 0; spaceSwitch?.setProgress(0)
             sidebarTint.setPreviewProgress(0); sidebarHost.setPreviewProgress(0)
         }
-        if ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_SCROLL_LOG"] == "1" {
+        if Self.logsSidebarScroll {
             NSLog("SpaceScroll dx=%g offset=%g progress=%g phase=%lu consumed=%d",event.scrollingDeltaX,result.offset,Double(swipeProgress),event.phase.rawValue,result.consume ? 1 : 0)
         }
         swipeReleaseTask?.cancel(); swipeReleaseTask = nil
@@ -1910,17 +1975,20 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         (downloadButton as? LibraryFooterButton)?.animateLibraryPeek(false)
     }
     private func showLibrary() {
-        dismissRecentPeek(animated:false)
         guard !isQuitting, spaceCreation == nil else { return }
         if library != nil { closeLibrary(); return }
-        finishSpaceSwitch(); commandPalette?.close(); themeEditor?.close(animated:false); addMenu?.close(); endFind(); cancelSidebarHover()
-        sidebarTransition += 1; sidebarAnimating = false; sidebarHost.isHidden = true
+        finishSpaceSwitch(); commandPalette?.close(); themeEditor?.close(animated:false); addMenu?.close()
+        mountLibrary(); settleLibrary(open:true)
+    }
+    private func mountLibrary() {
+        dismissRecentPeek(animated:false); dismissSidebarTip(); dismissFolderPeek(animated:false); cancelSidebarHover()
+        sidebarTransition += 1; sidebarAnimating = false; sidebarHost.layer?.removeAllAnimations()
         let view = LibraryView(store:libraryStore,session:session,archivedIcon:{ [weak self] tab in
             guard let self, let profile = self.session.profile(forSpace:tab.spaceID)?.id else { return nil }
             _ = self.faviconCache.restoredImage(id:tab.id,url:tab.url,profile:profile)
             return self.splitTabIcon(tab)
         }); library = view
-        handoffPageChanged?(self)
+        responderBeforeLibrary = window.firstResponder
         view.close = { [weak self] in self?.closeLibrary() }
         view.expandedChanged = { [weak self] in self?.animateLibraryLayout() }
         view.selectSpace = { [weak self] id in self?.closeLibrary { [weak self] in self?.selectSpace(id) } }
@@ -1951,37 +2019,79 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             self.restoreTabAction(nil)
         } }
         root.addSubview(view,positioned:.below,relativeTo:pageShadow)
-        animateLibraryLayout(entering:true)
-        window.makeFirstResponder(view)
+        root.addSubview(libraryInputShield)
+        layout(); view.layoutSubtreeIfNeeded()
     }
-    private func animateLibraryLayout(entering: Bool = false) {
-        guard let library, !libraryClosing else { return }
+    private var libraryWidth: CGFloat {
+        library?.expanded == true ? max(400,root.bounds.width-64) : min(414,root.bounds.width-180)
+    }
+    private func layoutLibraryDrawer() {
+        guard let library else { return }
+        let p = libraryMotion.progress, width = libraryWidth, h = root.bounds.height
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        library.frame = NSRect(x:reduced ? 0 : (p-1)*width,y:0,width:width,height:h)
+        library.alphaValue = reduced ? p : min(1,p*2)
+        let sidebarOpacity = (1-p)*(1-p)
+        sidebarHost.alphaValue = sidebarOpacity
+        sidebarHost.isHidden = p >= 1 || windowKind == .compact || (session.sidebarHidden && !sidebarRevealed)
+        classicHeader.isHidden = !usesClassicInterface || p >= 1
+        classicHeader.alphaValue = sidebarOpacity
+        var closed = browsingFrame(side:CGFloat(SidebarSizing.clamp(session.sidebarWidth)),floating:session.sidebarHidden)
+        if let windowChrome, !usesClassicInterface {
+            let compact = windowKind == .compact, x = compact ? 8 : CGFloat(SidebarSizing.clamp(session.sidebarWidth))+2
+            closed = NSRect(x:x,y:49,width:root.bounds.width-x-8,height:max(100,h-59))
+            windowChrome.alphaValue = sidebarOpacity; windowChrome.isHidden = p >= 1
+        }
+        let x = closed.minX + (width+2-closed.minX)*p, y = closed.minY + (7-closed.minY)*p
+        content.frame = NSRect(x:x,y:y,width:max(52,root.bounds.width-x-8),height:closed.height+(h-17-closed.height)*p)
+        pageShadow.frame = content.frame
+        libraryInputShield.frame = NSRect(x:0,y:0,width:max(x,sidebarHost.isHidden ? 0 : sidebarHost.frame.maxX),height:h)
+        libraryInputShield.isHidden = p == 1 && !libraryMotion.isTracking
+    }
+    private func drawLibraryMotion() {
+        layoutLibraryDrawer()
+        home.frame = content.bounds; layoutSplitContent()
+    }
+    private func animateLibraryLayout() {
+        guard let library else { return }
+        guard !libraryMotion.isTracking, libraryMotion.progress == 1 else { drawLibraryMotion(); return }
         let previous = content.frame; layout(); library.layoutSubtreeIfNeeded(); let target = content.frame
         content.frame = previous; pageShadow.frame = previous
-        if entering { library.frame.origin.x = -65; library.alphaValue = 0 }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.27
             context.timingFunction = CAMediaTimingFunction(controlPoints:0.2,0.8,0.25,1)
-            library.animator().setFrameOrigin(.zero); library.animator().alphaValue = 1
             content.animator().frame = target; pageShadow.animator().frame = target
         } completionHandler: { [weak self] in self?.layout() }
     }
     private func closeLibrary(completion: (() -> Void)? = nil) {
-        guard let view = library, !libraryClosing else { completion?(); return }
-        libraryClosing = true; libraryTransition += 1; let token = libraryTransition
-        view.dispose()
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.20
-            context.timingFunction = CAMediaTimingFunction(name:.easeInEaseOut)
-            view.animator().alphaValue = 0; view.animator().setFrameOrigin(NSPoint(x:-40,y:0))
-            let side = CGFloat(SidebarSizing.clamp(session.sidebarWidth))
-            let target = browsingFrame(side:side,floating:session.sidebarHidden)
-            content.animator().frame = target; pageShadow.animator().frame = target
-        },completionHandler:{ [weak self] in
-            guard let self, self.libraryTransition == token else { return }
-            view.removeFromSuperview(); self.library = nil; self.libraryClosing = false
-            self.render(); self.showSelectedTab(); completion?()
-        })
+        guard library != nil else { completion?(); return }
+        if let completion {
+            let previous = afterLibraryClose
+            afterLibraryClose = { previous?(); completion() }
+        }
+        settleLibrary(open:false)
+    }
+    private func settleLibrary(open: Bool, velocity: CGFloat = 0) {
+        guard let view = library else { return }
+        libraryWheelRelease?.cancel(); libraryWheelRelease = nil
+        if open && !libraryMotion.targetOpen {
+            endFind()
+            window.makeFirstResponder(view); handoffPageChanged?(self)
+        }
+        libraryMotion.settle(open:open,velocity:velocity,width:libraryWidth,screen:window.screen,draw:{ [weak self] in
+            self?.drawLibraryMotion()
+        }) { [weak self, weak view] in
+            guard let self, let view, self.library === view else { return }
+            if open { self.layout(); return }
+            let restoreFocus = (self.window.firstResponder as? NSView)?.isDescendant(of:view) == true
+            view.dispose(); view.removeFromSuperview(); self.library = nil
+            self.libraryInputShield.removeFromSuperview()
+            self.sidebarHost.alphaValue = 1; self.classicHeader.alphaValue = 1; self.windowChrome?.alphaValue = 1
+            self.layout()
+            if restoreFocus { self.window.makeFirstResponder(self.responderBeforeLibrary) }
+            self.responderBeforeLibrary = nil; self.refreshSidebarPointer(); self.handoffPageChanged?(self)
+            let action = self.afterLibraryClose; self.afterLibraryClose = nil; action?()
+        }
     }
     func browserDownloadUpdated(_ tabID: String, values: [String:Any]) {
         guard let id = values["id"] as? NSNumber else { return }
@@ -2082,7 +2192,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             return host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? t("address")
         } ?? t("address")
         addressButton.toolTip = activeTab.map { browserDisplayAddress($0.url) }; addressButton.isHidden = false
-        findField.isHidden = !isFinding; findClose.isHidden = !isFinding
+        if let findTabID, findTabID != activeTab?.id { endFind() }
         copyLinkButton.isEnabled = copyableURL != nil
         siteMenuButton.isEnabled = copyableURL != nil
         copyLinkButton.ink = sidebarInk; siteMenuButton.ink = sidebarInk
@@ -2351,15 +2461,21 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         default: break
         }
     }
+    private func tabDragWriter(_ id: String) -> NSPasteboardItem? {
+        let localID = session.favoriteTabID(id, spaceID: session.activeSpaceID) ?? id
+        guard let tab = session.tabs.first(where: { $0.id == localID }) else { return nil }
+        return SidebarTabDrag.item(id: id, url: browserWebURL(tab.url), title: displayTitle(tab))
+    }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         guard rows.indices.contains(row) else { return nil }
-        let item = NSPasteboardItem()
         switch rows[row] {
-        case .tab(let id): item.setString(id,forType:dragType)
-        case .folder(let id): item.setString(id,forType:folderDragType)
+        case .tab(let id): return tabDragWriter(id)
+        case .folder(let id):
+            let item = NSPasteboardItem()
+            item.setString(id, forType: folderDragType)
+            return item
         default: return nil
         }
-        return item
     }
     func tableView(_ tableView: NSTableView, draggingSession: NSDraggingSession, willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
         dismissSidebarTip(); dismissFolderPeek(animated:false)
@@ -3045,15 +3161,53 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if status[tab.id]?.loading == true { engine.stop(tab.id) }
         else { reloadButton.animateReload(); status[tab.id]?.error = nil; if containers[tab.id] != nil { engine.reload(tab.id) }; buildHome(); showSelectedTab() }
     }
-    @objc func findAction(_ sender: Any?) { guard activeTab != nil else { return }; isFinding = true; updateToolbar(); window.makeFirstResponder(findField) }
-    @objc private func findNextAction(_ sender: Any?) { if let id = activeTab?.id { engine.find(inTab: id, text: findField.stringValue, forward: true, next: true) } }
-    private func endFind() { isFinding = false; if let id = activeTab?.id { engine.stopFinding(id) }; updateToolbar() }
-    func controlTextDidChange(_ obj: Notification) {
-        if obj.object as? NSSearchField === findField { if let id = activeTab?.id { engine.find(inTab: id, text: findField.stringValue, forward: true, next: false) } }
+    @objc func findAction(_ sender: Any?) {
+        guard let id = activeTab?.id else { return }
+        if findTabID != id {
+            endFind()
+            findTabID = id
+            findBar.isHidden = false
+            startFindQuery()
+        }
+        window.makeFirstResponder(findBar.field)
+        findBar.field.selectText(nil)
     }
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if commandSelector == #selector(NSResponder.cancelOperation(_:)) { if sheet != nil { dismissSheet() }; endFind(); return true }; return false
+
+    private func startFindQuery(forward: Bool = true) {
+        guard let id = findTabID else { return }
+        findBar.clearResult()
+        // Chromium starts a new session when the text changes. Request an active
+        // match while typing so the first result is already selected.
+        engine.find(inTab: id, text: findBar.field.stringValue, forward: forward, next: true)
     }
+
+    private func stepFind(forward: Bool) {
+        guard let id = activeTab?.id else { return }
+        if findBar.field.stringValue.isEmpty { findAction(nil); return }
+        if findTabID != id {
+            endFind()
+            findTabID = id
+            findBar.isHidden = false
+            startFindQuery(forward: forward)
+        } else {
+            engine.find(inTab: id, text: findBar.field.stringValue, forward: forward, next: true)
+        }
+    }
+
+    func browserFindResult(_ tabID: String, position: Int, total: Int) {
+        guard findTabID == tabID, activeTab?.id == tabID, !findBar.field.stringValue.isEmpty else { return }
+        findBar.showResult(position: position, total: total)
+    }
+
+    private func endFind(restoreFocus: Bool = false) {
+        guard let id = findTabID else { return }
+        findTabID = nil
+        findBar.isHidden = true
+        findBar.clearResult()
+        engine.stopFinding(id)
+        if restoreFocus && activeTab?.id == id { engine.focusTab(id) }
+    }
+
     private func makeSheet(size: NSSize, title: String) -> (NSPanel, FlippedView) {
         commandPalette?.close()
         dismissSheet()
@@ -3654,7 +3808,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     func browserURLChanged(_ tabID: String, url: String) {
         guard !isQuitting else { return }
-        guard let i = session.tabs.firstIndex(where: { $0.id == tabID }), isAllowedBrowserURL(url) else { return }
+        guard let i = session.tabs.firstIndex(where: { $0.id == tabID }), isAllowedTabAddress(url) else { return }
         if pageCapture?.tabID == tabID, session.tabs[i].url != url { pageCapture?.close() }
         if session.tabs[i].url != url, let previous = previewDocument(session.tabs[i]) { previewImages.remove(previous) }
         let hostChanged = URL(string:session.tabs[i].url)?.host != URL(string:url)?.host
@@ -3678,6 +3832,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     func browserLoadingChanged(_ tabID: String, loading: Bool, back: Bool, forward: Bool) {
         guard !isQuitting, session.tabs.contains(where: { $0.id == tabID }) else { return }
         var state = status[tabID] ?? TabStatus(); let wasLoading = state.loading; state.loading = loading; state.back = back; state.forward = forward
+        if loading && !wasLoading && findTabID == tabID { endFind() }
         let previouslyLoaded = state.hasLoaded
         if loading { state.error = nil; if !wasLoading { state.progress = 0 } }
         else if wasLoading && state.error == nil { state.hasLoaded = true }
@@ -4015,6 +4170,7 @@ extension BrowserController {
         let chips = group.tabIDs.compactMap { id -> SplitTabChip? in
             guard let tab = session.tabs.first(where: { $0.id == id }) else { return nil }
             let chip = SplitTabChip(id:id,title:displayTitle(tab),image:splitTabIcon(tab))
+            chip.dragWriter = { [weak self] in self?.tabDragWriter(id) }
             configureSound(chip.soundButton, id:id)
             styleSidebarTab(tab, icon:chip.icon, title:chip.label)
             chip.developerMode = tab.developerMode == true && id == activeTab?.id
@@ -4349,6 +4505,7 @@ extension BrowserController {
         case "pinTab": return .init(enabled:activeTab != nil && browsing,title:splitText(activeTab?.pinned == true ? "Désépingler l’onglet" : "Épingler l’onglet",activeTab?.pinned == true ? "Unpin Tab" : "Pin Tab"))
         case "sharePage": return .init(enabled:copyableURL != nil && browsing)
         case "savePage": return .init(enabled:page && browsing && (activeTab.map { engine.canSavePage($0.id) } ?? false))
+        case "findNext","findPrevious": return .init(enabled:page && browsing && !findBar.field.stringValue.isEmpty)
         case "capture","captureFull","capturePortrait","print","find","reload","forceReload","clearCache","devtools","console","network","inspect":
             let checked = activeTab.map { tab in id == "devtools" ? engine.hasDeveloperTools(tab.id) : ["console","network","inspect"].contains(id) && engine.developerTool(forTab:tab.id) == id } ?? false
             return .init(enabled:page && browsing,checked:checked)
@@ -4376,8 +4533,16 @@ extension BrowserController {
     }
     func openExternalAddress(_ address: String) {
         guard !isQuitting, isAllowedBrowserURL(address) else { return }
+        openDocumentTabs([address])
+    }
+    func openDocumentTabs(_ addresses: [String]) {
+        guard !isQuitting else { return }
+        var opened = false
+        for address in addresses {
+            if !session.createTab(url:address,spaceID:session.activeSpaceID).isEmpty { opened = true }
+        }
+        guard opened else { return }
         commandPalette?.close(); siteMenu?.close()
-        _ = session.createTab(url:address,spaceID:session.activeSpaceID)
         if library != nil { closeLibrary() }
         render(); showSelectedTab(); persist()
     }
@@ -4434,6 +4599,8 @@ extension BrowserController {
             }
         case "zoomReset","zoomIn","zoomOut": if let tab = activeTab { engine.setZoomLevel(tab.id,level:id == "zoomReset" ? 0 : engine.zoomLevel(tab.id)+(id == "zoomIn" ? 1 : -1)) }
         case "find": findAction(nil)
+        case "findNext": stepFind(forward: true)
+        case "findPrevious": stepFind(forward: false)
         case "pip": pictureInPictureAction(nil)
         case "developer": if let tab = activeTab { toggleDeveloperMode(for:tab.id) }
         case "devtools": if let tab = activeTab { engine.toggleDeveloperTools(tab.id); updateDeveloperBars() }

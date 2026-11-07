@@ -16,6 +16,7 @@ final class SplitTabChip: NSView, NSDraggingSource {
     var rename:(() -> Void)?
     var context:(() -> NSMenu)?
     var dragChanged:((Bool) -> Void)?
+    var dragWriter: (() -> NSPasteboardItem?)?
     override var mouseDownCanMoveWindow:Bool { false }
     init(id:String,title:String,image:NSImage?) {
         self.id = id; super.init(frame:.zero); wantsLayer = true; layer?.cornerRadius = 9
@@ -60,7 +61,7 @@ final class SplitTabChip: NSView, NSDraggingSource {
             }
             if hypot(next.locationInWindow.x-start.x,next.locationInWindow.y-start.y) > 4 {
                 layer?.opacity = 1
-                let pasteboard = NSPasteboardItem(); pasteboard.setString(id,forType:NSPasteboard.PasteboardType("local.browser.tab"))
+                guard let pasteboard = dragWriter?() else { return }
                 let item = NSDraggingItem(pasteboardWriter:pasteboard)
                 guard let group = superview as? SplitGroupCell, let image = group.dragImage() else { return }
                 item.setDraggingFrame(convert(group.bounds,from:group),contents:image)
@@ -69,7 +70,9 @@ final class SplitTabChip: NSView, NSDraggingSource {
         }
         layer?.opacity = 1
     }
-    func draggingSession(_ session:NSDraggingSession,sourceOperationMaskFor context:NSDraggingContext) -> NSDragOperation { .move }
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        SidebarTabDrag.operation(in: context, pasteboard: session.draggingPasteboard)
+    }
     func draggingSession(_ session:NSDraggingSession,endedAt screenPoint:NSPoint,operation:NSDragOperation) { dragChanged?(false) }
 }
 final class SplitGroupCell: NSTableCellView {

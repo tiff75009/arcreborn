@@ -5,7 +5,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private(set) var controllers: [BrowserController] = []
     private var menus: BrowserMenus?
     let handoff = BrowserHandoff()
-    private var pendingAddresses: [String] = []
+    private var pendingDocuments = BrowserDocuments.Batch()
     private var baselines: [String:BrowserSession] = [:]
     private var privateOrigins: [String:String] = [:] // ephemeral CEF context ID → originating regular profile
     private var publishTask: DispatchWorkItem?
@@ -52,7 +52,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             window.show()
         }
         if controllers.isEmpty { _ = openWindow(.normal) }
-        pendingAddresses.forEach { controller?.openExternalAddress($0) }; pendingAddresses.removeAll()
+        deliverBrowserDocuments(pendingDocuments); pendingDocuments = .init()
         controller?.show(); NSApp.activate(ignoringOtherApps:true); buildMenu(); startNativeHostDiagnostics()
         let profilePreview = CommandLine.arguments.contains("--preview-profiles")
         let interfacePreview = CommandLine.arguments.contains("--preview-interface")
@@ -103,7 +103,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             if next.isPrivateWindow { self.openWindow(.privateWindow,from:next,initialAddress:url) }
             else {
                 let target = self.openWindow(.normal,from:next)
-                if let url { target.openExternalAddress(url) }
+                if let url { target.openDocumentTabs([url]) }
             }
             next.requestWindowClose()
         }
@@ -355,10 +355,9 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     func application(_ application:NSApplication,open urls:[URL]) {
-        let addresses = urls.filter { ["https","http"].contains($0.scheme?.lowercased() ?? "") && isAllowedBrowserURL($0.absoluteString) }.map(\.absoluteString)
-        if !booted { pendingAddresses.append(contentsOf:addresses); return }
-        // External links always use a regular window, never an incidental private one.
-        let target = controllers.first(where: { $0 === controller && !$0.isPrivateWindow }) ?? controllers.first(where: { !$0.isPrivateWindow && $0.windowKind == .normal }) ?? openWindow(.normal)
-        addresses.forEach { target.openExternalAddress($0) }; target.show()
+        guard !quitting else { return }
+        if !booted { pendingDocuments.append(urls); return }
+        var batch = BrowserDocuments.Batch(); batch.append(urls)
+        deliverBrowserDocuments(batch)
     }
 }

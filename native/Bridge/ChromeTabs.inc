@@ -187,6 +187,7 @@ class ChromeTabView : public CefBrowserViewDelegate {
 static bool CreateChromeTab(BrowserEngine *engine, NSString *key, NSString *url, NSView *container, CefRefPtr<CefRequestContext> context) {
   if (!BrowserEngineSymbol("browser_attach_native_view_v1") || !BrowserEngineSymbol("browser_native_view_visibility_v1")) return false;
   pendingBrowsers[key.UTF8String] = false;
+  ExpectTabAddress(key,url);
   auto view = CefBrowserView::CreateBrowserView(new NativeClient(engine,key,true,true), CefStr(url), CefBrowserSettings(), nullptr, context, new ChromeTabView());
   if (!view) { pendingBrowsers.erase(key.UTF8String); return false; }
   return CefWindow::CreateTopLevelWindow(new ChromeTabWindow(view,key,container)) != nullptr;

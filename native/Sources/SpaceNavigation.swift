@@ -89,6 +89,15 @@ struct SpaceSwipeState {
 #if canImport(AppKit)
 import AppKit
 
+extension SpaceSwipeState.Phase {
+    init(_ event: NSEvent) {
+        if event.phase.contains(.cancelled) { self = .cancelled }
+        else if event.phase.contains(.ended) { self = .ended }
+        else if event.phase.contains(.began) || event.phase.contains(.mayBegin) { self = .began }
+        else { self = event.phase.isEmpty ? .unphased : .changed }
+    }
+}
+
 /// The footer is a horizontal strip, never a vertically scrolling list.
 final class HorizontalSpaceScrollView: NSScrollView {
     var pointerAfterScroll: ((NSEvent) -> Void)?

@@ -141,7 +141,7 @@ import Security
                 // Preserve edits made on this Mac while the network was in flight.
                 let applied = try ArcSyncCodec.merge(local:latest,baseline:local,remote:result.0)
                 let entry = NativeCloudCheckpoint(enabled:true,revision:revision,ciphertext:result.1,lastSync:Date())
-                let next = ArcSyncCodec.applying(applied,to:latest,checkpointKey:identifier,checkpoint:entry)
+                let next = try ArcSyncCodec.applying(applied,to:latest,checkpointKey:identifier,checkpoint:entry)
                 guard next.validated() else { throw SessionStoreError.invalidState }
                 try apply?(next)
                 updateStatus("À jour · "+DateFormatter.localizedString(from:Date(),dateStyle:.none,timeStyle:.short))

@@ -9,7 +9,7 @@ final class BrowserHandoff {
         let title: String
 
         init?(address:String?, title:String, isPrivate:Bool, isAvailable:Bool = true) {
-            guard !isPrivate, isAvailable, let url = BrowserHandoff.webURL(address) else { return nil }
+            guard !isPrivate, isAvailable, let url = browserWebURL(address) else { return nil }
             self.url = url
             self.title = String(title.replacingOccurrences(of:"\0",with:"").prefix(512))
         }
@@ -22,15 +22,9 @@ final class BrowserHandoff {
         self.makeActivity = makeActivity
     }
 
-    static func webURL(_ address:String?) -> URL? {
-        guard let address, isAllowedBrowserURL(address), let url = URL(string:address),
-              let scheme = url.scheme?.lowercased(), ["https","http"].contains(scheme) else { return nil }
-        return url
-    }
-
     @discardableResult static func receive(_ activity:NSUserActivity, open:(URL)->Void) -> Bool {
         guard activity.activityType == NSUserActivityTypeBrowsingWeb,
-              let url = webURL(activity.webpageURL?.absoluteString) else { return false }
+              let url = browserWebURL(activity.webpageURL?.absoluteString) else { return false }
         open(url)
         return true
     }

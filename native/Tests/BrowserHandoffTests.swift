@@ -18,9 +18,9 @@ private final class RecordedActivity: NSUserActivity {
         let page = BrowserHandoff.Page(address:address,title:title,isPrivate:false)!
         check(page.url.absoluteString == address && page.title == title,"URL, fragment and accented title preserved")
         for invalid in ["about:blank","chrome://history/","chrome-extension://"+String(repeating:"a",count:32)+"/","file:///tmp/document","javascript:alert(1)","data:text/html,test","https:","https:///","https://user:password@example.com/","https://example.com/\n", "https://example.com/"+String(repeating:"x",count:32769)] {
-            check(BrowserHandoff.webURL(invalid) == nil,"reject non-web, malformed or credential-bearing URL: \(invalid.prefix(60))")
+            check(browserWebURL(invalid) == nil,"reject non-web, malformed or credential-bearing URL: \(invalid.prefix(60))")
         }
-        check(BrowserHandoff.webURL("http://example.com/") != nil,"HTTP is supported")
+        check(browserWebURL("http://example.com/") != nil,"HTTP is supported")
         check(BrowserHandoff.Page(address:address,title:title,isPrivate:true) == nil,"private browsing is never advertised")
         check(BrowserHandoff.Page(address:address,title:title,isPrivate:false,isAvailable:false) == nil,"hidden, closed or unavailable content is never advertised")
 
