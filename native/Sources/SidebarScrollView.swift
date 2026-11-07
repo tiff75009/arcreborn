@@ -37,29 +37,29 @@ final class SidebarScroller: NSScroller {
     }
 }
 
-private final class SidebarClipView: NSClipView {
-    override var documentRect: NSRect {
-        var rect = super.documentRect
-        guard let table = documentView as? NSTableView, table.numberOfRows > 0 else { return rect }
-        // Extend the scroll range after the last row. NSScrollView.contentInsets
-        // would place an AppKit view over the bottom rows and intercept clicks.
-        let lastRow = table.rect(ofRow: table.numberOfRows - 1)
-        let padding = min(144, (bounds.height * 0.25).rounded())
-        let paddedEnd = convert(lastRow, from: table).maxY + padding
-        rect.size.height = max(rect.height, paddedEnd - rect.minY)
-        return rect
-    }
-}
-
 final class SidebarScrollView: NSScrollView {
     override init(frame:NSRect) {
         super.init(frame:frame)
-        contentView = SidebarClipView(frame: bounds)
         verticalScroller = SidebarScroller()
         scrollerStyle = .overlay
     }
     required init?(coder:NSCoder) { fatalError() }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        let local = convert(point, from: superview)
+        let clip = contentView
+        guard clip.frame.contains(local), contentInsets.bottom > 0, let document = documentView else { return hit }
+        let position = clip.convert(local, from: self)
+        let distanceFromBottom = clip.isFlipped ? clip.bounds.maxY - position.y : position.y - clip.bounds.minY
+        guard distanceFromBottom < contentInsets.bottom else { return hit }
+        // AppKit draws an inset backdrop over the document. Route this strip
+        // to the table (including its row controls) or the empty clip below it.
+        return document.hitTest(position) ?? clip
+    }
+
     override func tile() {
+        let bottom = min(144, (bounds.height * 0.25).rounded())
+        if contentInsets.bottom != bottom { contentInsets.bottom = bottom }
         super.tile()
         guard hasVerticalScroller, let scroller = verticalScroller else { return }
         var clip = contentView.frame
