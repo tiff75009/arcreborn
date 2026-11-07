@@ -45,21 +45,37 @@ import AppKit
         table.addTableColumn(NSTableColumn(identifier:.init("tab"))); table.dataSource = data
         scroll.documentView = table
         for height:CGFloat in [240,500,800] {
+            window.setContentSize(NSSize(width:440, height:height))
             scroll.frame.size.height = height
-            for count in [36,2] {
+            let almostFull = Int(height / table.rowHeight)
+            for count in [36,almostFull,2] {
                 data.count = count; table.reloadData(); table.sizeToFit(); scroll.tile()
                 let clip = scroll.contentView
+                for offset in [CGFloat.zero, table.rect(ofRow:count / 2).minY] {
+                    var viewport = clip.bounds
+                    viewport.origin.y = offset
+                    clip.scroll(to:clip.constrainBoundsRect(viewport).origin)
+                    let visible = scroll.documentVisibleRect
+                    for row in 0..<count {
+                        let center = NSPoint(x:45, y:table.rect(ofRow:row).midY)
+                        guard visible.contains(center) else { continue }
+                        let point = scroll.superview!.convert(center, from:table)
+                        let hit = scroll.hitTest(point)
+                        precondition(hit === table || hit?.isDescendant(of:table) == true,
+                                     "visible row \(row) must receive clicks, including at the bottom edge")
+                    }
+                }
                 var end = clip.bounds; end.origin.y = 10000
                 clip.scroll(to:clip.constrainBoundsRect(end).origin)
                 let gap = scroll.documentVisibleRect.maxY-table.rect(ofRow:count-1).maxY
                 let expected = min(144,(height*0.25).rounded())
-                if count == 36 {
+                if count != 2 {
                     precondition(gap >= expected-1 && gap <= expected+12,"stable space below the last row at the scroll limit")
                     precondition(table.row(at:NSPoint(x:15,y:scroll.documentVisibleRect.maxY-5)) == -1,"the gap contains no tab")
                 } else { precondition(clip.bounds.minY == 0,"short lists need no extra scroll") }
             }
         }
-        print("PASS: thin edge scrollbar, preserved tab width, no overlap and native thumb hit detection at three widths and positions")
+        print("PASS: visible rows receive clicks through the full viewport, with space below the last tab and a separate scrollbar")
     }
 }
 
