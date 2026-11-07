@@ -40,7 +40,11 @@ struct DeletionUndo {
         for (index,folder) in folders where !result.folders.contains(where: { $0.id == folder.id }) {
             result.folders.insert(folder,at:min(index,result.folders.count))
         }
-        for (index,tab) in tabs where !result.tabs.contains(where: { $0.id == tab.id }) {
+        for (index,original) in tabs where !result.tabs.contains(where: { $0.id == original.id }) {
+            var tab = original
+            if let saved = current.closedTabs.first(where:{ $0.id == tab.id && $0.url == tab.url })?.archivedNavigation {
+                tab.archivedNavigation = saved
+            }
             result.tabs.insert(tab,at:min(index,result.tabs.count))
         }
         for (old,new) in movedFavorites {

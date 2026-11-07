@@ -195,12 +195,13 @@ extension BrowserSession {
         repairTabSelections()
         return true
     }
-    private mutating func orderSidebarItems(_ items: [SidebarItem]) {
-        for (order,item) in items.enumerated() {
-            switch item {
-            case .folder(let id): if let i = folders.firstIndex(where: { $0.id == id }) { folders[i].sidebarOrder = order }
-            case .tab(let id): if let i = tabs.firstIndex(where: { $0.id == id }) { tabs[i].sidebarOrder = order }
-            }
+    mutating func orderSidebarItems(_ items: [SidebarItem]) {
+        let positions = Dictionary(uniqueKeysWithValues:items.enumerated().map { ($0.element,$0.offset) })
+        for i in tabs.indices {
+            if let position = positions[.tab(tabs[i].id)] { tabs[i].sidebarOrder = position }
+        }
+        for i in folders.indices {
+            if let position = positions[.folder(folders[i].id)] { folders[i].sidebarOrder = position }
         }
     }
     /// Removing a container preserves its contents and promotes them in place.

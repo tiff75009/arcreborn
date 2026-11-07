@@ -1,0 +1,67 @@
+diff --git a/chrome/browser/webauthn/chrome_authenticator_request_delegate.cc b/chrome/browser/webauthn/chrome_authenticator_request_delegate.cc
+index 64cc5836fa..06f64476c0 100644
+--- a/chrome/browser/webauthn/chrome_authenticator_request_delegate.cc
++++ b/chrome/browser/webauthn/chrome_authenticator_request_delegate.cc
+@@ -1251,11 +1251,11 @@ void ChromeAuthenticatorRequestDelegate::ConfigureNSWindow(
+   // into a new profile does not. Thus the NSWindow is fetched more directly.
+   const views::Widget* widget = views::Widget::GetTopLevelWidgetForNativeView(
+       web_contents->GetNativeView());
+-  if (widget) {
+-    const gfx::NativeWindow window = widget->GetNativeWindow();
+-    if (window) {
+-      discovery_factory->set_nswindow(window);
+-    }
++  const gfx::NativeWindow window =
++      widget ? widget->GetNativeWindow()
++             : GetWebAuthnDocumentWindow(web_contents->GetNativeView());
++  if (window) {
++    discovery_factory->set_nswindow(window);
+   }
+ }
+ void ChromeAuthenticatorRequestDelegate::ConfigureICloudKeychain(
+diff --git a/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.h b/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.h
+index d3c2a9e2c9..19256cc04e 100644
+--- a/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.h
++++ b/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.h
+@@ -7,6 +7,11 @@
+ 
+ #include <memory>
+ 
++#include "ui/gfx/native_ui_types.h"
++
++// The embedding app hosts the document NSView outside the Views hierarchy.
++gfx::NativeWindow GetWebAuthnDocumentWindow(gfx::NativeView document);
++
+ // Returns true if iCloud Keychain is configured for passkeys on this device.
+ // When available, this queries Apple's
+ // `isDeviceConfiguredForPasskeys` API. Otherwise, it falls back to checking
+diff --git a/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.mm b/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.mm
+index 35124d91f2..65f80f0fed 100644
+--- a/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.mm
++++ b/chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.mm
+@@ -4,7 +4,7 @@
+ 
+ #include "chrome/browser/webauthn/chrome_authenticator_request_delegate_mac.h"
+ 
+-#import <Foundation/Foundation.h>
++#import <AppKit/AppKit.h>
+ 
+ #include <memory>
+ 
+@@ -13,6 +13,16 @@
+ #include "device/fido/mac/icloud_keychain.h"
+ #include "device/fido/public/features.h"
+ 
++extern "C" __attribute__((visibility("default")))
++NSWindow* browser_webauthn_window_v1(NSView* document) {
++  NSWindow* window = document.window;
++  return window.isVisible && !document.isHiddenOrHasHiddenAncestor ? window : nil;
++}
++
++gfx::NativeWindow GetWebAuthnDocumentWindow(gfx::NativeView document) {
++  return gfx::NativeWindow(browser_webauthn_window_v1(document.GetNativeNSView()));
++}
++
+ static bool g_override = false;
+ static bool g_override_value = false;
+ 

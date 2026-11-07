@@ -147,6 +147,18 @@ import CoreGraphics
         for _ in 0..<60 { let id = session.createTab(); session.closeTab(id: id) }
         check(session.closedTabs.count == 50 && session.validated(), "closed history bounded")
 
+        var archive = BrowserSession.fresh()
+        let history = ArchivedNavigation(profileID:archive.profiles[0].id,data:Data([1,2,3]))
+        let older = archive.createTab(url:"https://example.org/old"), newer = archive.createTab(url:"https://example.org/new")
+        archive.closeTab(id:older,navigation:history); archive.closeTab(id:newer)
+        archive.restoreTab(id:older)
+        check(archive.tabs.last?.archivedNavigation == history && archive.closedTabs.last?.id == newer,
+              "restoring a specific archive keeps its history and preserves the remaining close order")
+        archive.restoreTab()
+        check(archive.tabs.last?.id == newer && archive.tabs.last?.archivedNavigation == nil,
+              "an older URL-only archive still reopens")
+
+
         check(browserURL("example.com/path")?.absoluteString == "https://example.com/path", "bare domain resolution")
         check(browserURL("localhost:3000/path")?.absoluteString == "http://localhost:3000/path", "localhost resolution")
         check(browserURL("[::1]:8080")?.absoluteString == "http://[::1]:8080", "IPv6 localhost resolution")

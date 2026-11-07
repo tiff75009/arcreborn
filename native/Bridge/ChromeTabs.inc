@@ -145,11 +145,15 @@ class ChromeTabWindow : public CefWindowDelegate {
     auto browser = view_ ? view_->GetBrowser() : nullptr;
     return !browser || browser->GetHost()->TryCloseBrowser();
   }
-  void OnWindowDestroyed(CefRefPtr<CefWindow>) override {
+  void OnWindowDestroyed(CefRefPtr<CefWindow> window) override {
     BrowserTrace(@"tab.window-destroyed",@{@"tab":@(key_.c_str()),@"quitting":@(quitting)});
     auto surface = chromeTabs.find(key_);
-    if (surface != chromeTabs.end()) [surface->second.content removeFromSuperview];
-    chromeTabs.erase(key_); view_ = nullptr;
+    // A quick wake may already have attached a replacement for this tab ID.
+    if (surface != chromeTabs.end() && surface->second.window->IsSame(window)) {
+      [surface->second.content removeFromSuperview];
+      chromeTabs.erase(surface);
+    }
+    view_ = nullptr;
   }
  private:
   CefRefPtr<CefBrowserView> view_;
@@ -184,12 +188,23 @@ class ChromeTabView : public CefBrowserViewDelegate {
  private:
   IMPLEMENT_REFCOUNTING(ChromeTabView);
 };
-static bool CreateChromeTab(BrowserEngine *engine, NSString *key, NSString *url, NSView *container, CefRefPtr<CefRequestContext> context) {
+static bool CreateChromeTab(BrowserEngine *engine, NSString *key, NSString *url, NSView *container, CefRefPtr<CefRequestContext> context, NSData *history = nil) {
   if (!BrowserEngineSymbol("browser_attach_native_view_v1") || !BrowserEngineSymbol("browser_native_view_visibility_v1")) return false;
   pendingBrowsers[key.UTF8String] = false;
   ExpectTabAddress(key,url);
-  auto view = CefBrowserView::CreateBrowserView(new NativeClient(engine,key,true,true), CefStr(url), CefBrowserSettings(), nullptr, context, new ChromeTabView());
+  using Restore = bool (*)(int, const char*, const void*, size_t);
+  auto restore = history.length ? reinterpret_cast<Restore>(BrowserEngineSymbol("browser_restore_tab_history_v1")) : nullptr;
+  auto view = CefBrowserView::CreateBrowserView(new NativeClient(engine,key,true,true), restore ? CefString() : CefStr(url), CefBrowserSettings(), nullptr, context, new ChromeTabView());
   if (!view) { pendingBrowsers.erase(key.UTF8String); return false; }
-  return CefWindow::CreateTopLevelWindow(new ChromeTabWindow(view,key,container)) != nullptr;
+  auto window = CefWindow::CreateTopLevelWindow(new ChromeTabWindow(view,key,container));
+  if (!window) return false;
+  if (restore) {
+    auto browser = view->GetBrowser();
+    if (!browser) { window->Close(); return false; }
+    // Restore after AddChildView has installed the WebContents in its tab strip.
+    if (!restore(browser->GetIdentifier(), url.UTF8String, history.bytes, history.length))
+      browser->GetMainFrame()->LoadURL(CefStr(url));
+  }
+  return true;
 }
 

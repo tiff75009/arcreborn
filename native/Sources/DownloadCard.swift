@@ -10,6 +10,7 @@ final class DownloadCard: NSView {
     private let glyph = NSImageView()
     private let track = CALayer(), fill = CALayer()
     private var pause: ActionButton!, cancel: ActionButton!
+    private var recovery: TransferActionButton!
     private var reveal: ActionButton!, remove: ActionButton!
     private var hovered = false
     private let compact: Bool
@@ -23,7 +24,7 @@ final class DownloadCard: NSView {
     var seen: ((String) -> Void)?
     var open: ((URL) -> Void)?
     override var isFlipped: Bool { true }
-    var shelfHeight: CGFloat { record?.isActive == true ? 48 : 33 }
+    var shelfHeight: CGFloat { record?.isActive == true || record?.isBlocked == true ? 48 : 33 }
     init(frame:NSRect, compact:Bool = false) {
         self.compact = compact
         super.init(frame:frame); wantsLayer = true; layer?.cornerRadius = compact ? 7 : 12
@@ -31,17 +32,22 @@ final class DownloadCard: NSView {
         for label in [sizeLabel,statusLabel] { label.font = .systemFont(ofSize:10.5); label.lineBreakMode = .byTruncatingTail }
         pause = TransferActionButton("",symbol:"pause.fill") { [weak self] in guard let self, let record = self.record else { return }; self.action?(record.id,record.state == "paused" ? "resume" : "pause") }
         cancel = TransferActionButton("",symbol:"xmark") { [weak self] in guard let self, let record = self.record else { return }; self.action?(record.id,"cancel") }
+        recovery = TransferActionButton("") { [weak self] in
+            guard let self, let record = self.record, let command = record.isActive ? "details" : record.recoveryAction else { return }
+            self.action?(record.id,command)
+        }
+        recovery.font = .systemFont(ofSize:11,weight:.semibold)
         reveal = TransferActionButton("",symbol:"folder") { [weak self] in
             guard let self, let record = self.record, !record.path.isEmpty else { return }; self.seen?(record.id)
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath:record.path)])
         }
         remove = TransferActionButton("",symbol:"xmark") { [weak self] in guard let self, let record = self.record else { return }; self.removeRecord?(record.id) }
-        for button in [pause!,cancel!,reveal!,remove!] { button.wantsLayer = true; button.layer?.cornerRadius = 7; button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor }
+        for button in [pause!,cancel!,reveal!,remove!,recovery!] { button.wantsLayer = true; button.layer?.cornerRadius = 7; button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor }
         if compact {
             sizeLabel.alignment = .right
             glyph.imageScaling = .scaleProportionallyUpOrDown
         }
-        for child in [glyph,nameLabel,sizeLabel,statusLabel,pause!,cancel!,reveal!,remove!] { addSubview(child) }
+        for child in [glyph,nameLabel,sizeLabel,statusLabel,pause!,cancel!,reveal!,remove!,recovery!] { addSubview(child) }
         fill.anchorPoint = CGPoint(x:0,y:0); track.cornerRadius = 2; fill.cornerRadius = 2; track.masksToBounds = true; track.addSublayer(fill); layer?.addSublayer(track)
         setAccessibilityElement(true); setAccessibilityRole(.group)
     }
@@ -57,12 +63,13 @@ final class DownloadCard: NSView {
         sizeLabel.stringValue = value.total > 0 ? "\(bytes(value.received)) / \(bytes(value.total))" : bytes(value.received)
         switch value.state {
         case "progress": statusLabel.stringValue = "\(bytes(value.speed ?? 0))/s" + (value.total > 0 ? "  ·  \(Int(value.fraction*100)) %" : "  ·  " + (fr ? "En cours" : "Downloading"))
+        case "recovering": statusLabel.stringValue = fr ? "Relance en cours…" : "Restarting…"
         case "paused": statusLabel.stringValue = fr ? "En pause" : "Paused"
         case "complete": statusLabel.stringValue = fr ? "Terminé · Ouvrir" : "Complete · Open"
         case "cancelled": statusLabel.stringValue = fr ? "Annulé" : "Cancelled"
+        case "blocked": statusLabel.stringValue = LibraryDownload.blockedLabel(language)
         default: statusLabel.stringValue = fr ? "Interrompu" : "Interrupted"
         }
-        let description = [nameLabel.stringValue,sizeLabel.stringValue,statusLabel.stringValue].joined(separator:", ")
         if compact && value.state == "complete" {
             let type = UTType(filenameExtension:(nameLabel.stringValue as NSString).pathExtension) ?? .data
             if fileType != type { glyph.image = NSWorkspace.shared.icon(for:type); fileType = type }
@@ -72,6 +79,11 @@ final class DownloadCard: NSView {
             fileType = nil
             glyph.image = NSImage(systemSymbolName:value.state == "complete" ? "checkmark.circle.fill" : value.state == "paused" ? "pause.circle" : value.isActive ? "arrow.down.circle" : "doc",accessibilityDescription:nil)
             glyph.contentTintColor = ink.withAlphaComponent(0.75)
+            if value.isBlocked {
+                glyph.image = NSImage(systemSymbolName:"exclamationmark.shield.fill",accessibilityDescription:nil)
+                glyph.contentTintColor = .systemOrange
+                sizeLabel.stringValue = ""
+            }
         }
         if compact && value.state == "progress" {
             let amount = value.total > 0 ? "\(Int(value.fraction*100)) %" : bytes(value.received)
@@ -79,16 +91,30 @@ final class DownloadCard: NSView {
         } else if compact && value.state == "paused" && value.total > 0 {
             statusLabel.stringValue += " · \(Int(value.fraction*100)) %"
         }
+        let command = value.isActive && !compact ? "details" : value.recoveryAction
+        recovery.isHidden = command == nil
+        switch command {
+        case "details": recovery.title = fr ? "Détails" : "Details"
+        case "resume": recovery.title = fr ? "Reprendre" : "Resume"
+        case "page": recovery.title = fr ? "Ouvrir la page" : "Open page"
+        default: recovery.title = fr ? "Recommencer" : "Restart"
+        }
+        recovery.toolTip = recovery.title
+        recovery.attributedTitle = NSAttributedString(string:recovery.title,attributes:[.foregroundColor:ink,.font:recovery.font!])
+        if value.state == "interrupted" && command == nil {
+            statusLabel.stringValue = fr ? "Interrompu · À retélécharger depuis la page d’origine" : "Interrupted · Download again from the original page"
+        }
         pause.isHidden = !value.isActive; cancel.isHidden = !value.isActive
         pause.image = NSImage(systemSymbolName:value.state == "paused" ? "play.fill" : "pause.fill",accessibilityDescription:nil)
         pause.toolTip = value.state == "paused" ? (fr ? "Reprendre" : "Resume") : (fr ? "Mettre en pause" : "Pause")
         cancel.toolTip = fr ? "Annuler le téléchargement" : "Cancel download"
         reveal.toolTip = fr ? "Afficher dans le Finder" : "Show in Finder"
         remove.toolTip = fr ? "Retirer de la liste" : "Remove from list"
-        reveal.isHidden = value.state != "complete"; remove.isHidden = value.isActive
+        reveal.isHidden = value.state != "complete"; remove.isHidden = value.isActive || value.isRecovering
         reveal.alphaValue = hovered ? 1 : 0; remove.alphaValue = hovered ? 1 : 0
-        for button in [pause!,cancel!,reveal!,remove!] { button.contentTintColor = ink; button.setAccessibilityLabel(button.toolTip) }
+        for button in [pause!,cancel!,reveal!,remove!,recovery!] { button.contentTintColor = ink; button.setAccessibilityLabel(button.toolTip) }
         track.backgroundColor = ink.withAlphaComponent(0.12).cgColor; fill.backgroundColor = ink.withAlphaComponent(value.state == "paused" ? 0.4 : 0.85).cgColor
+        let description = [nameLabel.stringValue,sizeLabel.stringValue,statusLabel.stringValue].joined(separator:", ")
         track.isHidden = !value.isActive; toolTip = compact ? description : value.name
         layer?.backgroundColor = rowColor.cgColor
         setAccessibilityLabel(description)
@@ -119,10 +145,11 @@ final class DownloadCard: NSView {
             let sizeWidth = min(ceil(sizeLabel.attributedStringValue.size().width)+8,w*0.33)
             let trailing = active || hovered ? pause.frame.minX-4 : w-7-(complete ? sizeWidth+5 : 0)
             glyph.frame = NSRect(x:6,y:floor((bounds.height-20)/2),width:20,height:20)
-            nameLabel.frame = NSRect(x:textX,y:active ? 4 : floor((bounds.height-17)/2),width:max(0,trailing-textX),height:17)
+            let twoLines = active || record?.isBlocked == true
+            nameLabel.frame = NSRect(x:textX,y:twoLines ? 4 : floor((bounds.height-17)/2),width:max(0,trailing-textX),height:17)
             sizeLabel.frame = NSRect(x:w-7-sizeWidth,y:floor((bounds.height-15)/2),width:sizeWidth,height:15)
             sizeLabel.isHidden = !complete || hovered
-            statusLabel.isHidden = !active
+            statusLabel.isHidden = !twoLines
             statusLabel.frame = NSRect(x:textX,y:22,width:max(0,trailing-textX),height:15)
             progressFrame = NSRect(x:textX+2,y:40,width:max(0,trailing-textX-2),height:2)
         } else {
@@ -132,6 +159,12 @@ final class DownloadCard: NSView {
             sizeLabel.frame = NSRect(x:12,y:39,width:max(0,w-24),height:16)
             statusLabel.frame = NSRect(x:12,y:60,width:max(0,w-24),height:17)
             progressFrame = NSRect(x:12,y:84,width:max(0,w-24),height:3)
+        }
+        let recoveryWidth = ceil(recovery.attributedTitle.size().width) + 16
+        recovery.frame = NSRect(x:w-recoveryWidth-(compact ? 28 : 12),y:compact ? pause.frame.minY : 56,width:recoveryWidth,height:24)
+        if !recovery.isHidden {
+            if compact { nameLabel.frame.size.width = max(0,recovery.frame.minX-nameLabel.frame.minX-5) }
+            else { statusLabel.frame.size.width = max(0,recovery.frame.minX-statusLabel.frame.minX-5) }
         }
         reveal.frame = pause.frame; remove.frame = cancel.frame
         CATransaction.begin(); CATransaction.setDisableActions(true)

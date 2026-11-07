@@ -81,7 +81,8 @@ try {
   await writeFile(path.join(profile,'session.json'),JSON.stringify({onboardingComplete:true,language:'fr',sidebarHidden:false,sidebarWidth:228,activeSpaceID:'space',profiles:[{id:'p',name:'Test'}],spaces:[{id:'space',profileID:'p',name:'Test',icon:'◈',color:'#8871C5',selectedTabID:'media'}],tabs:[{id:'media',spaceID:'space',url:origin,title:'Média',pinned:false,favorite:false}],folders:[],closedTabs:[]}));
   log=await open(path.join(scratch,'app.log'),'w');
   const bundle=process.env.BROWSER_SMOKE_APP || path.join(native,'build/development/Arc Reborn.app');
-  app=spawn(path.join(bundle,'Contents/MacOS/Arc Reborn'),['--disable-component-update'],{env:{...process.env,BROWSER_NATIVE_TEST_DATA:profile,BROWSER_NATIVE_TEST_AUTOCLOSE:'55'},stdio:['ignore',log.fd,log.fd]});
+  const switches=['--disable-component-update','--disable-backgrounding-occluded-windows','--disable-background-media-suspend'];
+  app=spawn(path.join(bundle,'Contents/MacOS/Arc Reborn'),switches,{env:{...process.env,BROWSER_NATIVE_TEST_DATA:profile,BROWSER_NATIVE_TEST_AUTOCLOSE:'55'},stdio:['ignore',log.fd,log.fd]});
   const result=await Promise.race([report,new Promise((_,reject)=>{app.once('error',reject);app.once('exit',(c)=>reject(Error('Browser exited: '+c)));timer=setTimeout(()=>reject(Error('No playback report')),50000)})]);
   console.log(JSON.stringify(result,null,2));
   assert.ok(result.fileSupport && result.mseSupport,'MP4/MSE support missing');

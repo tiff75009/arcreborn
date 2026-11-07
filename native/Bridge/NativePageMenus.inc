@@ -57,6 +57,10 @@ static NSMenu *CopyNativePageMenu(CefRefPtr<CefMenuModel> model, BrowserPageMenu
   return menu;
 }
 
+// CEF executes the selected command synchronously on the UI thread. Limit the
+// relative placement to this command and its originating window/tab.
+static NSString *contextLinkSource = nil;
+
 static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> params,
                               CefRefPtr<CefMenuModel> model, CefRefPtr<CefRunContextMenuCallback> callback) {
   auto found = chromeTabs.find(key.UTF8String);
@@ -122,7 +126,11 @@ static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> par
     });
     return true;
   }
-  if (target.command >= 0 && !quitting) callback->Continue((int)target.command, target.flags);
-  else callback->Cancel();
+  if (target.command >= 0 && !quitting) {
+    NSString *previous = contextLinkSource;
+    contextLinkSource = target.command == cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_OPENLINKNEWTAB") ? key : nil;
+    callback->Continue((int)target.command, target.flags);
+    contextLinkSource = previous;
+  } else callback->Cancel();
   return true;
 }

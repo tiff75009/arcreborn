@@ -100,7 +100,7 @@ class ExtensionClient : public CefClient,
     [alert addButtonWithTitle:L(@"Quitter", @"Leave")];
     auto finish = ^(NSModalResponse response) {
       bool leave = response == NSAlertSecondButtonReturn;
-      if (!leave && quitting) { quitting = false; Notify(@"BrowserEngineQuitCancelled"); }
+      if (!leave && quitting) CancelBrowserQuit();
       callback->Continue(leave, CefString());
     };
     NSView *view = (__bridge NSView *)browser->GetHost()->GetWindowHandle();

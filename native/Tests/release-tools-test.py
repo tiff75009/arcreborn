@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Boundary tests: reject private files, mismatched versions and modified patches."""
 import importlib.util
+import datetime
+import hashlib
 import json
 from pathlib import Path
 import plistlib
@@ -17,6 +19,9 @@ def module(name):
     value = importlib.util.module_from_spec(spec); spec.loader.exec_module(value); return value
 
 release = module('release'); public = module('public-source'); engine = module('engine')
+spec = importlib.util.spec_from_file_location('passkeys',ROOT/'Signing/passkeys.py')
+passkeys = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(passkeys)
 
 class ReleaseTests(unittest.TestCase):
     def test_phone_passkey_bluetooth_purpose_in_every_app_language(self):
@@ -26,6 +31,24 @@ class ReleaseTests(unittest.TestCase):
             localized = subprocess.check_output(['plutil','-extract',key,'raw',ROOT/'Resources'/(language+'.lproj')/'InfoPlist.strings'],text=True)
             self.assertIn('Bluetooth',localized)
             self.assertIn('Bluetooth',info[key])
+
+    def test_passkeys_require_exact_apple_grant_and_distribution_signer(self):
+        team, bundle = 'TESTTEAM', 'test.browser'
+        grants = {passkeys.APP_ID:'PREFIX.'+bundle, passkeys.TEAM_ID:team, passkeys.CAPABILITY:True}
+        certificate = hashlib.sha1(b'test certificate').hexdigest().upper()
+        profile = dict(Platform=['OSX'],TeamIdentifier=[team],ApplicationIdentifierPrefix=['PREFIX'],
+                       ProvisionsAllDevices=True,DeveloperCertificates=[b'test certificate'],
+                       Entitlements={**grants,'unrelated':True},ExpirationDate=datetime.datetime(2099,1,1))
+        check = lambda p: passkeys.profile_entitlements(p,bundle,team,certificate)
+        self.assertEqual(check(profile),grants)
+        for override in [dict(Platform=['iOS']),dict(TeamIdentifier=['other']),dict(DeveloperCertificates=[]),
+                         dict(ExpirationDate=datetime.datetime(2000,1,1)),dict(ProvisionsAllDevices=False),
+                         *[dict(Entitlements={**grants,k:v}) for k,v in [
+                             (passkeys.APP_ID,'PREFIX.*'),(passkeys.APP_ID,'PREFIX.other'),
+                             (passkeys.CAPABILITY,False),(passkeys.CAPABILITY,1),(passkeys.TEAM_ID,'other'),
+                             ('com.apple.security.get-task-allow',True)]]]:
+            with self.subTest(override=override), self.assertRaises(ValueError):
+                check({**profile,**override})
 
     def test_github_notes_keep_both_complete_translations(self):
         notes,_ = release.metadata()
@@ -81,7 +104,7 @@ class ReleaseTests(unittest.TestCase):
             finally: release.NATIVE = original
 
     def test_private_files_cannot_enter_public_tree(self):
-        for name in ['server/config.txt','.env.production','native/vendor/engine.bin','certificate.p12']:
+        for name in ['server/config.txt','.env.production','native/vendor/engine.bin','certificate.p12','app.provisionprofile']:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder); path = root/name; path.parent.mkdir(parents=True,exist_ok=True); path.write_text('private')
                 with self.assertRaises(ValueError): public.audit(root)
@@ -97,6 +120,20 @@ class ReleaseTests(unittest.TestCase):
             root = Path(folder); (root/'outside').symlink_to('/tmp')
             with self.assertRaises(ValueError): public.audit(root)
 
+    def test_only_verified_engine_deltas_can_exceed_the_export_size_limit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            delta = root/'native/Engine/deltas/test.bsdiff'
+            delta.parent.mkdir(parents=True)
+            data = b'BSDIFF40' + bytes(5*1024*1024)
+            delta.write_bytes(data)
+            with self.assertRaises(ValueError): public.audit(root)
+            lock = {'archive': {'delta': {'file':'deltas/test.bsdiff', 'sha256':hashlib.sha256(data).hexdigest()}}}
+            (delta.parent.parent/'engine.lock.json').write_text(json.dumps(lock))
+            public.audit(root)
+            with delta.open('ab') as stream: stream.write(b'x')
+            with self.assertRaises(ValueError): public.audit(root)
+
     def test_modified_patch_invalidates_binary_pin(self):
         original = engine.ENGINE
         with tempfile.TemporaryDirectory() as folder:
@@ -110,5 +147,11 @@ class ReleaseTests(unittest.TestCase):
 
     def test_current_metadata_and_patch_set_valid(self):
         release.metadata(); engine.verify_patches()
+        base = engine.load_pin(False)
+        candidate = engine.load_pin(True)
+        self.assertEqual(candidate['patches'][:-1],base['patches'])
+        patch = candidate['patches'][-1]
+        self.assertEqual(engine.sha(engine.ENGINE/patch['file']),patch['sha256'])
+        self.assertRegex(candidate['archive']['sha256'],r'^[a-f0-9]{64}$')
 
 if __name__ == '__main__': unittest.main()

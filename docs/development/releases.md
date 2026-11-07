@@ -59,6 +59,20 @@ export BROWSER_RELEASE_BUILD=1
 /usr/bin/python3 native/scripts/release.py draft
 ```
 
+For Google reputation checks, the native build accepts a project-owned client
+key in `BROWSER_SAFE_BROWSING_API_KEY` (also the Actions secret name). Chromium
+uses the key from the signed app. Restrict it to the APIs the project is
+authorized to use. URL reputation uses `safebrowsing.googleapis.com`; the
+desktop binary verdict service uses `safebrowsingdownloadprotection.googleapis.com`.
+A successful phishing test alone does not verify access to the binary service.
+Google documents [non-commercial usage and Web Risk](https://developers.google.com/safe-browsing).
+
+Run `node native/Tests/safe-browsing.mjs` against a local build for Chromium's
+deterministic URL and download verdicts. Add `--live` for Google's harmless
+public fixtures. A key can be supplied just to that test process using
+`GOOGLE_API_KEY`. Both modes use a temporary profile and Downloads directory.
+Set `BROWSER_SMOKE_APP` when testing a bundle outside the default build path.
+
 `prepare` can resume a pending notarization; use a new output directory for a new
 build. `draft` requires a clean reviewed Git checkout with its version tag already
 pushed. It uploads only the DMG, the three signed appcasts, release.json and SHA256SUMS, never the
@@ -81,6 +95,12 @@ the native macOS build and tests for that tag before opening the publishing job.
 The workflow checks version/engine metadata, every checksum, the signed Sparkle
 feed and DMG, the Apple signatures and stapled notarization tickets, then publishes
 the draft as Latest. A failed verification leaves the release unpublished.
+
+When the Apple and Sparkle signing identities stay on the maintainer’s Mac, dispatch
+`build-for-local-signing.yml` on main. It compiles the production app with the
+`release` environment’s Safe Browsing client key and returns the complete bundle
+as a one-day artifact named for the commit. Check the workflow SHA before signing
+the bundle locally with `release.py prepare`. Never upload a standalone key.
 
 ## Update behavior
 

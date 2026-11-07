@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>ASWebAuthenticationSessionWebBrowserSupportCapabilities</key>
+	<dict>
+		<key>IsSupported</key>
+		<true/>
+		<key>EphemeralBrowserSessionIsSupported</key>
+		<true/>
+		<key>CallbackURLMatchingIsSupported</key>
+		<true/>
+	</dict>
 	<key>ArcRebornAccountURL</key>
 	<string>https://api.arc-reborn.com</string>
 	<key>CFBundleDevelopmentRegion</key>
@@ -42,7 +51,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.2</string>
+	<string>1.3.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -58,7 +67,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>29</string>
+	<string>30</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSEnvironment</key>

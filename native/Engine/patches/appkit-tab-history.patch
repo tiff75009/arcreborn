@@ -1,0 +1,105 @@
+--- a/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
++++ b/cef/libcef/browser/chrome/chrome_browser_host_impl.cc
+@@ -29,6 +29,93 @@
+ #include "chrome/browser/ui/views/frame/multi_contents_view.h"
+ #include "chrome/common/pref_names.h"
+ 
++#include "base/auto_reset.h"
++#include "base/pickle.h"
++#include "components/sessions/content/content_serialized_navigation_builder.h"
++#include "components/sessions/core/serialized_navigation_entry.h"
++#include "content/public/browser/navigation_controller.h"
++#include "content/public/browser/navigation_entry.h"
++#include "content/public/browser/restore_type.h"
++#include "content/public/browser/web_contents.h"
++
++namespace {
++// Used on the UI thread only. CEF detaches the WebContents just before its
++// OnBeforeClose callback, while the navigation controller is still alive.
++std::pair<int, content::WebContents*> archive_closing_tab{-1, nullptr};
++constexpr int kArchiveEntries = 50;
++constexpr size_t kArchiveBytes = 256 * 1024;
++}  // namespace
++
++extern "C" CEF_EXPORT void browser_snapshot_tab_history_v1(
++    int browser_id, const char* expected_url, void* context,
++    void (*receive)(void*, const void*, size_t)) {
++  if (!CEF_CURRENTLY_ON_UIT())
++    return;
++  auto host = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  auto* contents = archive_closing_tab.first == browser_id
++                       ? archive_closing_tab.second
++                       : (host ? host->GetWebContents() : nullptr);
++  if (!contents || !receive || !expected_url)
++    return;
++  auto& controller = contents->GetController();
++  const int current = controller.GetLastCommittedEntryIndex();
++  const int count = controller.GetEntryCount();
++  if (count < 2 || current < 0 ||
++      controller.GetEntryAtIndex(current)->GetVirtualURL() != GURL(expected_url))
++    return;
++  const int first = std::clamp(current - kArchiveEntries / 2, 0,
++                               std::max(0, count - kArchiveEntries));
++  const int end = std::min(count, first + kArchiveEntries);
++  base::Pickle history;
++  history.WriteInt(current - first);
++  history.WriteInt(end - first);
++  for (int i = first; i < end; ++i) {
++    auto navigation = sessions::ContentSerializedNavigationBuilder::FromNavigationEntry(
++        i, controller.GetEntryAtIndex(i));
++    base::Pickle record;
++    navigation.WriteToPickle(kArchiveBytes / (end - first) - 512, &record);
++    history.WriteData(record.AsBytes());
++    if (history.size() > kArchiveBytes)
++      return;
++  }
++  receive(context, history.AsBytes().data(), history.size());
++}
++
++extern "C" CEF_EXPORT bool browser_restore_tab_history_v1(
++    int browser_id, const char* expected_url, const void* data, size_t size) {
++  CEF_REQUIRE_UIT_RETURN(false);
++  auto host = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  auto* contents = host ? host->GetWebContents() : nullptr;
++  if (!contents || !data || !expected_url || !size || size > kArchiveBytes)
++    return false;
++  auto& controller = contents->GetController();
++  if (!controller.GetLastCommittedEntry()->IsInitialEntry())
++    return false;
++  auto iterator = base::PickleIterator::WithData(UNSAFE_BUFFERS(
++      base::span(static_cast<const uint8_t*>(data), size)));
++  int current, count;
++  if (!iterator.ReadInt(&current) || !iterator.ReadInt(&count) ||
++      count < 2 || count > kArchiveEntries || current < 0 || current >= count)
++    return false;
++  std::vector<sessions::SerializedNavigationEntry> entries(count);
++  for (auto& entry : entries) {
++    auto bytes = iterator.ReadData();
++    if (!bytes)
++      return false;
++    auto record = base::PickleIterator::WithData(*bytes);
++    if (!entry.ReadFromPickle(&record) || !entry.virtual_url().is_valid())
++      return false;
++  }
++  if (entries[current].virtual_url() != GURL(expected_url))
++    return false;
++  auto restored = sessions::ContentSerializedNavigationBuilder::ToNavigationEntries(
++      entries, contents->GetBrowserContext());
++  controller.Restore(current, content::RestoreType::kRestored, &restored);
++  controller.LoadIfNecessary();
++  return true;
++}
++
++
+ // static
+ CefRefPtr<ChromeBrowserHostImpl> ChromeBrowserHostImpl::Create(
+     const CefBrowserCreateParams& params) {
+@@ -143,6 +230,8 @@
+ 
+ void ChromeBrowserHostImpl::OnWebContentsDestroyed(
+     content::WebContents* web_contents) {
++  base::AutoReset closing(&archive_closing_tab,
++                          std::make_pair(GetIdentifier(), web_contents));
+   DestroyWebContents(web_contents);
+ 
+   if (!is_destroying_browser_) {

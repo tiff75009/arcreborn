@@ -60,6 +60,15 @@ Chromium's third-party credits remain accessible via `chrome://credits`.
 References: [CEF build guide](https://chromiumembedded.github.io/cef/branches_and_building),
 [Chromium macOS build instructions](https://chromium.googlesource.com/chromium/src/+/main/docs/mac_build_instructions.md).
 
+Engine `arcreborn.10` adds WebRTC H.264 encoding to the download recovery and tab
+history support in `arcreborn.9`. The default and Apple passkey variants use
+separate binary deltas against their respective published `arcreborn.7` archives.
+A clean `make build` reconstructs the precompiled framework and verifies the
+archive, source patches, delta, build flag changes and framework hashes. Source builds
+apply `appkit-tab-history.patch` and `appkit-download-recovery.patch`. Run
+`python3 native/scripts/test-download-recovery.py` after building the development app
+to exercise both library actions against a local HTTP server.
+
 ## Native navigation and menus
 
 `appkit-native-navigation.patch` routes Chromium's complete `OpenURLParams` to a
@@ -104,8 +113,8 @@ direction, visible bounds and equal width in an isolated profile.
 
 The arm64 engine includes the Chromium FFmpeg H.264/AAC configuration, Media
 Source Extensions, the HLS demuxer, and HEVC/H.265 decoding through macOS VideoToolbox. The GN settings in the lock file apply
-to the runtime itself; changing a user agent or JavaScript capability check
-cannot add a decoder. This change does not add a DRM module or a WebRTC encoder.
+to the runtime itself. The sections below cover encrypted playback and WebRTC
+encoding, which use separate Chromium components.
 
 To exercise real decoding (including a VP9/Opus control) in a disposable
 profile, build the development app and run the following with Node and ffmpeg:
@@ -121,6 +130,78 @@ BROWSER_MEDIA_TEST_HLS_URL=https://example.org/playlist.m3u8 node native/Tests/m
 
 Set `BROWSER_SMOKE_APP` to test a different local app bundle. The check requires
 advancing playback, decoded audio and video frames in the real renderer.
+
+### Widevine on macOS
+
+CEF obtains Google's signed Widevine CDM through Chromium's component updater.
+An empty profile can report `NotSupportedError` until the download completes.
+After registration, `requestMediaKeySystemAccess` and `createMediaKeys` exercise
+two different stages. In the signed 1.2.1 build, the first succeeded but macOS
+rejected the Google library in the ordinary utility process because the two
+Developer ID teams differ. The resulting EME error was `CreateCdmFunc not available`.
+[CEF component updater](https://github.com/chromiumembedded/cef/issues/3149).
+
+Arc Reborn routes the sandboxed CDM service into its own helper on macOS 14 and
+later. Its signed library constraint identifies Google's CDM by team, signing
+identifier and Developer ID validation category. The rest of the application
+uses its ordinary signing policy. The component updater manages CDM version
+selection, verification and updates. Test the **Hardened Runtime build** because
+development signing alone cannot reproduce the original loading error.
+[Apple library constraints](https://developer.apple.com/documentation/security/defining-launch-environment-and-library-constraints).
+
+```sh
+BROWSER_SMOKE_APP='/path/to/signed/Arc Reborn.app' node native/Tests/protected-media-webrtc.mjs widevine
+```
+
+The test starts a clean profile, clicks the Widevine update button, waits for
+component registration, requests a
+temporary Widevine license for Shaka's public *Angel One* film, and requires a
+usable key, advancing playback and decoded H.264 frames. It needs the network.
+On first use, open `arc://components` in the address bar, find *Widevine Content
+Decryption Module*, and click *Check for update* if it has no installed version.
+Reload the player after installation. macOS can register the CDM while the
+browser is running. A timeout on first use can be a component download delay.
+[Official demo assets](https://github.com/shaka-project/shaka-player/blob/main/demo/common/assets.js).
+
+Google requires a license agreement for Widevine products and services. For
+a public browser, contact Google about desktop browser integration and host
+signing. A distributor's EME license policy can require Verified Media Path
+(VMP) and additional device or output protection. For macOS, CEF looks for a
+signature named after the executing helper in the main app's Resources, and
+one named after the CEF binary in its framework Resources. Apple's Developer
+ID signature and notarization cover a different verification step. Record a
+service-specific playback result before claiming support for its catalog.
+Netflix publishes its own list of supported desktop browsers and resolutions.
+[Widevine licensing](https://developers.google.com/widevine/drm/overview),
+[integration contact](https://support.google.com/widevine/troubleshooter/6027072),
+[CEF host signature paths](https://github.com/chromiumembedded/cef/blob/cf671c072925b27823a61181152f4f288e8e4306/libcef/common/cdm_host_file_path.cc),
+[Netflix browser requirements](https://help.netflix.com/en/node/30081).
+
+### WebRTC H.264 sending
+
+In Chromium 156 on macOS the WebRTC hardware H.264 encoder requires an
+available software fallback. Build both `media_use_openh264=true` and
+`rtc_use_h264=true` with the existing proprietary-codec and FFmpeg settings.
+H.264 file playback or a receiver capability does not exercise this path.
+[Chromium's encoder selection](https://github.com/chromium/chromium/blob/fb096c0011f9d50f0a264a9376420cdea9c421e3/third_party/blink/renderer/platform/peerconnection/webrtc_util.cc),
+[WebRTC build flags](https://webrtc.googlesource.com/src/+/19576e37870bfe5a0a910a32f98ff411f722f43a/webrtc.gni).
+
+```sh
+BROWSER_SMOKE_APP='/path/to/Arc Reborn.app' node native/Tests/protected-media-webrtc.mjs h264
+BROWSER_RTC_SOFTWARE_ONLY=1 BROWSER_SMOKE_APP='/path/to/Arc Reborn.app' node native/Tests/protected-media-webrtc.mjs h264
+```
+
+The two local peers negotiate only H.264 and report encoded and decoded frames
+from RTP statistics. The second command exercises software encoding with a
+generated video source. Cisco distinguishes builds using its source from the
+binary it distributes when describing coverage of applicable patent royalties.
+[Cisco OpenH264 FAQ](https://www.openh264.org/faq.html).
+
+On November 7, 2026, the signed arm64 preview played the Shaka Widevine film
+with four usable keys. A separate H.264-only WebRTC call exchanged eight frames
+and the software-only run exchanged six, all decoded on the receiving peer.
+Both negotiated packetization mode 1 and profile-level-id `42001f`. The call
+used a generated video track on one Mac.
 
 ## Profiling the browser and building a separate optimized engine
 

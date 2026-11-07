@@ -9,7 +9,7 @@ final class UndoToast {
     private var generation = 0
     private var width: CGFloat = 340
     var undo: (() -> Void)?
-    func show(in parent: NSWindow, message: String, suffix: String, undoLabel: String, color: NSColor, offersUndo: Bool = true) {
+    func show(in parent: NSWindow, message: String, suffix: String, undoLabel: String, color: NSColor, offersUndo: Bool = true, securityWarning: Bool = false) {
         dismiss(animated:false); self.parent = parent; generation += 1
         let body = NSView(); body.wantsLayer = true; body.layer?.cornerRadius = 16
         body.layer?.backgroundColor = (color.blended(withFraction:0.82,of:NSColor(srgbRed:0.055,green:0.02,blue:0.11,alpha:1)) ?? .black).cgColor
@@ -20,7 +20,14 @@ final class UndoToast {
         button.isBordered = false; button.font = .systemFont(ofSize:14,weight:.bold); button.contentTintColor = .white
         button.wantsLayer = true; button.layer?.cornerRadius = 7; button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.11).cgColor
         button.setAccessibilityLabel(undoLabel); body.addSubview(button)
-        title.frame.origin = NSPoint(x:16,y:16)
+        if securityWarning {
+            let shield = NSImageView(frame:NSRect(x:14,y:15,width:20,height:20))
+            shield.image = NSImage(systemSymbolName:"exclamationmark.shield.fill",accessibilityDescription:nil)
+            shield.contentTintColor = .systemOrange
+            body.addSubview(shield)
+            title.setAccessibilityIdentifier("download-protection-warning")
+        }
+        title.frame.origin = NSPoint(x:securityWarning ? 42 : 16,y:16)
         button.frame = NSRect(x:title.frame.maxX+10,y:10,width:42,height:30)
         ending.frame.origin = NSPoint(x:button.frame.maxX+8,y:16)
         button.isHidden = !offersUndo; ending.isHidden = !offersUndo

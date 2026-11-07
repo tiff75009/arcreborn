@@ -10,12 +10,13 @@ static int CreateNativeExtensionTab(int sourceBrowserID, int active,
   if (source == browsers.end() || !chromeTabs.count(source->first)) return 0;
   const auto owner = nativeTabOwners.find(source->first);
   BrowserEngine *engine = owner == nativeTabOwners.end() ? nil : owner->second.engine;
-  if (!engine.delegate || ![engine.delegate respondsToSelector:@selector(browserPrepareExtensionTab:active:pinned:index:)] ||
+  if (!engine.delegate || ![engine.delegate respondsToSelector:@selector(browserPrepareExtensionTab:active:pinned:index:aboveSource:)] ||
       ![engine.delegate respondsToSelector:@selector(browserExtensionTabCreated:success:)]) return -1;
   auto sourceBrowser = source->second;
   if (!sourceBrowser->IsValid()) return -1;
   NSString *sourceID = @(source->first.c_str());
-  NSDictionary *prepared = [engine.delegate browserPrepareExtensionTab:sourceID active:active != 0 pinned:pinned != 0 index:index];
+  NSDictionary *prepared = [engine.delegate browserPrepareExtensionTab:sourceID active:active != 0 pinned:pinned != 0 index:index
+                                                aboveSource:[sourceID isEqualToString:contextLinkSource]];
   NSString *identifier = prepared[@"id"];
   NSView *container = prepared[@"view"];
   if (!identifier.length || !container) return -1;

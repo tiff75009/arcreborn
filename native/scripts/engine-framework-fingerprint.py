@@ -27,7 +27,8 @@ def fingerprint(framework, reference):
     required = {'_browser_native_navigation_version_v1', '_browser_execute_extension_action_v1', '_browser_close_extension_popup_v1',
                 '_browser_set_extension_tab_creator_v1', '_browser_set_extension_install_notice_v1',
                 '_browser_extension_popup_state_v1', '_browser_set_extension_dialog_bounds_v1', '_browser_attach_native_view_v1', '_browser_native_view_visibility_v1',
-                '_browser_observe_tab_sound_v1', '_cef_api_hash', '_cef_initialize'}
+                '_browser_download_info_v1', '_browser_recover_download_v1', '_browser_suspend_downloads_v1',
+                '_browser_observe_tab_sound_v1', '_browser_snapshot_tab_history_v1', '_browser_restore_tab_history_v1', '_cef_api_hash', '_cef_initialize'}
     missing = required - exports
     if missing:
         raise ValueError('Engine exports missing: ' + ', '.join(sorted(missing)))

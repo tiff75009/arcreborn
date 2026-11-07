@@ -13,6 +13,13 @@ import Foundation
         require(displayed == "arc://settings/content/siteDetails?site="+site,"display the Arc alias")
         require(browserURL(displayed) == address,"typing the displayed alias opens the same page")
         require(browserURL("browser://settings/")?.absoluteString == "chrome://settings/","browser alias")
+        require(browserURL("arc://components")?.absoluteString == "chrome://components/","open the component updater")
+        require(isAllowedBrowserURL("chrome://components/"),"restore the component updater")
+        require(browserURL("arc://downloads")?.absoluteString == "chrome://downloads/" && isAllowedBrowserURL("chrome://downloads/"),"open Chromium download decisions in the profile")
+        require(settingsPageURL("chrome://downloads/other") == nil && settingsPageURL("chrome://downloads/?q=x") == nil,"only allow the downloads root")
+        for invalid in ["chrome://components/other","chrome://components/?q=update","arc://user@components/","arc://components/#x"] {
+            require(settingsPageURL(invalid) == nil,"reject unsupported component routes")
+        }
         let complexSite = "https://example.com:8443/a+b?x=1&y=a+b%26c#part"
         let complexAddress = siteSettingsURL(for:complexSite)!
         let parts = URLComponents(url:complexAddress,resolvingAgainstBaseURL:false)!
@@ -26,10 +33,11 @@ import Foundation
         }
         var session = BrowserSession.fresh()
         let sourceID = session.createTab(url:site)
-        let source = session.tabs.first { $0.id == sourceID }!
+        var source = session.tabs.first { $0.id == sourceID }!
         let settingsID = session.createTab(url:address.absoluteString,spaceID:source.spaceID)
         require(!settingsID.isEmpty && settingsID != sourceID,"settings opens in a new tab")
-        require(session.tabs.first { $0.id == sourceID } == source,"source tab remains unchanged")
+        source.sidebarOrder = (source.sidebarOrder ?? 0) + 1
+        require(session.tabs.first { $0.id == sourceID } == source,"inserting settings above the source changes only its sidebar position")
         require(session.tabs.first { $0.id == settingsID }?.spaceID == source.spaceID,"use the source space and its profile")
         require(session.validated(),"settings tab can be persisted")
         let restored = try JSONDecoder().decode(BrowserSession.self,from:JSONEncoder().encode(session))

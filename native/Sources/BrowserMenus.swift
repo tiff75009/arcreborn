@@ -105,6 +105,9 @@ final class BrowserMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     }
     @objc private func run(_ item: NSMenuItem) {
         guard let id = item.representedObject as? String, validateMenuItem(item) else { return }
+        if id == "closeTab", let window = NSApp.keyWindow as? AuthenticationWindow {
+            window.performClose(item); return
+        }
         if let kind = ["newWindow":BrowserWindowKind.normal,"blankWindow":.blank,"incognito":.privateWindow,"littleWindow":.compact][id] {
             appDelegate?.openWindow(kind,from:controller); return
         }
@@ -115,11 +118,15 @@ final class BrowserMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard let id = item.representedObject as? String else { return false }
+        if id == "closeTab", NSApp.keyWindow is AuthenticationWindow {
+            item.title = text("Annuler la connexion","Cancel Sign In")
+            return true
+        }
         if ["newWindow","blankWindow","incognito","littleWindow"].contains(id) { return appDelegate?.sharedSession.onboardingComplete == true && appDelegate?.quitting == false }
         if id == "updates" { return appDelegate?.quitting == false && BrowserUpdates.shared.canCheck }
         if id == "openFile" {
             return appDelegate?.booted == true && appDelegate?.quitting == false &&
-                appDelegate?.sharedSession.onboardingComplete == true &&
+                appDelegate?.sharedSession.onboardingComplete == true && !(NSApp.keyWindow is AuthenticationWindow) &&
                 (controller.map { $0.window.isKeyWindow && $0.window.attachedSheet == nil } ?? (NSApp.keyWindow == nil))
         }
         if id == "whatsNew" { return appDelegate?.quitting == false }

@@ -410,7 +410,17 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         } else {
             text(tr("La traduction sur l’appareil nécessite macOS 15 ou ultérieur.","On-device translation requires macOS 15 or later."),NSRect(x:17,y:19,width:w-34,height:60),color:.secondaryLabelColor,in:translation)
         }
-        pageContent.frame.size.height = max(scroll.bounds.height,686)
+        sectionLabel(tr("Performances","Performance"),x:x,y:690,width:bodyWidth-56)
+        let perf = card(NSRect(x:x,y:710,width:bodyWidth-56,height:71))
+        let saverLabel = tr("Économiseur de mémoire et de batterie","Memory and battery saver")
+        text(saverLabel,NSRect(x:17,y:10,width:perf.bounds.width-88,height:22),weight:.medium,in:perf)
+        text(tr("Met en veille les onglets inutilisés après 30 min, ou 10 min en mode économie d’énergie.",
+                "Sleep unused tabs after 30 min, or 10 min in Low Power Mode."),
+             NSRect(x:17,y:34,width:perf.bounds.width-88,height:28),size:11,color:.secondaryLabelColor,in:perf)
+        let saver = PreferenceSwitch(value:TabMemorySaver.enabled) { UserDefaults.standard.set($0,forKey:TabMemorySaver.setting) }
+        saver.setAccessibilityLabel(saverLabel); saver.identifier = .init("performance.memorySaver")
+        saver.frame = NSRect(x:perf.bounds.width-56,y:22,width:40,height:24); perf.addSubview(saver)
+        pageContent.frame.size.height = max(scroll.bounds.height,797)
     }
     @objc private func translationLanguageChanged(_ sender:NSPopUpButton) {
         PageTranslationSettings.choose(sender.selectedItem?.representedObject as? String ?? "")

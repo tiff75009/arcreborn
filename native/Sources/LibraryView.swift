@@ -711,6 +711,7 @@ final class LibraryView: ThemeBackdropView, NSCollectionViewDataSource, NSCollec
         }
     }
     private func configureTransfer(_ tile:LibraryTile, record:LibraryDownload) {
+        store.checkLegacyDownload(record)
         tile.key = record.id
         for child in [tile.picture,tile.name,tile.detail,tile.bar] { child.isHidden = true }
         tile.transfer.isHidden = false; tile.view.setAccessibilityElement(false)

@@ -19,6 +19,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)browserClosed:(NSString *)tabID NS_SWIFT_NAME(browserClosed(_:));
 @optional
 - (void)browserFindResult:(NSString *)tabID position:(NSInteger)position total:(NSInteger)total NS_SWIFT_NAME(browserFindResult(_:position:total:));
+- (void)browserWillClose:(NSString *)tabID NS_SWIFT_NAME(browserWillClose(_:));
+// Only authentication windows implement this. Consult it before filtering a
+// main-frame navigation so a custom scheme never has to be opened by the OS.
+- (BOOL)browserShouldCancelAuthenticationNavigation:(NSString *)tabID url:(NSString *)url NS_SWIFT_NAME(browserShouldCancelAuthenticationNavigation(_:url:));
 - (void)browserSoundChanged:(NSString *)tabID audible:(BOOL)audible muted:(BOOL)muted NS_SWIFT_NAME(browserSoundChanged(_:audible:muted:));
 - (void)browserInboxChanged:(NSString *)tabID document:(NSString *)document unread:(BOOL)unread NS_SWIFT_NAME(browserInboxChanged(_:document:unread:));
 - (void)browserLoadProgress:(NSString *)tabID fraction:(double)fraction NS_SWIFT_NAME(browserLoadProgress(_:fraction:));
@@ -27,7 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSDictionary<NSString *, id> *)browserPreparePopup:(NSString *)url sourceTab:(NSString *)tabID active:(BOOL)active NS_SWIFT_NAME(browserPreparePopup(_:sourceTab:active:));
 - (void)browserPictureInPictureReturn:(NSString *)tabID NS_SWIFT_NAME(browserPictureInPictureReturn(_:));
 - (void)browserExtensionInstalled:(NSString *)identifier name:(NSString *)name profile:(NSString *)profile NS_SWIFT_NAME(browserExtensionInstalled(_:name:profile:));
-- (nullable NSDictionary<NSString *, id> *)browserPrepareExtensionTab:(NSString *)sourceTab active:(BOOL)active pinned:(BOOL)pinned index:(NSInteger)index NS_SWIFT_NAME(browserPrepareExtensionTab(_:active:pinned:index:));
+- (nullable NSDictionary<NSString *, id> *)browserPrepareExtensionTab:(NSString *)sourceTab active:(BOOL)active pinned:(BOOL)pinned index:(NSInteger)index aboveSource:(BOOL)aboveSource NS_SWIFT_NAME(browserPrepareExtensionTab(_:active:pinned:index:aboveSource:));
 - (void)browserExtensionTabCreated:(NSString *)tabID success:(BOOL)success NS_SWIFT_NAME(browserExtensionTabCreated(_:success:));
 - (void)browserDownloadUpdated:(NSString *)tabID values:(NSDictionary<NSString *, id> *)values NS_SWIFT_NAME(browserDownloadUpdated(_:values:));
 - (BOOL)browserUndoRequested;
@@ -54,6 +58,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)setSearchProvider:(NSInteger)identifier name:(NSString *)name keyword:(NSString *)keyword templateURL:(NSString *)url forProfile:(NSString *)profile NS_SWIFT_NAME(setSearchProvider(_:name:keyword:templateURL:profile:));
 - (BOOL)updateCredentialPreferences;
 - (BOOL)createTab:(NSString *)tabID profile:(NSString *)profileID url:(NSString *)url inView:(NSView *)container NS_SWIFT_NAME(createTab(_:profile:url:container:));
+- (BOOL)createTab:(NSString *)tabID profile:(NSString *)profileID url:(NSString *)url archiveHistory:(nullable NSData *)history inView:(NSView *)container NS_SWIFT_NAME(createTab(_:profile:url:archiveHistory:container:));
+- (nullable NSData *)historyForTab:(NSString *)tabID address:(NSString *)url NS_SWIFT_NAME(history(forTab:address:));
 - (void)navigateTab:(NSString *)tabID url:(NSString *)url;
 - (void)resizeTab:(NSString *)tabID inView:(NSView *)container NS_SWIFT_NAME(resizeTab(_:container:));
 - (void)setTab:(NSString *)tabID visible:(BOOL)visible;
@@ -73,6 +79,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)printPage:(NSString *)tabID;
 - (void)stop:(NSString *)tabID;
 - (void)closeTab:(NSString *)tabID;
+- (BOOL)hasTabHistory:(NSString *)tabID;
+- (BOOL)canSleepTab:(NSString *)tabID address:(NSString *)address NS_SWIFT_NAME(canSleepTab(_:address:));
 - (void)tryAutoArchiveTab:(NSString *)tabID;
 - (void)discardTab:(NSString *)tabID;
 - (void)findInTab:(NSString *)tabID text:(NSString *)text forward:(BOOL)forward next:(BOOL)next;
@@ -89,12 +97,14 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)closeDeveloperTools:(NSString *)tabID;
 - (void)capturePage:(NSString *)tabID completion:(void (^)(NSData * _Nullable))completion NS_SWIFT_NAME(capturePage(_:completion:));
 - (void)captureFullPage:(NSString *)tabID completion:(void (^)(NSData * _Nullable))completion NS_SWIFT_NAME(captureFullPage(_:completion:));
-- (void)checkArchiveIdle:(NSString *)tabID completion:(void (^)(BOOL))completion NS_SWIFT_NAME(checkArchiveIdle(_:completion:));
+- (void)checkIdleTab:(NSString *)tabID forSleep:(BOOL)forSleep completion:(void (^)(BOOL))completion NS_SWIFT_NAME(checkIdleTab(_:forSleep:completion:));
 - (NSView * _Nullable)captureViewForTab:(NSString *)tabID NS_SWIFT_NAME(captureView(forTab:));
 - (void)captureElementAtPoint:(NSPoint)point forTab:(NSString *)tabID completion:(void (^)(NSDictionary * _Nullable))completion NS_SWIFT_NAME(captureElement(at:forTab:completion:));
 - (void)setPageInputSuppressed:(BOOL)suppressed forTab:(NSString *)tabID;
 - (void)clearCacheForTab:(NSString *)tabID completion:(void (^)(BOOL))completion;
 - (void)clearCookiesForTab:(NSString *)tabID completion:(void (^)(BOOL))completion;
+- (void)identifyLegacyDownload:(uint32_t)identifier source:(NSString *)source partial:(NSString *)partial profile:(NSString *)profile completion:(void (^)(NSString * _Nullable))completion NS_SWIFT_NAME(identifyLegacyDownload(_:source:partial:profile:completion:));
+- (void)recoverDownload:(NSString *)source originalURL:(NSString *)originalURL guid:(NSString *)guid profile:(NSString *)profile update:(void (^)(NSDictionary<NSString *, id> * _Nullable))update NS_SWIFT_NAME(recoverDownload(_:originalURL:guid:profile:update:));
 - (void)controlDownload:(NSUInteger)identifier action:(NSString *)action NS_SWIFT_NAME(controlDownload(_:action:));
 - (void)setAppearanceMode:(NSInteger)mode;
 - (BOOL)showExtensionStoreForProfile:(NSString *)profileID name:(NSString *)name address:(NSString *)address NS_SWIFT_NAME(showExtensionStore(profile:name:address:));

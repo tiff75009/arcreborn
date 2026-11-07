@@ -45,7 +45,7 @@ fi
 if [[ "${BROWSER_REBUILD_ICON:-${BROWSER_RELEASE_BUILD:-0}}" == "1" || ! -s "$NATIVE_ROOT/Resources/Assets.car" ]]; then
   "$NATIVE_ROOT/scripts/make-icon.sh"
 fi
-"$CMAKE_BIN" --build "$CMAKE_BUILD" --target BrowserBridge BrowserHelper --parallel "$BUILD_JOBS"
+"$CMAKE_BIN" --build "$CMAKE_BUILD" --target BrowserBridge BrowserHelper BrowserCdmHelper --parallel "$BUILD_JOBS"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Frameworks" "$APP_BUNDLE/Contents/Resources"
 xcrun swiftc -O -g -swift-version 5 -target arm64-apple-macosx13.0 -sdk "$SDK_ROOT" \
   -import-objc-header "$NATIVE_ROOT/Bridge/BrowserBridge.h" \
@@ -55,6 +55,19 @@ xcrun swiftc -O -g -swift-version 5 -target arm64-apple-macosx13.0 -sdk "$SDK_RO
   -F "$SPARKLE_ROOT" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   -Xlinker -ObjC -o "$APP_BUNDLE/Contents/MacOS/Arc Reborn"
 cp "$NATIVE_ROOT/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+if [[ "${BROWSER_RELEASE_BUILD:-0}" == "1" && ! "${BROWSER_SAFE_BROWSING_API_KEY:-}" =~ ^AIza[A-Za-z0-9_-]{35}$ ]]; then
+  echo 'A production build requires the project Safe Browsing API key.' >&2
+  exit 1
+fi
+if [[ -n "${BROWSER_SAFE_BROWSING_API_KEY:-}" ]]; then
+  "$PYTHON_BIN" - "$APP_BUNDLE/Contents/Info.plist" <<'PY'
+import os, pathlib, plistlib, sys
+path = pathlib.Path(sys.argv[1])
+info = plistlib.loads(path.read_bytes())
+info["ArcRebornSafeBrowsingAPIKey"] = os.environ["BROWSER_SAFE_BROWSING_API_KEY"].strip()
+path.write_bytes(plistlib.dumps(info))
+PY
+fi
 # Contributor builds cannot be overwritten by official updates.
 if [[ "${BROWSER_RELEASE_BUILD:-0}" != "1" ]]; then
   /usr/libexec/PlistBuddy -c "Add :ArcRebornDevelopmentBuild bool true" "$APP_BUNDLE/Contents/Info.plist"
@@ -70,6 +83,7 @@ cp "$NATIVE_ROOT/../LICENSE" "$APP_BUNDLE/Contents/Resources/MPL-2.0.txt"
 cp "$NATIVE_ROOT/../NOTICE.md" "$APP_BUNDLE/Contents/Resources/NOTICE.md"
 cp "$NATIVE_ROOT/Engine/licenses/Chromium.txt" "$APP_BUNDLE/Contents/Resources/Chromium-LICENSE.txt"
 cp "$NATIVE_ROOT/Engine/licenses/FFmpeg.txt" "$APP_BUNDLE/Contents/Resources/FFmpeg-LICENSE.txt"
+cp "$NATIVE_ROOT/Engine/licenses/OpenH264.txt" "$APP_BUNDLE/Contents/Resources/OpenH264-LICENSE.txt"
 FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Chromium Embedded Framework.framework"
 FRAMEWORK_STAMP="$BUILD_ROOT/cef-framework.sha1"
 PIN_SHA="$($PYTHON_BIN -c 'import json,sys; print(json.load(open(sys.argv[1]))["archive"]["sha1"])' "$NATIVE_ROOT/Resources/cef-version.json")"
@@ -92,15 +106,18 @@ if [[ "${FRAMEWORK_COPIED:-0}" == "1" || ! -f "$FRAMEWORK_SIGNER_STAMP" || "$(ca
   printf '%s\n' "$PIN_SHA" > "$FRAMEWORK_STAMP"
   printf '%s\n' "$PIN_SHA:$SIGN_IDENTITY" > "$FRAMEWORK_SIGNER_STAMP"
 fi
-for suffix in '' ' (GPU)' ' (Renderer)' ' (Plugin)' ' (Alerts)'; do
+for suffix in '' ' (GPU)' ' (Renderer)' ' (Plugin)' ' (Alerts)' ' (CDM)'; do
   HELPER_NAME="Arc Reborn Helper$suffix"
   HELPER_BUNDLE="$APP_BUNDLE/Contents/Frameworks/$HELPER_NAME.app"
   mkdir -p "$HELPER_BUNDLE/Contents/MacOS"
-  cp "$CMAKE_BUILD/BrowserHelper" "$HELPER_BUNDLE/Contents/MacOS/$HELPER_NAME"
+  helper_target=BrowserHelper
+  if [[ "$suffix" == ' (CDM)' ]]; then helper_target=BrowserCdmHelper; fi
+  cp "$CMAKE_BUILD/$helper_target" "$HELPER_BUNDLE/Contents/MacOS/$HELPER_NAME"
   "$PYTHON_BIN" - "$HELPER_BUNDLE/Contents/Info.plist" "$HELPER_NAME" "$suffix" <<'PY'
 import plistlib,sys
 suffix = sys.argv[3].strip(' ()').lower()
 info = {'CFBundleExecutable':sys.argv[2], 'CFBundleName':sys.argv[2], 'CFBundleIdentifier':'local.browser.native.helper' + ('.'+suffix if suffix else ''), 'CFBundlePackageType':'APPL', 'CFBundleVersion':'1', 'CFBundleShortVersionString':'0.1.0', 'LSMinimumSystemVersion':'13.0', 'LSUIElement':True, 'LSFileQuarantineEnabled':True, 'NSSupportsAutomaticGraphicsSwitching':True, 'LSEnvironment':{'MallocNanoZone':'0'}}
+if suffix == 'cdm': info['LSMinimumSystemVersion'] = '14.0'
 with open(sys.argv[1],'wb') as output: plistlib.dump(info,output)
 PY
   /usr/bin/codesign --force --sign "$SIGN_IDENTITY" "$HELPER_BUNDLE"

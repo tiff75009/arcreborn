@@ -19,7 +19,7 @@ import AppKit
             for width:CGFloat in [180,245,440] {
                 scroll.frame.size.width = width-5; scroll.tile()
                 document.frame.size.width = scroll.contentSize.width
-                close.frame = NSRect(x:document.bounds.width-28,y:scroll.contentView.bounds.minY+20,width:22,height:22)
+                close.frame = NSRect(x:document.bounds.width-28,y:scroll.contentView.bounds.midY,width:22,height:22)
                 let closeEdge = scroll.superview!.convert(NSPoint(x:close.bounds.maxX-2,y:close.bounds.midY),from:close)
                 precondition(scroll.hitTest(closeEdge) === close,"transparent scroller padding must not intercept the close button")
                 precondition(abs(scroll.contentSize.width-(width-11)) < 0.01,"tab width remains unchanged with the new edge rail")
@@ -39,6 +39,31 @@ import AppKit
                 }
             }
         }
+        let table = NSTableView()
+        let data = TabRows()
+        table.headerView = nil; table.intercellSpacing = .zero; table.rowHeight = 36
+        table.addTableColumn(NSTableColumn(identifier:.init("tab"))); table.dataSource = data
+        scroll.documentView = table
+        for height:CGFloat in [240,500,800] {
+            scroll.frame.size.height = height
+            for count in [36,2] {
+                data.count = count; table.reloadData(); table.sizeToFit(); scroll.tile()
+                let clip = scroll.contentView
+                var end = clip.bounds; end.origin.y = 10000
+                clip.scroll(to:clip.constrainBoundsRect(end).origin)
+                let gap = scroll.documentVisibleRect.maxY-table.rect(ofRow:count-1).maxY
+                let expected = min(144,(height*0.25).rounded())
+                if count == 36 {
+                    precondition(gap >= expected-1 && gap <= expected+12,"stable space below the last row at the scroll limit")
+                    precondition(table.row(at:NSPoint(x:15,y:scroll.documentVisibleRect.maxY-5)) == -1,"the gap contains no tab")
+                } else { precondition(clip.bounds.minY == 0,"short lists need no extra scroll") }
+            }
+        }
         print("PASS: thin edge scrollbar, preserved tab width, no overlap and native thumb hit detection at three widths and positions")
     }
+}
+
+private final class TabRows: NSObject, NSTableViewDataSource {
+    var count = 0
+    func numberOfRows(in tableView:NSTableView) -> Int { count }
 }

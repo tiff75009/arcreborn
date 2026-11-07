@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "156.0.8078.80-arcreborn.7",
+  "version": "156.0.8078.80-arcreborn.10",
   "platform": "macos-arm64",
   "cefCommit": "cf671c072925b27823a61181152f4f288e8e4306",
   "chromiumCommit": "fb096c0011f9d50f0a264a9376420cdea9c421e3",
@@ -42,13 +42,32 @@
     {
       "file": "patches/appkit-download-feedback.patch",
       "sha256": "d9e161165ea37e802d6f6286fbdbbf5d877b543402b6b5a17e41ae2033b547cd"
+    },
+    {
+      "file": "patches/appkit-tab-history.patch",
+      "sha256": "831ae362aaf8dce622996a61c225bd14d40ed09e4baecafd46fa4eb7754739cb"
+    },
+    {
+      "file": "patches/appkit-download-recovery.patch",
+      "sha256": "16fa1fa10fe24ebb89dbcaeb05913ea7f193c8d0744f680bb902b82fc088a24a"
     }
   ],
-  "gnDefines": "use_system_xcode=true is_official_build=true is_component_build=false symbol_level=0 use_remoteexec=false proprietary_codecs=true ffmpeg_branding=\"Chrome\" media_use_openh264=false rtc_use_h264=false rtc_use_h265=false enable_hevc_parser_and_hw_decoder=true enable_platform_hevc=true is_debug=false dcheck_always_on=false enable_expensive_dchecks=false chrome_pgo_phase=2 use_thin_lto=false disable_fieldtrial_testing_config=true",
+  "gnDefines": "use_system_xcode=true is_official_build=true is_component_build=false symbol_level=0 use_remoteexec=false proprietary_codecs=true ffmpeg_branding=\"Chrome\" media_use_openh264=true rtc_use_h264=true rtc_use_h265=false enable_hevc_parser_and_hw_decoder=true enable_platform_hevc=true is_debug=false dcheck_always_on=false enable_expensive_dchecks=false chrome_pgo_phase=2 use_thin_lto=false disable_fieldtrial_testing_config=true",
   "buildTarget": "cef_framework",
   "archive": {
     "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.7-macos-arm64.tar.gz",
     "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.7/ArcReborn-Engine-156.0.8078.80-arcreborn.7-macos-arm64.tar.gz",
-    "sha256": "0d544007f428fce03f5bb4602983caacb016dc89f8fc60a224c45be3ee9bffe0"
+    "sha256": "0d544007f428fce03f5bb4602983caacb016dc89f8fc60a224c45be3ee9bffe0",
+    "delta": {
+      "file": "deltas/webrtc-h264-arm64.bsdiff",
+      "sha256": "169a4fc7cc3b7c732e452fe7b9bb0f34111a8cd93d1ef26d6bd3f0928b6e5644",
+      "baseVersion": "156.0.8078.80-arcreborn.7",
+      "baseBinarySHA256": "d9c42f1bf27e0ad5486e204d9e76dae5b3fe9dd26e85651a38fc8fc52f3c31ef",
+      "binarySHA256": "0add5782122ecc3ff4f8368270895961047596d34f7b55b55f90a1a38b7863dc",
+      "gnOverrides": {
+        "media_use_openh264": "true",
+        "rtc_use_h264": "true"
+      }
+    }
   }
 }

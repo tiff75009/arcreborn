@@ -9,6 +9,7 @@ import json
 import os
 import re
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import tarfile
@@ -17,8 +18,19 @@ import urllib.request
 
 NATIVE = Path(__file__).resolve().parents[1]
 ENGINE = NATIVE / 'Engine'
-PIN = json.loads((ENGINE / 'engine.lock.json').read_text())
 FRAMEWORK = 'Chromium Embedded Framework.framework'
+
+def load_pin(use_passkeys):
+    pin = json.loads((ENGINE / 'engine.lock.json').read_text())
+    if use_passkeys:
+        variant = json.loads((ENGINE / 'passkeys.lock.json').read_text())
+        if pin['version'] != variant['baseVersion']:
+            raise ValueError('Rebase the passkey engine patch on the new base engine')
+        pin['patches'].append(variant['patch'])
+        pin.update(version=variant['version'], archive=variant['archive'])
+    return pin
+
+PIN = load_pin(os.environ.get('BROWSER_PASSKEY_PROFILE') or os.environ.get('BROWSER_PASSKEY_ENGINE') == '1')
 
 def sha(path):
     digest = hashlib.sha256()
@@ -34,6 +46,41 @@ def verify_patches():
     for patch in PIN['patches']:
         if sha(ENGINE / patch['file']) != patch['sha256']:
             raise SystemExit('Engine patch changed. Update engine.lock.json and publish a new engine version.')
+    delta = PIN['archive'].get('delta')
+    if delta and sha(ENGINE/delta['file']) != delta['sha256']:
+        raise SystemExit('Engine binary delta failed SHA-256 verification')
+
+def apply_archive_delta(stage, delta):
+    # Produce the new framework from an immutable, already verified public archive.
+    # bspatch ships with macOS. Both input and output identify exact engine builds.
+    binary = (stage/FRAMEWORK/'Chromium Embedded Framework').resolve()
+    patch = ENGINE/delta['file']
+    provenance = stage/'engine.json'
+    metadata = json.loads(provenance.read_text())
+    if metadata['version'] != delta['baseVersion'] or sha(binary) != delta['baseBinarySHA256']:
+        raise SystemExit('Engine delta input checksum or version mismatch')
+    overrides = delta.get('gnOverrides', {})
+    base_flags = dict(option.split('=', 1) for option in shlex.split(metadata['gnDefines']))
+    target_flags = dict(option.split('=', 1) for option in shlex.split(PIN['gnDefines']))
+    if base_flags | overrides != target_flags:
+        raise SystemExit('Engine delta does not account for all changed GN flags')
+    actual_args = metadata['build']['gnArgs']
+    for name, value in overrides.items():
+        if value not in ('true', 'false') or name not in base_flags or actual_args.get(name) != base_flags[name]:
+            raise SystemExit('Unexpected base build argument for engine delta: '+name)
+    output = binary.with_suffix('.new')
+    run('/usr/bin/bspatch', binary, output, patch)
+    if sha(output) != delta['binarySHA256']:
+        raise SystemExit('Patched engine failed SHA-256 verification')
+    output.chmod(binary.stat().st_mode)
+    output.replace(binary)
+    actual_args.update(overrides)
+    metadata.update(version=PIN['version'], patches=PIN['patches'], gnDefines=PIN['gnDefines'])
+    metadata['build'].update(binarySHA256=delta['binarySHA256'], baseEngineVersion=delta['baseVersion'])
+    for entry in PIN['patches']:
+        source = ENGINE/entry['file']
+        shutil.copyfile(source, stage/'patches'/source.name)
+    provenance.write_text(json.dumps(metadata, indent=2)+'\n')
 
 def fetch():
     verify_patches()
@@ -62,7 +109,14 @@ def fetch():
                     if Path(member.name).is_absolute() or '..' in Path(member.name).parts or member.isdev() or member.isfifo():
                         raise SystemExit('Unsafe engine archive member')
             run('/usr/bin/tar','-xf',package,'-C',stage)
-            Path(stage).rename(target)
+            if delta := archive.get('delta'):
+                apply_archive_delta(Path(stage), delta)
+            try:
+                Path(stage).rename(target)
+            except OSError:
+                # A concurrent build may have finished installing the same verified engine.
+                if not target.is_dir():
+                    raise
     metadata = json.loads((target/'engine.json').read_text())
     if metadata['version'] != PIN['version'] or metadata['patches'] != PIN['patches'] or metadata.get('gnDefines') != PIN['gnDefines']:
         raise SystemExit('Engine provenance mismatch')
@@ -148,9 +202,10 @@ def source(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['fetch','prepare','configure','build'])
+    parser.add_argument('command',choices=['fetch','prepare','configure','build','version'])
     parser.add_argument('--root',help='Dedicated directory, never a browser profile')
     parser.add_argument('--jobs',type=int,default=4)
     args = parser.parse_args()
     if args.command == 'fetch': fetch()
+    elif args.command == 'version': print(PIN['version'])
     else: source(args)

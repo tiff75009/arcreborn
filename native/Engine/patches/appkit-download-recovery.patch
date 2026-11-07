@@ -1,0 +1,188 @@
+--- a/cef/libcef/browser/download_manager_delegate_impl.h
++++ b/cef/libcef/browser/download_manager_delegate_impl.h
+@@ -32,6 +32,7 @@
+       const CefDownloadManagerDelegateImpl&) = delete;
+ 
+   ~CefDownloadManagerDelegateImpl() override;
++  void AttachForRecovery(download::DownloadItem* item, CefBrowserHostBase* browser);
+ 
+  private:
+   // DownloadItem::Observer methods.
+--- a/cef/libcef/browser/download_manager_delegate_impl.cc
++++ b/cef/libcef/browser/download_manager_delegate_impl.cc
+@@ -6,7 +6,15 @@
+ 
+ #include <tuple>
+ 
++#include "base/command_line.h"
++#include "base/no_destructor.h"
+ #include "base/files/file_util.h"
++#include "cef/libcef/browser/browser_context.h"
++#include "chrome/browser/download/download_core_service.h"
++#include "chrome/browser/download/download_core_service_factory.h"
++#include "components/download/public/common/download_item_impl.h"
++#include "components/download/public/common/download_utils.h"
++#include "components/download/public/common/download_features.h"
+ #include "base/functional/bind.h"
+ #include "base/logging.h"
+ #include "base/path_service.h"
+@@ -33,6 +41,29 @@
+ 
+ namespace {
+ 
++auto& RecoveryDelegates() {
++  static base::NoDestructor<std::map<DownloadManager*, CefDownloadManagerDelegateImpl*>> delegates;
++  return *delegates;
++}
++
++bool CanKeepPartial(DownloadItem* item) {
++  if (!item || !item->GetURL().SchemeIsHTTPOrHTTPS() || item->IsDangerous() ||
++      item->IsInsecure() || item->IsTransient() || item->AllDataSaved() ||
++      item->GetReceivedBytes() <= 0 || item->GetFullPath().empty())
++    return false;
++  auto headers = item->GetResponseHeaders();
++  if (headers && headers->HasHeaderValue("accept-ranges", "none"))
++    return false;
++  if (item->GetETag().empty() && item->GetLastModifiedTime().empty() &&
++      !base::FeatureList::IsEnabled(download::features::kAllowDownloadResumptionWithoutStrongValidators))
++    return false;
++  if (item->GetState() == DownloadItem::IN_PROGRESS)
++    return true;
++  return item->CanResume() &&
++      download::GetDownloadResumeMode(item->GetURL(), item->GetLastReason(), false, true) ==
++          download::ResumeMode::USER_CONTINUE;
++}
++
+ // Helper function to retrieve the CefDownloadHandler.
+ CefRefPtr<CefDownloadHandler> GetDownloadHandler(
+     CefRefPtr<CefBrowserHostBase> browser) {
+@@ -313,6 +344,7 @@
+     DownloadManager* manager)
+     : manager_(manager), manager_ptr_factory_(manager) {
+   DCHECK(manager);
++  RecoveryDelegates()[manager] = this;
+   manager->AddObserver(this);
+ 
+   DownloadManager::DownloadVector items;
+@@ -376,6 +408,11 @@
+ 
+ void CefDownloadManagerDelegateImpl::OnDownloadCreated(DownloadManager* manager,
+                                                        DownloadItem* item) {
++  // Restored items have no originating WebContents. Cancelling one here
++  // deletes the partial file before the native library can reattach to it.
++  if (item->GetDownloadCreationType() == DownloadItem::TYPE_HISTORY_IMPORT &&
++      base::CommandLine::ForCurrentProcess()->HasSwitch("arc-reborn-sidebar-downloads"))
++    return;
+   // This callback may arrive after DetermineDownloadTarget, so we allow
+   // association from either method.
+   CefRefPtr<CefBrowserHostBase> browser = GetOrAssociateBrowser(item);
+@@ -528,8 +565,84 @@
+   return nullptr;
+ }
+ 
++void CefDownloadManagerDelegateImpl::AttachForRecovery(DownloadItem* item,
++                                                      CefBrowserHostBase* browser) {
++  if (item_browser_map_.contains(item))
++    OnDownloadDestroyed(item);
++  item_browser_map_[item] = browser;
++  item->AddObserver(this);
++  if (!browser->HasObserver(this))
++    browser->AddObserver(this);
++}
++
++extern "C" CEF_EXPORT void browser_download_info_v1(
++    int browser_id, uint32_t id, void* context,
++    void (*receive)(void*, const char*, const char*, bool)) {
++  CEF_REQUIRE_UIT_RETURN_VOID();
++  auto host = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  auto* bc = host ? host->GetBrowserContext() : nullptr;
++  auto* item = bc ? bc->GetDownloadManager()->GetDownload(id) : nullptr;
++  if (item && receive)
++    receive(context, item->GetGuid().c_str(), item->GetTargetFilePath().value().c_str(),
++            CanKeepPartial(item));
++}
++
++// Returns -1 while the profile loads its history, 0 if a restart is
++// required and 1 after successfully handing the item back to Chromium.
++extern "C" CEF_EXPORT int browser_recover_download_v1(
++    int browser_id, const char* guid, const char* source, uint32_t legacy_id,
++    const char* partial_path, void* context, void (*identify)(void*, const char*)) {
++  CEF_REQUIRE_UIT_RETURN(0);
++  auto host = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  auto* bc = host ? host->GetBrowserContext() : nullptr;
++  if (!bc || !guid || !source)
++    return 0;
++  auto* manager = bc->GetDownloadManager();
++  auto* service = DownloadCoreServiceFactory::GetForBrowserContext(bc);
++  if (service)
++    service->InitializeHistory(DownloadCoreService::DownloadHistoryLoadTrigger::kDownloadsPage);
++  if (!manager->IsManagerInitialized())
++    return -1;
++  auto* item = identify ? manager->GetDownload(legacy_id) : manager->GetDownloadByGuid(guid);
++  auto found = RecoveryDelegates().find(manager);
++  if (found == RecoveryDelegates().end() || !CanKeepPartial(item) ||
++      item->GetState() != DownloadItem::INTERRUPTED || item->GetURL() != GURL(source))
++    return 0;
++  if (identify) {
++    if (!partial_path || item->GetFullPath() != base::FilePath(partial_path))
++      return 0;
++    identify(context, item->GetGuid().c_str());
++    return 1;
++  }
++  found->second->AttachForRecovery(item, host.get());
++  item->Resume(true);
++  return 1;
++}
++
++extern "C" CEF_EXPORT void browser_suspend_downloads_v1(const char* cache_path) {
++  CEF_REQUIRE_UIT_RETURN_VOID();
++  auto* context = cache_path && *cache_path
++                      ? CefBrowserContext::FromCachePath(base::FilePath(cache_path)) : nullptr;
++  if (!context || context->AsProfile()->IsOffTheRecord())
++    return;
++  // Only touch managers that currently have a CEF download delegate.
++  for (const auto& [manager, delegate] : RecoveryDelegates()) {
++    if (manager->GetBrowserContext() != context->AsProfile())
++      continue;
++    DownloadManager::DownloadVector items;
++    manager->GetAllDownloads(&items);
++    for (const auto& item : items) {
++      if (item->GetState() == DownloadItem::IN_PROGRESS && CanKeepPartial(item) &&
++          item->GetDownloadFile())
++        static_cast<download::DownloadItemImpl*>(item.get())->DestinationError(
++            download::DOWNLOAD_INTERRUPT_REASON_CRASH, item->GetReceivedBytes(), std::nullopt);
++    }
++  }
++}
++
+ void CefDownloadManagerDelegateImpl::ResetManager() {
+   if (manager_) {
++    RecoveryDelegates().erase(manager_);
+     manager_->RemoveObserver(this);
+     manager_ptr_factory_.InvalidateWeakPtrs();
+     manager_ = nullptr;
+--- a/components/download/internal/common/download_db_cache.cc
++++ b/components/download/internal/common/download_db_cache.cc
+@@ -5,6 +5,7 @@
+ #include "components/download/internal/common/download_db_cache.h"
+ 
+ #include "base/functional/bind.h"
++#include "base/command_line.h"
+ #include "base/task/sequenced_task_runner.h"
+ #include "components/download/database/download_db.h"
+ #include "components/download/database/download_db_conversions.h"
+@@ -67,6 +68,14 @@
+     return ShouldUpdateDownloadDBResult::UPDATE_IMMEDIATELY;
+   }
+ 
++  // A relaunch can happen before the ordinary ten-second progress write.
++  // Checkpoint the first reusable offset and the final interrupted offset.
++  if (current_info && previous_info && !current_path.empty() &&
++      ((current_info->received_bytes > 0 && previous_info->received_bytes == 0) ||
++       (state == DownloadItem::INTERRUPTED && previous_info->state != state)) &&
++      base::CommandLine::ForCurrentProcess()->HasSwitch("arc-reborn-sidebar-downloads"))
++    return ShouldUpdateDownloadDBResult::UPDATE_IMMEDIATELY;
++
+   if (previous.value() == current)
+     return ShouldUpdateDownloadDBResult::NO_UPDATE;
+ 

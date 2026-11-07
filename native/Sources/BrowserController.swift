@@ -474,6 +474,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     var becameKey: ((BrowserController)->Void)?
     var handoffPageChanged: ((BrowserController)->Void)?
     var windowClosed: ((BrowserController)->Void)?
+    var sharedTabHistory: ((NativeTab,String)->Data?)?
     var newWindowRequested: ((BrowserWindowKind)->Void)?
     var privateAddressRequested: ((String)->Void)?
     var windowAddressRequested: ((String)->Void)?
@@ -600,6 +601,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private lazy var libraryStore = LibraryStore(directory:store.directory,downloadsDirectory:URL(fileURLWithPath:BrowserEngine.currentDownloadDirectory(),isDirectory:true),persistent:!isPrivateWindow)
     private var rows: [SidebarRow] = []
     private var renderedSidebarKeys: [String] = []
+    private var renderedTabIDs: Set<String>
     private var sidebarCollapse = SidebarCollapseState()
     private var treeRows: [SidebarTreeRow] = []
     private var sidebarDragActive = false
@@ -647,6 +649,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         self.windowID = windowID; windowKind = kind; isPrivateWindow = privateWindow
         engine = WindowBrowserEngine(windowID:windowID)
         self.session = session; self.store = store
+        renderedTabIDs = Set(session.tabs.map(\.id))
         faviconCache = FaviconCache(directory:store.directory,persistent:!privateWindow)
         window = BrowserWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         super.init()
@@ -676,6 +679,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             }
         }
         buildInterface()
+        sidebarObservers.append(NotificationCenter.default.addObserver(forName:TabMemorySaver.exceptionsChanged,object:nil,queue:.main) { [weak self] _ in
+            self?.refreshFavorites()
+        })
         sidebarObservers.append(NotificationCenter.default.addObserver(forName:Notification.Name("BrowserDownloadPreferencesChanged"),object:nil,queue:.main) { [weak self] _ in
             self?.libraryStore.useDownloadsDirectory(URL(fileURLWithPath:BrowserEngine.currentDownloadDirectory(),isDirectory:true))
             self?.preferencesWindow?.refreshDownloadSettings()
@@ -684,7 +690,43 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let self, id.hasPrefix(self.downloadRun+"-"), let number = UInt(id.dropFirst(self.downloadRun.count+1)) else { return }
             self.engine.controlDownload(number,action:action)
         }
+        libraryStore.openDownloadPage = { [weak self] item, address in
+            guard let self else { return }
+            guard let space = self.session.spaces.first(where:{ $0.id == self.session.activeSpaceID && $0.profileID == item.profileID })
+                    ?? self.session.spaces.first(where:{ $0.profileID == item.profileID }) else { self.informDownloadRecoveryFailure(); return }
+            self.selectSpace(space.id)
+            self.openExternalAddress(address)
+        }
+        libraryStore.identifyLegacy = { [weak self] item, id, finish in
+            guard let self, self.session.profiles.contains(where:{ $0.id == item.profileID }) else { finish(nil); return }
+            self.engine.identifyLegacyDownload(id,source:item.source,partial:item.path,profile:item.profileID,completion:finish)
+        }
+        libraryStore.recover = { [weak self] item, action in
+            guard let self else { return }
+            let store = self.libraryStore, run = self.downloadRun
+            guard self.session.profiles.contains(where: { $0.id == item.profileID }) else {
+                store.recoveryFailed(item.id)
+                self.informDownloadRecoveryFailure()
+                return
+            }
+            self.engine.recoverDownload(item.source, originalURL:item.originalURL ?? item.source,
+                                        guid:action == "resume" ? (item.guid ?? "") : "", profile:item.profileID) { [weak self] values in
+                if let values {
+                    store.receiveDownload(values,run:run,profileID:item.profileID,recovering:item.id)
+                } else {
+                    store.recoveryFailed(item.id)
+                    if action == "restart" { self?.informDownloadRecoveryFailure() }
+                }
+            }
+        }
         libraryStore.downloadsChanged = { [weak self] in self?.updateDownloadIndicator() }
+        libraryStore.downloadBlocked = { [weak self] in
+            guard let self, self.window.isVisible, !self.isQuitting else { return }
+            let message = self.splitText("Téléchargement bloqué pour votre sécurité", "Download blocked for your safety")
+            self.undoToast.show(in:self.window,message:message,suffix:"",undoLabel:"",color:self.tint(),offersUndo:false,securityWarning:true)
+            NSAccessibility.post(element:self.window,notification:.announcementRequested,
+                                 userInfo:[.announcement:message,.priority:NSAccessibilityPriorityLevel.high.rawValue])
+        }
         recentPeek.transferAction = { [weak self] in self?.libraryStore.request($0,action:$1) }
         recentPeek.removeRecent = { [weak self] in self?.libraryStore.dismissRecentFile($0) }
         recentPeek.transferSeen = { [weak self] in self?.libraryStore.acknowledge([$0]) }
@@ -968,7 +1010,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         })
         table.postsFrameChangedNotifications = true
         sidebarObservers.append(NotificationCenter.default.addObserver(forName:NSView.frameDidChangeNotification,object:table,queue:.main) { [weak self] _ in self?.updateListSeparators() })
-        rowsScroll.scrollerStyle = .overlay; rowsScroll.automaticallyAdjustsContentInsets = false; rowsScroll.contentInsets = .init(); rowsScroll.documentView = table; rowsScroll.drawsBackground = false; rowsScroll.hasVerticalScroller = true; rowsScroll.autohidesScrollers = true; rowsScroll.borderType = .noBorder
+        rowsScroll.scrollerStyle = .overlay; rowsScroll.automaticallyAdjustsContentInsets = false; rowsScroll.documentView = table; rowsScroll.drawsBackground = false; rowsScroll.hasVerticalScroller = true; rowsScroll.autohidesScrollers = true; rowsScroll.borderType = .noBorder
         resizeStrip.width = { [weak self] in self?.session.sidebarWidth ?? SidebarSizing.standard }
         resizeStrip.begin = { [weak self] in self?.finishSpaceSwitch() }
         resizeStrip.change = { [weak self] width in guard let self else { return }; self.session.sidebarWidth = width; self.layout(); self.persist() }
@@ -1592,6 +1634,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         renderSpacesFooter(); updateToolbar(); buildHome(); layoutFavorites(animated:true); style(spaceButton, opacity: 0.7); style(downloadButton, opacity: 0.8)
         library?.update(session:session); sidebarTip.refreshIfVisible()
         updateSidebarUpdate(); layoutSidebarUpdate()
+        if let id = activeSpace?.selectedTabID, !renderedTabIDs.contains(id), let row = rows.firstIndex(of:.tab(id)) {
+            table.scrollRowToVisible(row)
+        }
+        renderedTabIDs = Set(session.tabs.map(\.id))
     }
     /// Updates only the movable part of the sidebar; previewing never opens a Chromium tab.
     private func renderSpaceContent(toggling folder: NativeFolder? = nil, moving:Bool = false) {
@@ -1880,7 +1926,6 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         // The expanded card may cover rows, but the resting pill never does.
         let bottom = visible ? updateCard.frame.maxY-SidebarUpdateCard.collapsedHeight-8 : downloadButton.frame.minY-5
         rowsScroll.frame.size.height = max(40,bottom-rowsScroll.frame.minY)
-        rowsScroll.contentInsets = .init()
         footerBarrier.frame = NSRect(x:0,y:bottom,width:sidebarHost.bounds.width,height:max(0,sidebarHost.bounds.height-bottom))
         let hairline = 1 / max(1,window.backingScaleFactor)
         listTopSeparator.frame = NSRect(x:0,y:rowsScroll.frame.minY-hairline,width:sidebarHost.bounds.width,height:hairline)
@@ -2014,9 +2059,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
         view.folderToggle = { [weak self] id in guard let self else { return }; self.sidebarCollapse.toggle(.folder(id),in:&self.session); self.render(); self.persist() }
         view.restoreTab = { [weak self] id in self?.closeLibrary { [weak self] in
-            guard let self, let index = self.session.closedTabs.firstIndex(where: { $0.id == id }) else { return }
-            let tab = self.session.closedTabs.remove(at:index); self.session.closedTabs.append(tab)
-            self.restoreTabAction(nil)
+            self?.restoreArchivedTab(id)
         } }
         root.addSubview(view,positioned:.below,relativeTo:pageShadow)
         root.addSubview(libraryInputShield)
@@ -2094,10 +2137,16 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
     }
     func browserDownloadUpdated(_ tabID: String, values: [String:Any]) {
-        guard let id = values["id"] as? NSNumber else { return }
-        let profile = session.tabs.first(where: { $0.id == tabID }).flatMap { tab in session.spaces.first(where: { $0.id == tab.spaceID })?.profileID } ?? ""
-        let started = libraryStore.updateDownload(id:downloadRun+"-"+id.stringValue,name:values["name"] as? String ?? "",path:values["path"] as? String ?? "",source:values["url"] as? String ?? "",profileID:profile,received:(values["received"] as? NSNumber)?.int64Value ?? 0,total:(values["total"] as? NSNumber)?.int64Value ?? 0,state:values["state"] as? String ?? "progress",speed:(values["speed"] as? NSNumber)?.int64Value ?? 0)
-        if started { animateDownload(fromTab:tabID) }
+        let profile = values["profileID"] as? String ?? session.tabs.first(where: { $0.id == tabID }).flatMap { session.profile(forSpace:$0.spaceID)?.id } ?? ""
+        if libraryStore.receiveDownload(values,run:downloadRun,profileID:profile) { animateDownload(fromTab:tabID) }
+    }
+    private func informDownloadRecoveryFailure() {
+        guard !isQuitting, window.isVisible else { return }
+        let alert = NSAlert()
+        alert.messageText = splitText("Impossible de relancer le téléchargement","Couldn’t restart the download")
+        alert.informativeText = splitText("Ouvrez la page d’origine pour télécharger à nouveau ce fichier.",
+                                          "Open the original page to download this file again.")
+        alert.beginSheetModal(for:window)
     }
     private func animateDownload(fromTab id:String) {
         guard downloadFlight == nil, window.isVisible, !window.isMiniaturized, window.occlusionState.contains(.visible),
@@ -2144,7 +2193,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard !isQuitting else { return }
         var next = session
         for tab in session.tabs where tab.spaceID == session.activeSpaceID && !tab.pinned && !tab.favorite {
-            next.closeTab(id:tab.id)
+            next.closeTab(id:tab.id,navigation:snapshotForArchive(tab))
         }
         performDeletion(next,kind:.tabs)
     }
@@ -2227,7 +2276,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let ids = activeSplit?.tabIDs ?? activeTab.map { [$0.id] } ?? []
         let visible = Set(ids)
         if visible != archiveVisible {
-            for id in archiveVisible.subtracting(visible) { captureTabPreview(id) }
+            let hiddenAt = ProcessInfo.processInfo.systemUptime
+            for id in archiveVisible.subtracting(visible) {
+                if containers[id] != nil { hiddenSince[id] = hiddenAt }
+                captureTabPreview(id)
+            }
+            for id in visible { hiddenSince.removeValue(forKey:id); sleepRetryAfter.removeValue(forKey:id) }
             let changed = visible.symmetricDifference(archiveVisible), now = Date()
             archiveVisible = visible
             var recorded = false
@@ -2315,18 +2369,18 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             }
         }
     }
-    private func navigate(_ input: String, newTab: Bool) {
+    private func navigate(_ input: String, newTab: Bool, above sourceID: String? = nil) {
         guard !isQuitting else { return }
-        if isExtensionsAddress(input) { manageExtensionsAction(nil); return }
+        if isExtensionsAddress(input) { openExtensions(store:false,above:sourceID); return }
         guard let url = browserURL(input,engine:currentEngine) else { showError(t("invalidURL"), detail: input); return }
         if url.scheme?.lowercased() == "https", url.host?.lowercased() == "chromewebstore.google.com", url.user == nil, url.password == nil {
-            openExtensions(store:true, address:url.absoluteString); return
+            openExtensions(store:true, address:url.absoluteString,above:sourceID); return
         }
         var id = activeTab?.id
-        if newTab || id == nil { id = session.createTab(url: url.absoluteString, spaceID: session.activeSpaceID) }
+        if newTab || id == nil { id = session.createTab(url:url.absoluteString,spaceID:session.activeSpaceID,above:sourceID) }
         guard let tabID = id, let index = session.tabs.firstIndex(where: { $0.id == tabID }) else { return }
         session.tabs[index].url = url.absoluteString; status[tabID]?.error = nil
-        if containers[tabID] != nil { engine.navigateTab(tabID, url: url.absoluteString) }
+        if containers[tabID] != nil && sleepClosing[tabID] == nil { engine.navigateTab(tabID, url: url.absoluteString) }
         render(); showSelectedTab(); persist()
     }
     private func displayTitle(_ tab: NativeTab) -> String { !tab.displayTitle.isEmpty ? tab.displayTitle : (URL(string: tab.url)?.host ?? t("newTab")) }
@@ -2705,8 +2759,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func addMenu(_ menu: NSMenu, _ title: String, _ kind: String, _ id: String, _ value: String = "") {
         let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: ""); item.target = self; item.representedObject = MenuAction(kind, id, value); menu.addItem(item)
     }
+    private func keepActiveMenuSite(_ tab:NativeTab) -> (profile:String,host:String,tabID:String?)? {
+        let space = tab.favorite ? session.activeSpaceID : tab.spaceID
+        let id = tab.favorite ? session.favoriteTabID(tab.id,spaceID:space) : tab.id
+        let live = id.flatMap { id in session.tabs.first(where:{ $0.id == id }) }
+        guard let profile = session.profile(forSpace:space)?.id,
+              let host = TabMemorySaver.host(for:live?.url ?? tab.url) else { return nil }
+        return (profile,host,id)
+    }
     private func tabMenu(_ tab: NativeTab) -> NSMenu {
         let menu = NSMenu(); menu.autoenablesItems = false
+        addMenu(menu, tab.favorite ? t("newTab") : splitText("Nouvel onglet au-dessus","New Tab Above"), "newTabAbove", tab.id)
         addMenu(menu, splitText("Copier le lien","Copy Link"), "tabCopy", tab.id)
         let sharing = NSMenu(); addMenu(sharing,splitText("Partager…","Share…"),"tabShare",tab.id); addSubmenu(menu,splitText("Partager","Share"),sharing)
         menu.addItem(.separator())
@@ -2716,6 +2779,10 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if let soundID {
             let muted = status[soundID]?.sound == .muted
             addMenu(menu,muted ? splitText("Réactiver le son de l’onglet","Unmute tab") : splitText("Couper le son de l’onglet","Mute tab"),"tabMute",soundID)
+        }
+        if let site = keepActiveMenuSite(tab) {
+            addMenu(menu,splitText("Toujours garder ce site actif","Always Keep This Site Active"),"keepSiteActive",tab.id,site.profile+"|"+site.host)
+            menu.items.last?.state = TabMemorySaver.hosts(in:site.profile,privately:isPrivateWindow).contains(site.host) ? .on : .off
         }
         addMenu(menu,splitText("Personnaliser la page…","Customize Page…"),"unavailable",tab.id); menu.items.last?.isEnabled = false
         menu.addItem(.separator())
@@ -2798,6 +2865,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         case "incognito": newWindowRequested?(.privateWindow)
         case "littleWindow": newWindowRequested?(.compact)
         case "newTab": newTabAction(nil); return
+        case "newTabAbove": openNewTab(above:command.id); return
         case "newSpace": newSpaceAction(nil); return
         case "newFolder": newFolder(spaceID: command.id.isEmpty ? nil : command.id); return
         case "spaceName": renameSpace(command.id); return
@@ -2822,6 +2890,15 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             self.render(); self.showSelectedTab(); self.persist()
         }; return
         case "manageSpaces": manageSpaces(); return
+        case "keepSiteActive":
+            guard let i = index, let site = keepActiveMenuSite(session.tabs[i]),
+                  command.value == site.profile+"|"+site.host else { return }
+            let enabled = !TabMemorySaver.hosts(in:site.profile,privately:isPrivateWindow).contains(site.host)
+            TabMemorySaver.setKeptActive(enabled,host:site.host,profile:site.profile,privately:isPrivateWindow)
+            if enabled, let id = site.tabID, containers[id] == nil {
+                ensurePage(id,in:content,visible:archiveVisible.contains(id))
+            }
+            return
         case "pin": if let i = index { session.tabs[i].pinned.toggle(); if !session.tabs[i].pinned { session.tabs[i].lastViewedAt = Date(); if session.tabs[i].favorite { session.detachFavoriteReferences(to:command.id) }; session.tabs[i].favorite = false; session.tabs[i].folderID = nil } }
         case "favorite": if let i = index {
             let spaceID = session.activeSpaceID
@@ -2857,6 +2934,16 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var pendingClose = Set<String>()
     private var archiveVisible = Set<String>()
     private var archiveProbing = Set<String>()
+    // Per-window monotonic clocks: another window can own a different renderer
+    // for the same logical tab. Never persist these or send them through sync.
+    private var hiddenSince = [String:TimeInterval]()
+    private var sleepRetryAfter = [String:TimeInterval]()
+    private struct SleepingPage {
+        let address: String
+        let history: ArchivedNavigation?
+    }
+    private var sleepClosing = [String:SleepingPage]()
+
     private var automaticClose = [String: () -> Bool]()
 
     var archiveProtectedIDs: Set<String> {
@@ -2866,8 +2953,67 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         for closing in pendingSpaceClosures.values { ids.formUnion(closing) }
         if let id = pageCapture?.tabID { ids.insert(id) }
         if let id = portraitCapture?.tabID { ids.insert(id) }
+        let exceptions = session.spaces.compactMap { space -> (String,Set<String>)? in
+            let hosts = TabMemorySaver.hosts(in:space.profileID,privately:isPrivateWindow)
+            return hosts.isEmpty ? nil : (space.id,hosts)
+        }
+        if !exceptions.isEmpty {
+            let bySpace = Dictionary(uniqueKeysWithValues:exceptions)
+            for tab in session.tabs {
+                if let hosts = bySpace[tab.spaceID], let host = TabMemorySaver.host(for:tab.url), hosts.contains(host) {
+                    ids.insert(tab.id)
+                }
+            }
+        }
         return ids
     }
+    func sleepIdleTab(now:TimeInterval = ProcessInfo.processInfo.systemUptime,
+                      lowPower:Bool = ProcessInfo.processInfo.isLowPowerModeEnabled) {
+        guard TabMemorySaver.enabled, !isQuitting, !closingWindow, !containers.isEmpty,
+              session.onboardingComplete, archiveProbing.isEmpty, sleepClosing.isEmpty else { return }
+        let protected = archiveProtectedIDs.union(archiveVisible)
+        let cutoff = now - TabMemorySaver.idleInterval(lowPower:lowPower)
+        var candidate: (tab:NativeTab,since:TimeInterval,retryAfter:TimeInterval)?
+        for tab in session.tabs where containers[tab.id] != nil && !protected.contains(tab.id) {
+            guard !tab.pinned, !tab.favorite, tab.favoriteSourceID == nil,
+                  tab.url.hasPrefix("https://") || tab.url.hasPrefix("http://"),
+                  let state = status[tab.id], state.hasLoaded, !state.loading, state.error == nil,
+                  state.sound == .silent else { continue }
+            let since = hiddenSince[tab.id] ?? now
+            hiddenSince[tab.id] = since
+            let retryAfter = sleepRetryAfter[tab.id] ?? 0
+            guard since <= cutoff, retryAfter <= now else { continue }
+            // Try each new candidate before repeating probes on long-lived calls or drafts.
+            if let current = candidate, (current.retryAfter,current.since) <= (retryAfter,since) { continue }
+            candidate = (tab,since,retryAfter)
+        }
+        guard let candidate else { return }
+        let tab = candidate.tab, id = tab.id
+        sleepRetryAfter[id] = now + 600
+        guard !engine.hasDeveloperTools(id), !engine.hasPictureInPicture(id),
+              engine.canSleepTab(id,address:tab.url) else { return }
+        archiveProbing.insert(id)
+        engine.checkIdleTab(id,forSleep:true) { [weak self] idle in
+            guard let self else { return }
+            self.archiveProbing.remove(id)
+            guard idle, TabMemorySaver.enabled, !self.isQuitting, !self.closingWindow,
+                  self.hiddenSince[id] == candidate.since, !self.archiveProtectedIDs.contains(id),
+                  let current = self.session.tabs.first(where:{ $0.id == id }),
+                  current.url == tab.url, !current.pinned, !current.favorite, current.favoriteSourceID == nil,
+                  !self.pendingClose.contains(id), self.engine.canSleepTab(id,address:tab.url) else { return }
+            // If this engine cannot round-trip the history, keep the live page.
+            var history: ArchivedNavigation?
+            if self.engine.hasTabHistory(id) {
+                guard let profile = self.session.profile(forSpace:current.spaceID)?.id,
+                      let data = self.liveTabHistory(current,profile:profile) else { return }
+                history = ArchivedNavigation(profileID:profile,data:data)
+            }
+            self.sleepClosing[id] = SleepingPage(address:current.url,history:history)
+            self.pendingClose.insert(id)
+            self.engine.tryAutoArchiveTab(id)
+        }
+    }
+
     func seedArchiveDates(at now:Date) {
         if session.seedArchiveClock(at:now) { persist() }
     }
@@ -2886,7 +3032,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard !isQuitting, !closingWindow, !pendingClose.contains(id), !archiveProbing.contains(id),
               !engine.hasPictureInPicture(id), !engine.hasDeveloperTools(id) else { return }
         archiveProbing.insert(id)
-        engine.checkArchiveIdle(id) { [weak self] idle in
+        engine.checkIdleTab(id,forSleep:false) { [weak self] idle in
             guard let self else { return }
             self.archiveProbing.remove(id)
             guard !self.isQuitting, !self.closingWindow, stillEligible() else { return }
@@ -2903,20 +3049,31 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
 
     private func requestCloseTab(_ id: String) {
         guard !isQuitting else { return }
-        if containers[id] != nil { pendingClose.insert(id); engine.closeTab(id) }
-        else { session.closeTab(id: id); render(); showSelectedTab(); persist() }
+        if containers[id] != nil {
+            sleepClosing.removeValue(forKey:id)
+            pendingClose.insert(id); engine.closeTab(id)
+        }
+        else {
+            let history = session.tabs.first(where:{ $0.id == id }).flatMap(snapshotForArchive)
+            session.closeTab(id:id,navigation:history); render(); showSelectedTab(); persist()
+        }
     }
-    @objc func newTabAction(_ sender: Any?) {
+    @objc func newTabAction(_ sender: Any?) { openNewTab() }
+    private func openNewTab(above sourceID:String? = nil) {
         guard !isQuitting, spaceCreation == nil else { return }
         if let home = session.profile(forSpace:session.activeSpaceID)?.homepage {
             commandPalette?.close()
             if windowKind == .compact { navigate(home,newTab:false) }
-            else if !session.createTab(url:home).isEmpty { render(); showSelectedTab(); persist() }
-        } else { showCommand(newTab:windowKind != .compact) }
+            else if !session.createTab(url:home,above:sourceID).isEmpty { render(); showSelectedTab(); persist() }
+        } else { showCommand(newTab:windowKind != .compact,above:sourceID) }
     }
     @objc func openLocationAction(_ sender: Any?) { guard spaceCreation == nil else { return }; showCommand(newTab: false) }
     @objc func closeTabAction(_ sender: Any?) { if windowKind == .compact { requestWindowClose() } else if let tab = activeTab { requestCloseTab(tab.id) } }
-    @objc func restoreTabAction(_ sender: Any?) { guard !isQuitting else { return }; session.restoreTab(); render(); showSelectedTab(); persist() }
+    private func restoreArchivedTab(_ id: String?) {
+        guard !isQuitting else { return }
+        session.restoreTab(id:id); render(); showSelectedTab(); persist()
+    }
+    @objc func restoreTabAction(_ sender: Any?) { restoreArchivedTab(nil) }
     @objc func toggleSidebarAction(_ sender: Any?) {
         setSidebarHidden(!session.sidebarHidden)
     }
@@ -3147,14 +3304,14 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if let index = session.tabs.firstIndex(where: { $0.id == created }) { session.tabs[index].title = t("settings") }
         render(); showSelectedTab(); persist()
     }
-    private func openExtensions(store:Bool, address:String? = nil) {
+    private func openExtensions(store:Bool, address:String? = nil, above sourceID:String? = nil) {
         guard !isPrivateWindow, !isQuitting, let space = activeSpace else { return }
         commandPalette?.close(); siteMenu?.close(); addMenu?.close()
         let url = store ? (address ?? "https://chromewebstore.google.com/category/extensions") : "chrome://extensions/"
         if let existing = session.tabs.first(where:{ $0.spaceID == space.id && $0.url == url }) {
             selectTab(existing.id); return
         }
-        _ = session.createTab(url:url,spaceID:space.id)
+        _ = session.createTab(url:url,spaceID:space.id,above:sourceID)
         render(); showSelectedTab(); persist()
     }
 
@@ -3228,7 +3385,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
     }
     private func label(_ text: String, font: NSFont = .systemFont(ofSize: 12), color: NSColor = .labelColor) -> NSTextField { let l = NSTextField(labelWithString: text); l.font = font; l.textColor = color; return l }
-    private func showCommand(newTab: Bool) {
+    private func showCommand(newTab: Bool, above sourceID:String? = nil) {
         dismissFolderPeek(animated:false)
         guard !isQuitting, session.onboardingComplete else { return }
         commandPalette?.close(); dismissSheet()
@@ -3237,14 +3394,14 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         // still fills that existing pane (including choosing an open tab).
         let emptySplitPane = !newTab && (activeTab?.url == "about:blank" || activeTab?.url.isEmpty == true)
         let palette = CommandPalette(parent: window, newTab: newTab, centered: emptySplitPane, addressAnchor:usesClassicInterface ? addressButton : nil, initial: initial, icon: activeTab.flatMap(tabFavicon), tint: tint(), language: session.language, suggestions: { [weak self] query in
-            self?.commandSuggestions(query, initial: initial, newTab: newTab) ?? []
+            self?.commandSuggestions(query,initial:initial,newTab:newTab,above:sourceID) ?? []
         }, onDismiss: { [weak self] in self?.commandPalette = nil; self?.render(); self?.updateSidebarHover() })
         commandPalette = palette; render(); palette.show()
     }
-    private func commandSuggestions(_ input: String, initial: String, newTab: Bool) -> [CommandSuggestion] {
+    private func commandSuggestions(_ input: String, initial: String, newTab: Bool, above sourceID:String?) -> [CommandSuggestion] {
         let query = input.trimmingCharacters(in: .whitespacesAndNewlines)
         if isExtensionsAddress(query) {
-            return [CommandSuggestion(title:t("manageExtensions"),detail:"arc://extensions/",image:nil,symbol:"puzzlepiece.extension",perform:{ [weak self] in self?.navigate(query,newTab:newTab) })]
+            return [CommandSuggestion(title:t("manageExtensions"),detail:"arc://extensions/",image:nil,symbol:"puzzlepiece.extension",perform:{ [weak self] in self?.navigate(query,newTab:newTab,above:sourceID) })]
         }
         let initialAddress = !newTab && query == initial
         var result: [CommandSuggestion] = []
@@ -3252,7 +3409,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             let searching: Bool
             if case .search = input { searching = true } else { searching = false }
             let detail = searching ? splitText("Rechercher avec ","Search with ") + currentEngine.spec.name : t("open")
-            result.append(CommandSuggestion(title: query, detail: detail, image: nil, symbol: searching ? "magnifyingglass" : "globe", perform: { [weak self] in self?.navigate(query,newTab:newTab) }))
+            result.append(CommandSuggestion(title: query, detail: detail, image: nil, symbol: searching ? "magnifyingglass" : "globe", perform: { [weak self] in self?.navigate(query,newTab:newTab,above:sourceID) }))
         }
         let ordered = session.tabs.sorted { a,b in
             if a.id == activeTab?.id { return b.id != a.id }; if b.id == activeTab?.id { return false }
@@ -3265,7 +3422,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         var seen = openURLs
         for tab in session.closedTabs.reversed() where !seen.contains(tab.url) && (query.isEmpty || initialAddress || (tab.displayTitle+" "+tab.url).localizedCaseInsensitiveContains(query)) {
             seen.insert(tab.url)
-            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("restore"),image:nil,symbol:"clock",perform:{ [weak self] in self?.navigate(tab.url,newTab:newTab || self?.activeSplit == nil) }))
+            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("restore"),image:nil,symbol:"clock",perform:{ [weak self] in self?.restoreArchivedTab(tab.id) }))
         }
         return Array(result.prefix(5))
     }
@@ -3810,12 +3967,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if tabID == activeTab?.id { handoffPageChanged?(self) }
     }
     func browserURLChanged(_ tabID: String, url: String) {
-        guard !isQuitting else { return }
+        guard !isQuitting, sleepClosing[tabID] == nil else { return }
         guard let i = session.tabs.firstIndex(where: { $0.id == tabID }), isAllowedTabAddress(url) else { return }
         if pageCapture?.tabID == tabID, session.tabs[i].url != url { pageCapture?.close() }
         if session.tabs[i].url != url, let previous = previewDocument(session.tabs[i]) { previewImages.remove(previous) }
         let hostChanged = URL(string:session.tabs[i].url)?.host != URL(string:url)?.host
         let previousIcon = tabFavicon(session.tabs[i])
+        session.tabs[i].archivedNavigation = nil
         session.tabs[i].url = url
         if sidebarTip.target == .tab(tabID) { sidebarTip.refreshIfVisible() }
         let wasUnread = status[tabID]?.unread.visible
@@ -3873,11 +4031,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard let source = session.tabs.first(where: { $0.id == sourceTab }), let normalized = browserURL(url,engine:session.profile(forSpace:source.spaceID)?.engine ?? .google) else { return }
         _ = session.createTab(url: normalized.absoluteString, spaceID: session.browsingSpaceID(for:source)); render(); showSelectedTab(); persist()
     }
-    func browserPrepareExtensionTab(_ sourceTab: String, active: Bool, pinned: Bool, index: Int) -> [String: Any]? {
+    func browserPrepareExtensionTab(_ sourceTab: String, active: Bool, pinned: Bool, index: Int, aboveSource: Bool) -> [String: Any]? {
         guard !isQuitting, let source = session.tabs.first(where: { $0.id == sourceTab }),
               profileReloads[source.spaceID] == nil,
               let reservation = session.reserveExtensionTab(sourceTabID: sourceTab, active: active,
-                                                             pinned: pinned, index: index) else { return nil }
+                                                             pinned:pinned,index:index,aboveSource:aboveSource) else { return nil }
         extensionTabReservations[reservation.id] = reservation
         let container = NSView(frame: content.bounds)
         container.isHidden = true
@@ -3931,6 +4089,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         windowAddressRequested?(url)
     }
     func browserCloseCancelled(_ tabID: String) {
+        if let sleeping = sleepClosing.removeValue(forKey:tabID), archiveVisible.contains(tabID) {
+            if let address = session.tabs.first(where:{ $0.id == tabID })?.url, address != sleeping.address {
+                engine.navigateTab(tabID,url:address)
+            }
+            showSelectedTab()
+        }
         if automaticClose.removeValue(forKey:tabID) != nil { pendingClose.remove(tabID); resetArchiveClock(tabID) }
         if closeParticipants.contains(tabID), !isQuitting { windowCloseCancelled = true; closeWaiting.remove(tabID); finishWindowCloseAttempt(); return }
         if let id = profileReloads.first(where: { $0.value.waiting.contains(tabID) })?.key {
@@ -3939,9 +4103,36 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         pendingClose.remove(tabID)
         for key in Array(pendingSpaceClosures.keys) where pendingSpaceClosures[key]?.contains(tabID) == true { pendingSpaceClosures.removeValue(forKey: key) }
     }
+    func liveTabHistory(_ tab: NativeTab, profile: String) -> Data? {
+        guard containers[tab.id] != nil,
+              let local = session.tabs.first(where:{ $0.id == tab.id }), local.url == tab.url,
+              session.profile(forSpace:local.spaceID)?.id == profile else { return nil }
+        return engine.history(forTab:tab.id,address:tab.url)
+    }
+
+    private func snapshotForArchive(_ tab: NativeTab) -> ArchivedNavigation? {
+        guard let profile = session.profile(forSpace:tab.spaceID)?.id else { return nil }
+        let data = containers[tab.id] == nil ? sharedTabHistory?(tab,profile) : liveTabHistory(tab,profile:profile)
+        if let data {
+            return ArchivedNavigation(profileID:profile,data:data)
+        }
+        return tab.archivedNavigation?.profileID == profile ? tab.archivedNavigation : nil
+    }
+
+    func browserWillClose(_ tabID: String) {
+        guard !isQuitting, !closingWindow, !closeParticipants.contains(tabID),
+              !destructiveClosing.contains(tabID),
+              !profileReloads.values.contains(where:{ $0.waiting.contains(tabID) }),
+              let i = session.tabs.firstIndex(where:{ $0.id == tabID }) else { return }
+        if let sleeping = sleepClosing[tabID] {
+            session.tabs[i].archivedNavigation = sleeping.address == session.tabs[i].url ? sleeping.history : nil
+        } else { session.tabs[i].archivedNavigation = snapshotForArchive(session.tabs[i]) }
+    }
     func browserClosed(_ tabID: String) {
         pendingSilence.removeValue(forKey:tabID)?.cancel()
         if let sound = status[tabID]?.sound, sound != .silent { setSidebarSound(.silent, for:tabID) }
+        let wasSleeping = sleepClosing.removeValue(forKey:tabID) != nil
+        hiddenSince.removeValue(forKey:tabID); sleepRetryAfter.removeValue(forKey:tabID)
         let archiveDecision = automaticClose[tabID]?()
         automaticClose.removeValue(forKey:tabID)
         let archivedAutomatically = archiveDecision == true
@@ -3965,6 +4156,21 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard !isQuitting, session.tabs.contains(where: { $0.id == tabID }) else { return }
         if let id = profileReloads.first(where: { $0.value.waiting.contains(tabID) })?.key {
             profileReloads[id]?.waiting.remove(tabID); finishProfileReload(id); return
+        }
+        if wasSleeping && !pendingSpaceClosures.values.contains(where:{ $0.contains(tabID) }) {
+            refreshTabVisual(tabID)
+            persist()
+            // A click during the native close immediately reopens this same row.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isQuitting else { return }
+                if self.archiveVisible.contains(tabID) { self.showSelectedTab() }
+                else if let tab = self.session.tabs.first(where:{ $0.id == tabID }),
+                        let site = self.keepActiveMenuSite(tab),
+                        TabMemorySaver.hosts(in:site.profile,privately:self.isPrivateWindow).contains(site.host) {
+                    self.ensurePage(tabID,in:self.content,visible:false)
+                }
+            }
+            return
         }
         if archiveDecision == false {
             refreshTabVisual(tabID)
@@ -4102,26 +4308,30 @@ extension BrowserController {
         }
         return tabFavicon(tab) ?? NSImage(systemSymbolName:"globe",accessibilityDescription:nil)
     }
-    private func ensurePage(_ id:String,in parent:NSView) {
-        guard let tab = session.tabs.first(where: { $0.id == id }), !destructiveClosing.contains(id) else { return }
+    private func ensurePage(_ id:String,in parent:NSView,visible:Bool = true) {
+        guard let tab = session.tabs.first(where: { $0.id == id }), !destructiveClosing.contains(id), sleepClosing[id] == nil else { return }
         if tab.url.isEmpty || tab.url == "about:blank" || status[id]?.error != nil {
             hideDocument(id)
             return
         }
         if let container = containers[id] {
+            guard visible else { return }
             if container.superview !== parent { container.removeFromSuperview(); parent.addSubview(container) }
             container.frame = pageBounds(for:id,in:parent); container.isHidden = false
             engine.resizeTab(id,container:container); engine.setTab(id,visible:true)
         } else {
-            let container = NSView(frame:pageBounds(for:id,in:parent)); parent.addSubview(container); containers[id] = container
+            let container = NSView(frame:pageBounds(for:id,in:parent))
+            container.isHidden = !visible; parent.addSubview(container); containers[id] = container
             // Creating the live view wakes the row, even while the first request is pending.
             defer { refreshTabVisual(id) }
-            guard let space = session.spaces.first(where: { $0.id == tab.spaceID }), engine.createTab(id,profile:space.profileID,url:tab.url,container:container) else {
+            let profile = session.profile(forSpace:tab.spaceID)?.id
+            let history = tab.archivedNavigation.flatMap { $0.profileID == profile ? $0.data : nil }
+            guard let profile, engine.createTab(id,profile:profile,url:tab.url,archiveHistory:history,container:container) else {
                 container.removeFromSuperview(); containers[id] = nil; status[id] = TabStatus(error:NavigationFailure(code:"TAB_UNAVAILABLE",host:URL(string:tab.url)?.host)); return
             }
-            engine.setTab(id,visible:true)
+            engine.setTab(id,visible:visible)
         }
-        layoutDeveloperPage(id,in:parent)
+        if visible { layoutDeveloperPage(id,in:parent) }
     }
     private func layoutSplitContent() {
         if activeSplit != nil, !splitHost.isHidden {

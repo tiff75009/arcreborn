@@ -82,6 +82,11 @@ struct NativeSpace: Codable, Equatable {
     var theme: SpaceTheme? = nil
     var foldersCollapsed: Bool? = nil
 }
+struct ArchivedNavigation: Codable, Equatable {
+    let profileID: String
+    let data: Data
+}
+
 struct NativeTab: Codable, Equatable {
     var id: String
     var spaceID: String
@@ -99,6 +104,7 @@ struct NativeTab: Codable, Equatable {
     var developerCaptureColor: String? = nil
     var lastViewedAt: Date? = nil
     var autoArchivedAt: Date? = nil
+    var archivedNavigation: ArchivedNavigation? = nil
     var displayTitle: String {
         if let customTitle { return customTitle }
         if isLocalTabDocument(url), let file = URL(string:url), title.isEmpty || title == url || title == file.path {
@@ -129,10 +135,23 @@ struct BrowserSession: Codable, Equatable {
     /// Manual Undo Close keeps its original 50 entries independently of idle tabs.
     static func boundedArchive(_ tabs:[NativeTab]) -> [NativeTab] {
         var manual = 0, automatic = 0
-        return tabs.reversed().filter {
-            if $0.autoArchivedAt != nil { automatic += 1; return automatic <= automaticArchiveCapacity }
-            manual += 1; return manual <= 50
-        }.reversed()
+        var bytesLeft = 6 * 1024 * 1024
+        var result: [NativeTab] = []
+        for var tab in tabs.reversed() {
+            if tab.autoArchivedAt != nil {
+                automatic += 1
+                if automatic > automaticArchiveCapacity { continue }
+            } else {
+                manual += 1
+                if manual > 50 { continue }
+            }
+            if let history = tab.archivedNavigation {
+                if history.data.count <= bytesLeft { bytesLeft -= history.data.count }
+                else { tab.archivedNavigation = nil }
+            }
+            result.append(tab)
+        }
+        return result.reversed()
     }
     @discardableResult mutating func renameProfile(id: String, name: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -302,22 +321,33 @@ struct BrowserSession: Codable, Equatable {
     }
 
     @discardableResult
-    mutating func createTab(url explicitURL: String? = nil, spaceID: String? = nil) -> String {
+    mutating func createTab(url explicitURL: String? = nil, spaceID: String? = nil, above sourceID: String? = nil) -> String {
         let spaceID = spaceID ?? activeSpaceID
         guard let spaceIndex = spaces.firstIndex(where: { $0.id == spaceID }), tabs.count < 5000 else { return "" }
         let url = explicitURL ?? profile(forSpace: spaceID)?.homepage ?? "about:blank"
         guard isAllowedTabAddress(url) else { return "" }
         let id = UUID().uuidString
-        tabs.append(NativeTab(id: id, spaceID: spaceID, url: url, title: "", pinned: false, favorite: false, folderID: nil,lastViewedAt:Date()))
+        let source = sourceID.flatMap { id in tabs.first { $0.id == id && $0.spaceID == spaceID && !$0.favorite && $0.favoriteSourceID == nil } }
+        let pinned = source?.pinned ?? false
+        let parent = source?.folderID
+        var siblings = sidebarChildren(spaceID:spaceID,parentID:parent,temporary:!pinned && parent == nil)
+        let index = source.flatMap { tab in
+            let row = splitGroup(containing:tab.id)?.tabIDs ?? [tab.id]
+            return siblings.firstIndex { if case .tab(let id) = $0 { return row.contains(id) }; return false }
+        } ?? 0
+        tabs.append(NativeTab(id:id,spaceID:spaceID,url:url,title:"",pinned:pinned,favorite:false,folderID:parent,lastViewedAt:Date()))
+        siblings.insert(.tab(id),at:index)
+        orderSidebarItems(siblings)
         spaces[spaceIndex].selectedTabID = id
         activeSpaceID = spaceID
         return id
     }
 
-    mutating func closeTab(id: String, automaticallyAt date:Date? = nil) {
+    mutating func closeTab(id: String, automaticallyAt date:Date? = nil, navigation:ArchivedNavigation? = nil) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         var tab = tabs[index]
         tab.autoArchivedAt = date
+        if let navigation { tab.archivedNavigation = navigation }
         if tab.favorite { detachFavoriteReferences(to:id) }
         tab.favoriteSourceID = nil
         let oldPeers = tabs.filter { $0.spaceID == tab.spaceID }
@@ -329,7 +359,7 @@ struct BrowserSession: Codable, Equatable {
         tabs.remove(at: index)
         closedTabs.removeAll { $0.id == id }
         closedTabs.append(tab)
-        if closedTabs.count > 50 { closedTabs = Self.boundedArchive(closedTabs) }
+        if tab.archivedNavigation != nil || closedTabs.count > 50 { closedTabs = Self.boundedArchive(closedTabs) }
         if let spaceIndex = spaces.firstIndex(where: { $0.id == tab.spaceID }), spaces[spaceIndex].selectedTabID == id {
             let peers = tabs.filter { $0.spaceID == tab.spaceID }
             if let remainingPanes, !remainingPanes.isEmpty {
@@ -341,10 +371,11 @@ struct BrowserSession: Codable, Equatable {
         repairTabSelections()
     }
 
-    mutating func restoreTab() {
-        guard tabs.count < 5000, let tab = closedTabs.last,
-            let spaceIndex = spaces.firstIndex(where: { $0.id == tab.spaceID }), !tabs.contains(where: { $0.id == tab.id }) else { return }
-        closedTabs.removeLast()
+    mutating func restoreTab(id: String? = nil) {
+        guard tabs.count < 5000, let index = closedTabs.lastIndex(where:{ id == nil || $0.id == id }) else { return }
+        let tab = closedTabs[index]
+        guard let spaceIndex = spaces.firstIndex(where: { $0.id == tab.spaceID }), !tabs.contains(where: { $0.id == tab.id }) else { return }
+        closedTabs.remove(at:index)
         var restored = tab
         restored.lastViewedAt = Date(); restored.autoArchivedAt = nil
         if let folderID = restored.folderID, !folders.contains(where: { $0.id == folderID && $0.spaceID == restored.spaceID }) {
@@ -402,8 +433,13 @@ func settingsPageURL(_ input: String) -> URL? {
     guard input.utf8.count <= 32768,
           input.rangeOfCharacter(from:.whitespacesAndNewlines.union(.controlCharacters)) == nil, !input.contains("\\"),
           var parts = URLComponents(string:input),
-          ["arc","browser","chrome"].contains(parts.scheme?.lowercased() ?? ""), ["settings","password-manager"].contains(parts.host?.lowercased() ?? ""),
+          ["arc","browser","chrome"].contains(parts.scheme?.lowercased() ?? ""),
           parts.user == nil, parts.password == nil, parts.port == nil else { return nil }
+    if let host = parts.host?.lowercased(), ["components","downloads"].contains(host) {
+        guard ["", "/"].contains(parts.percentEncodedPath), parts.query == nil, parts.fragment == nil else { return nil }
+        return URL(string:"chrome://"+host+"/")
+    }
+    guard ["settings","password-manager"].contains(parts.host?.lowercased() ?? "") else { return nil }
     parts.scheme = "chrome"; parts.host = parts.host?.lowercased()
     if parts.path.isEmpty { parts.path = "/" }
     return parts.url

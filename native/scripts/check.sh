@@ -5,6 +5,10 @@ mkdir -p "$NATIVE_ROOT/build/checks"
 cd "$NATIVE_ROOT"
 xcrun swiftc -O Sources/ThemeState.swift Sources/NativeState.swift Sources/SplitState.swift Sources/SpaceContent.swift Sources/FolderTree.swift Sources/FavoritesState.swift Sources/SpaceNavigation.swift Sources/DeletionUndo.swift Tests/StateTests.swift -o build/checks/state-tests
 build/checks/state-tests
+xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,ExtensionTabCreation}.swift Tests/ExtensionTabTests.swift -o build/checks/extension-tab-tests
+build/checks/extension-tab-tests
+xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation}.swift Tests/SiteSettingsTests.swift -o build/checks/site-settings-tests
+build/checks/site-settings-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserDocuments}.swift Tests/BrowserDocumentTests.swift -o build/checks/document-tests
 build/checks/document-tests Resources/Info.plist
 xcrun swiftc -O Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,FavoriteUnread,FaviconPixels,FaviconCache}.swift Tests/FaviconCacheTests.swift -o build/checks/favicon-cache-tests

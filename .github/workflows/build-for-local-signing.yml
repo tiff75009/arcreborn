@@ -1,0 +1,39 @@
+name: Build production app for local signing
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bundle:
+    if: github.repository == 'tiff75009/arcreborn' && github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    environment: release
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify release metadata and public source
+        run: |
+          /usr/bin/python3 native/scripts/release.py check
+          /usr/bin/python3 native/scripts/public-source.py audit .
+      - name: Build the production application
+        env:
+          BROWSER_SAFE_BROWSING_API_KEY: ${{ secrets.BROWSER_SAFE_BROWSING_API_KEY }}
+          BROWSER_RELEASE_BUILD: '1'
+          BROWSER_REBUILD_ICON: '0'
+          BROWSER_ALLOW_ADHOC: '1'
+          BROWSER_SIGN_IDENTITY: '-'
+          BROWSER_BUILD_JOBS: '3'
+        run: native/scripts/build.sh
+      - name: Preserve the macOS bundle for Developer ID signing
+        run: |
+          codesign --verify --deep --strict "native/build/Arc Reborn.app"
+          ditto -c -k --sequesterRsrc --keepParent "native/build/Arc Reborn.app" "$RUNNER_TEMP/ArcReborn.zip"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-arm64-${{ github.sha }}
+          path: ${{ runner.temp }}/ArcReborn.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1

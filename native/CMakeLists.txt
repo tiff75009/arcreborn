@@ -20,6 +20,9 @@ add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" libcef_dll_wrapper)
 add_executable(BrowserHelper Bridge/Helper.cc)
 SET_EXECUTABLE_TARGET_PROPERTIES(BrowserHelper)
 target_link_libraries(BrowserHelper PRIVATE libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+add_executable(BrowserCdmHelper Bridge/CdmHelper.cc)
+SET_EXECUTABLE_TARGET_PROPERTIES(BrowserCdmHelper)
+target_link_libraries(BrowserCdmHelper PRIVATE libcef_dll_wrapper ${CEF_STANDARD_LIBS})
 # CEF 156's CefScopedSandboxContext loads libcef_sandbox.dylib from the
 # embedded framework. It intentionally does not link a libcef_sandbox.a.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Bridge/BrowserBridge.mm")

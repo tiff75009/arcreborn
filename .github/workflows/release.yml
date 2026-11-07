@@ -29,11 +29,13 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PASSKEY_PROFILE: ${{ secrets.APPLE_PASSKEY_PROFILE }}
           APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: /usr/bin/python3 native/scripts/ci-signing.py setup
       - name: Compile native application
         env:
+          BROWSER_SAFE_BROWSING_API_KEY: ${{ secrets.BROWSER_SAFE_BROWSING_API_KEY }}
           BROWSER_RELEASE_BUILD: '1'
           BROWSER_REBUILD_ICON: '0'
           BROWSER_BUILD_JOBS: '3'

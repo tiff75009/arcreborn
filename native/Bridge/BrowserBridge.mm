@@ -35,6 +35,7 @@
 #include <functional>
 #include "BrowserDiagnostics.inc"
 #include "TestKeychainPolicy.h"
+#include "CdmProcess.h"
 
 static std::unique_ptr<CefScopedLibraryLoader> loader;
 static bool mockTestKeychain = false;
@@ -42,7 +43,12 @@ static std::map<std::string, CefRefPtr<CefBrowser>> browsers;
 struct NativeTabOwner { __weak BrowserEngine *engine = nil; };
 static std::map<std::string, NativeTabOwner> nativeTabOwners;
 static std::set<std::string> discardedBrowsers;
-static std::map<uint64_t, CefRefPtr<CefDownloadItemCallback>> downloadControls;
+struct DownloadControl {
+  CefRefPtr<CefDownloadItemCallback> callback;
+  bool suspendOnQuit;
+};
+static std::map<uint64_t, DownloadControl> downloadControls;
+static std::map<uint64_t, CefRefPtr<CefDownloadItemCallback>> quitSuspensions;
 static std::map<std::string, CefRefPtr<CefRequestContext>> profiles;
 static std::set<std::string> privateProfiles;
 // Resolve only in the CEF image already loaded by CefScopedLibraryLoader.
@@ -244,6 +250,19 @@ static bool ApplySearchProvider(CefRefPtr<CefRequestContext> context, const Prof
 }
 static constexpr char kDownloadDirectory[] = "download.default_directory";
 static constexpr char kDownloadPrompt[] = "download.prompt_for_download";
+static void ApplyDownloadProtection(CefRefPtr<CefRequestContext> context) {
+  // Chromium's MALICIOUS_FILES policy blocks a confirmed verdict before
+  // final rename. Leave stricter user or administrator policies in place.
+  constexpr char key[] = "download_restrictions";
+  auto restriction = context->GetPreference(key);
+  if (!restriction || restriction->GetType() != VTYPE_INT || restriction->GetInt() != 0 ||
+      !context->CanSetPreference(key)) return;
+  auto value = CefValue::Create();
+  value->SetInt(4);
+  CefString error;
+  if (!context->SetPreference(key, value, error))
+    NSLog(@"Arc Reborn: could not apply download protection: %s", error.ToString().c_str());
+}
 static void ApplyDownloadLocation(CefRefPtr<CefRequestContext> context) {
   CefString error;
   // The global Chromium profile persists these Mac-specific settings. Mirror
@@ -275,6 +294,7 @@ class ThemeContextHandler : public CefRequestContextHandler {
   void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override {
     CEF_REQUIRE_UI_THREAD();
     ApplyWebLanguage(context);
+    ApplyDownloadProtection(context);
     ApplyDownloadLocation(context);
     ApplyCredentialPreferences(context);
     auto search = searchProviders.find(profile_);
@@ -311,7 +331,9 @@ static bool Allowed(NSString *value) {
     NSString *scheme = [NSURLComponents componentsWithString:source].scheme.lowercaseString;
     return ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) && Allowed(source);
   }
-  if ([value isEqualToString:@"about:blank"] || [value isEqualToString:@"chrome://extensions/"] || [value isEqualToString:@"chrome://history/"]) return true;
+  if ([value isEqualToString:@"about:blank"] || [value isEqualToString:@"chrome://extensions/"] ||
+      [value isEqualToString:@"chrome://history/"] || [value isEqualToString:@"chrome://components/"] ||
+      [value isEqualToString:@"chrome://downloads/"]) return true;
   NSURLComponents *internal = [NSURLComponents componentsWithString:value];
   if ([internal.scheme.lowercaseString isEqualToString:@"chrome"] && ([internal.host.lowercaseString isEqualToString:@"settings"] || [internal.host.lowercaseString isEqualToString:@"password-manager"]) &&
       !internal.user && !internal.password && !internal.port && internal.URL && [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 32768 &&
@@ -356,7 +378,16 @@ static void Notify(NSString *name) { [[NSNotificationCenter defaultCenter] postN
 class NativeApp : public CefApp, public CefBrowserProcessHandler {
  public:
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
-  void OnContextInitialized() override { BrowserTrace(@"cef.ready"); ApplyCredentialPreferences(CefRequestContext::GetGlobalContext()); ApplyWebLanguage(CefRequestContext::GetGlobalContext()); ApplyDownloadLocation(CefRequestContext::GetGlobalContext()); RegisterNativeExtensionTabs(true); Notify(@"BrowserEngineReady"); }
+  void OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command) override {
+    if (@available(macOS 14.0, *)) {
+      if (IsCdmBrokerProcess(command)) {
+        NSString *helper = [NSBundle.mainBundle.privateFrameworksPath
+            stringByAppendingPathComponent:@"Arc Reborn Helper (CDM).app/Contents/MacOS/Arc Reborn Helper (CDM)"];
+        command->SetProgram(CefStr(helper));
+      }
+    }
+  }
+  void OnContextInitialized() override { BrowserTrace(@"cef.ready"); auto context = CefRequestContext::GetGlobalContext(); ApplyCredentialPreferences(context); ApplyWebLanguage(context); ApplyDownloadProtection(context); ApplyDownloadLocation(context); RegisterNativeExtensionTabs(true); Notify(@"BrowserEngineReady"); }
   CefRefPtr<CefClient> GetDefaultClient() override { BrowserTrace(@"cef.default-client"); return NewExtensionClient(); }
   void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command) override {
     // Chromium provides a fake keychain specifically for disposable tests.
@@ -493,6 +524,61 @@ static NSString *NetworkErrorName(cef_errorcode_t code) {
   }
 }
 
+// Chromium owns the partial file, validators, filename selection and safety checks.
+static NSDictionary *DownloadValues(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item,
+                                    CefRefPtr<CefDownloadItemCallback> callback) {
+  const uint64_t key = (uint64_t(browser->GetIdentifier()) << 32) | item->GetId();
+  NSString *path = Str(item->GetFullPath());
+  NSString *state = item->IsComplete() ? @"complete" : item->IsCanceled() ? @"cancelled" :
+      item->IsInProgress() ? (item->IsPaused() ? @"paused" : @"progress") : @"interrupted";
+  const auto reason = item->GetInterruptReason();
+  if (reason == CEF_DOWNLOAD_INTERRUPT_REASON_FILE_VIRUS_INFECTED ||
+      reason == CEF_DOWNLOAD_INTERRUPT_REASON_FILE_BLOCKED ||
+      reason == CEF_DOWNLOAD_INTERRUPT_REASON_FILE_SECURITY_CHECK_FAILED) state = @"blocked";
+  NSMutableDictionary *values = [@{@"id":@(key), @"path":path, @"url":Str(item->GetURL()),
+      @"originalURL":Str(item->GetOriginalUrl()), @"name":path.lastPathComponent.length ? path.lastPathComponent : Str(item->GetSuggestedFileName()),
+      @"received":@(item->GetReceivedBytes()), @"total":@(item->GetTotalBytes()), @"state":state,
+      @"speed":@(item->GetCurrentSpeed())} mutableCopy];
+  // Blob URLs expire with the document. Remember the page that generated the
+  // file so the user can generate a fresh download there.
+  NSURLComponents *origin = [NSURLComponents componentsWithString:values[@"originalURL"]];
+  if (![@[@"http", @"https"] containsObject:origin.scheme.lowercaseString]) {
+    auto frame = browser->GetMainFrame();
+    if (frame) values[@"originatingPage"] = Str(frame->GetURL());
+  }
+  // A tab may already have moved to a different space since the request began.
+  auto owner = browser->GetHost()->GetRequestContext();
+  for (const auto& [profile, context] : profiles) {
+    if (owner->IsSame(context)) { values[@"profileID"] = @(profile.c_str()); break; }
+  }
+  using Info = void (*)(int, uint32_t, void*, void (*)(void*, const char*, const char*, bool));
+  static auto info = reinterpret_cast<Info>(BrowserEngineSymbol("browser_download_info_v1"));
+  if (info) info(browser->GetIdentifier(), item->GetId(), (__bridge void*)values,
+      [](void *context, const char *guid, const char *target, bool canContinue) {
+        NSMutableDictionary *result = (__bridge NSMutableDictionary*)context;
+        result[@"guid"] = @(guid); result[@"canContinue"] = @(canContinue);
+        if (*target) result[@"name"] = [@(target) lastPathComponent];
+      });
+  if (item->IsInProgress()) downloadControls[key] = {callback, [values[@"canContinue"] boolValue] && !item->IsPaused()};
+  else downloadControls.erase(key);
+  return values;
+}
+
+static void CancelBrowserQuit() {
+  quitting = false;
+  auto suspended = std::move(quitSuspensions);
+  quitSuspensions.clear();
+  for (const auto& [key, callback] : suspended) {
+    // A callback for a closed source cannot reach the library. Its card still
+    // owns the interrupted item and can reattach from any remaining window.
+    bool hasBrowser = std::any_of(browsers.begin(), browsers.end(), [&](const auto& entry) {
+      return uint64_t(entry.second->GetIdentifier()) == (key >> 32);
+    });
+    if (hasBrowser && !downloadControls.count(key)) callback->Resume();
+  }
+  Notify(@"BrowserEngineQuitCancelled");
+}
+
 #include "ExternalAppLinks.inc"
 
 class NativeClient : public CefClient,
@@ -581,7 +667,7 @@ class NativeClient : public CefClient,
     if (video || audio) { capturingTabs.insert(tab); FinishArchiveProbe(tab,false); }
     else capturingTabs.erase(tab);
   }
-  bool OnProcessMessageReceived(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+  bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
       CefProcessId source, CefRefPtr<CefProcessMessage> message) override {
     if (source != PID_RENDERER) return false;
     if (message->GetName() == "ArcReborn.GmailInboxUnread") {
@@ -596,11 +682,7 @@ class NativeClient : public CefClient,
     }
     if (message->GetName() != "ArcReborn.IdleFrameResult") return false;
     const std::string tab = tabID_.UTF8String;
-    auto it = archiveProbes.find(tab); auto args = message->GetArgumentList();
-    if (it == archiveProbes.end() || !args || args->GetString(0).ToString() != it->second.nonce ||
-        !frame || !it->second.frames.erase(frame->GetIdentifier().ToString())) return true;
-    if (args->GetType(1) != VTYPE_BOOL || !args->GetBool(1) || capturingTabs.count(tab)) FinishArchiveProbe(tab,false);
-    else if (it->second.frames.empty()) FinishArchiveProbe(tab,true);
+    ReceiveIdleFrame(tab, browser, frame, message->GetArgumentList());
     return true;
   }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -659,6 +741,8 @@ class NativeClient : public CefClient,
     FinishArchiveProbe(tabID_.UTF8String,false); capturingTabs.erase(tabID_.UTF8String);
     audibleTabs.erase(tabID_.UTF8String);
     automaticallyClosing.erase(tabID_.UTF8String);
+    if (embedded_ && [engine_.delegate respondsToSelector:@selector(browserWillClose:)])
+      [engine_.delegate browserWillClose:tabID_];
     browsers.erase(tabID_.UTF8String);
     nativeTabOwners.erase(tabID_.UTF8String);
     discardedBrowsers.erase(tabID_.UTF8String);
@@ -720,13 +804,17 @@ class NativeClient : public CefClient,
   }
   void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedURL) override {
     if (!embedded_ || !frame->IsMain() || errorCode == ERR_ABORTED) return;
+    // Safe Browsing commits its own trusted interstitial for this error. A
+    // native network-error overlay would cover its warning and Back button.
+    if (chrome_ && errorCode == ERR_BLOCKED_BY_CLIENT) return;
     NSString *host = [NSURLComponents componentsWithString:Str(failedURL)].host;
     [engine_.delegate browserFailed:tabID_ code:NetworkErrorName(errorCode) host:host];
   }
   bool HandleExternalLink(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, NSString *url, bool userAction) {
     NSString *scheme = ExternalAppScheme(url);
     if (!scheme) return false;
-    if (embedded_ && userAction && !quitting && frame && frame->IsMain()) {
+    if (embedded_ && userAction && !quitting && frame && frame->IsMain() &&
+        ![engine_.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)]) {
       NSView *page = chrome_ ? VisibleChromePage(tabID_) : (__bridge NSView *)browser->GetHost()->GetWindowHandle();
       AskToOpenExternalApp(browser,tabID_,page,url,scheme);
     }
@@ -734,6 +822,13 @@ class NativeClient : public CefClient,
   }
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool gesture, bool redirect) override {
     NSString *url = Str(request->GetURL());
+    if ([engine_.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)]) {
+      if (frame->IsMain()) return [engine_.delegate browserShouldCancelAuthenticationNavigation:tabID_ url:url];
+      // An embedded frame must neither complete the request nor dispatch a
+      // custom callback to an external protocol handler.
+      NSString *scheme = [NSURLComponents componentsWithString:url].scheme.lowercaseString;
+      return ![@[@"https", @"http", @"about", @"data", @"blob", @"javascript"] containsObject:scheme];
+    }
     if (chrome_ && frame->IsMain()) {
       NSURLComponents *location = [NSURLComponents componentsWithString:url];
       ExtensionStoreCompatibility(browser, [location.scheme isEqualToString:@"https"] && [location.host isEqualToString:@"chromewebstore.google.com"] && !location.user && !location.password);
@@ -755,7 +850,8 @@ class NativeClient : public CefClient,
                         const CefString& target, WindowOpenDisposition disposition, bool gesture) override {
     // Normal new-tab navigations are routed inside the engine with their full
     // OpenURLParams. This callback only exposes a URL, and cannot preserve POST.
-    if (HandleExternalLink(browser, frame, Str(target), gesture)) return true;
+    if (![engine_.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)] &&
+        HandleExternalLink(browser, frame, Str(target), gesture)) return true;
     if (!embedded_ || disposition != CEF_WOD_OFF_THE_RECORD) return false;
     NSString *url = Str(target), *source = tabID_;
     if (quitting || !Allowed(url)) return true;
@@ -770,6 +866,9 @@ class NativeClient : public CefClient,
   }
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int popup_id, const CefString& target_url, const CefString& target_frame_name, WindowOpenDisposition disposition, bool gesture, const CefPopupFeatures& features, CefWindowInfo& info, CefRefPtr<CefClient>& client, CefBrowserSettings& settings, CefRefPtr<CefDictionaryValue>& extra, bool* no_javascript_access) override {
     NSString *url = target_url.empty() ? @"about:blank" : Str(target_url);
+    if (!quitting && frame && frame->IsMain() &&
+        [engine_.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)] &&
+        [engine_.delegate browserShouldCancelAuthenticationNavigation:tabID_ url:url]) return true;
     if (HandleExternalLink(browser, frame, url, gesture)) return true;
     if (quitting || !Allowed(url)) return true;
     NSDictionary *prepared = nil;
@@ -844,7 +943,7 @@ class NativeClient : public CefClient,
         ((__bridge NSView *)browser->GetHost()->GetWindowHandle()).window;
     auto complete = ^(NSModalResponse response) {
       bool leave = response == NSAlertSecondButtonReturn;
-      if (!leave) { if ([engine_.delegate respondsToSelector:@selector(browserCloseCancelled:)]) [engine_.delegate browserCloseCancelled:tabID_]; if (quitting) { quitting = false; Notify(@"BrowserEngineQuitCancelled"); } }
+      if (!leave) { if ([engine_.delegate respondsToSelector:@selector(browserCloseCancelled:)]) [engine_.delegate browserCloseCancelled:tabID_]; if (quitting) CancelBrowserQuit(); }
       callback->Continue(leave, CefString());
     };
     if (parent.isVisible) [alert beginSheetModalForWindow:parent completionHandler:complete]; else complete([alert runModal]);
@@ -929,25 +1028,12 @@ class NativeClient : public CefClient,
   void OnDownloadUpdated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item, CefRefPtr<CefDownloadItemCallback> callback) override {
     CEF_REQUIRE_UI_THREAD();
     if (!item->IsValid()) return;
-    // Chromium allocates download IDs per profile. Include the originating
-    // browser so simultaneous transfers never share a row or a control.
-    const uint64_t key = (uint64_t(browser->GetIdentifier()) << 32) | item->GetId();
-    // CRX transfers belong to Chromium's extension installer, not the library.
-    if (chrome_ && item->GetMimeType().ToString() == "application/x-chrome-extension") {
-      downloadControls.erase(key);
-      return;
-    }
-    if (![engine_.delegate respondsToSelector:@selector(browserDownloadUpdated:values:)]) return;
-    NSString *path = [NSString stringWithUTF8String:item->GetFullPath().ToString().c_str()];
-    NSString *url = [NSString stringWithUTF8String:item->GetURL().ToString().c_str()];
-    NSString *name = path.lastPathComponent;
-    if (!name.length) name = [NSString stringWithUTF8String:item->GetSuggestedFileName().ToString().c_str()];
-    if (item->IsInProgress()) downloadControls[key] = callback;
-    else downloadControls.erase(key);
-    NSString *state = item->IsComplete() ? @"complete" : item->IsCanceled() ? @"cancelled" : item->IsInProgress() ? (item->IsPaused() ? @"paused" : @"progress") : @"interrupted";
-    [engine_.delegate browserDownloadUpdated:tabID_ values:@{@"id":@(key),@"path":path ?: @"",@"url":url ?: @"",@"name":name ?: @"",@"received":@(item->GetReceivedBytes()),@"total":@(item->GetTotalBytes()),@"state":state,@"speed":@(item->GetCurrentSpeed())}];
+    if (chrome_ && item->GetMimeType().ToString() == "application/x-chrome-extension") return;
+    if ([engine_.delegate respondsToSelector:@selector(browserDownloadUpdated:values:)])
+      [engine_.delegate browserDownloadUpdated:tabID_ values:DownloadValues(browser,item,callback)];
   }
   bool OnBeforeDownload(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item, const CefString& name, CefRefPtr<CefBeforeDownloadCallback> callback) override {
+    if ([engine_.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)]) return true;
     // Let Chrome use its configured Downloads directory or prompt when the
     // user requests Save As. This also preserves the extension install flow.
     if (chrome_) return false;
@@ -1013,6 +1099,7 @@ static void QuitNext() {
 // Chrome-owned windows provide the real extension actions and installation UI.
 // They share the exact request context used by the AppKit tab containers.
 #include "ExtensionWindows.inc"
+#include "DownloadRecovery.inc"
 #include "ChromeTabs.inc"
 #include "PageTranslation.inc"
 #include "NativePageMenus.inc"
@@ -1076,14 +1163,23 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   CEF_REQUIRE_UI_THREAD();
   const std::string key = profileID.UTF8String;
   if (!privateProfiles.count(key)) return;
+  ClosePrivateDownloadRecoveries(key);
   extensionPreferenceRegistrations.erase(key); readyProfiles.erase(key);
   profileReadyCallbacks.erase(key); profiles.erase(key); searchProviders.erase(key); privateProfiles.erase(key);
+}
+- (void)identifyLegacyDownload:(uint32_t)identifier source:(NSString *)source partial:(NSString *)partial
+                       profile:(NSString *)profile completion:(void (^)(NSString *))completion {
+  StartDownloadRecovery(source, source, @"", profile, ^(NSDictionary* values) { completion(values[@"guid"]); }, identifier, partial);
+}
+- (void)recoverDownload:(NSString *)source originalURL:(NSString *)originalURL guid:(NSString *)guid
+                 profile:(NSString *)profile update:(DownloadRecoveryUpdate)update {
+  StartDownloadRecovery(source, originalURL, guid, profile, update);
 }
 - (void)controlDownload:(NSUInteger)identifier action:(NSString *)action {
   CEF_REQUIRE_UI_THREAD();
   auto found = downloadControls.find(identifier);
   if (found == downloadControls.end()) return;
-  auto callback = found->second;
+  auto callback = found->second.callback;
   if ([action isEqualToString:@"pause"]) callback->Pause();
   else if ([action isEqualToString:@"resume"]) callback->Resume();
   else if ([action isEqualToString:@"cancel"]) callback->Cancel();
@@ -1108,6 +1204,8 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
     BrowserTrace(@"test.mock-keychain.enabled");
   }
   BrowserTrace(@"cef.initialize.begin");
+  NSString *apiKey = [NSBundle.mainBundle objectForInfoDictionaryKey:@"ArcRebornSafeBrowsingAPIKey"];
+  if (apiKey.length) setenv("GOOGLE_API_KEY", apiKey.UTF8String, 1);
   loader = std::make_unique<CefScopedLibraryLoader>();
   if (!loader->LoadInMain()) { loader.reset(); return NO; }
   BrowserTraceLoadedEngine();
@@ -1155,12 +1253,19 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   BrowserTrace(@"app.quit-request",@{@"alreadyQuitting":@(quitting),@"browsers":@(browsers.size()),@"stack":NSThread.callStackSymbols});
   if (quitting) return;
   quitting = true;
+  for (const auto& [key, control] : downloadControls)
+    if (control.suspendOnQuit) quitSuspensions[key] = control.callback;
+  // Closing the final Chrome window may cancel items before CefShutdown.
+  using Suspend = void (*)(const char*);
+  auto suspend = reinterpret_cast<Suspend>(BrowserEngineSymbol("browser_suspend_downloads_v1"));
+  if (suspend) for (const auto& [key, context] : profiles)
+    if (readyProfiles.count(key) && !privateProfiles.count(key)) suspend(context->GetCachePath().ToString().c_str());
   QuitNext();
 }
 + (void)shutdown {
   [extensionOpenTraceTimer invalidate]; extensionOpenTraceTimer = nil;
   BrowserTrace(@"cef.shutdown.begin",@{@"browsers":@(browsers.size()),@"pending":@(pendingBrowsers.size())});
-  downloadControls.clear();
+  quitSuspensions.clear(); downloadControls.clear();
   if (!running || !browsers.empty() || !pendingBrowsers.empty()) return;
   RegisterNativeExtensionTabs(false);
   profileReadyCallbacks.clear();
@@ -1201,11 +1306,27 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
     if (readyProfiles.count(entry.first)) ApplyWebLanguage(entry.second);
 }
 - (BOOL)createTab:(NSString *)tabID profile:(NSString *)profileID url:(NSString *)url inView:(NSView *)container {
+  return [self createTab:tabID profile:profileID url:url archiveHistory:nil inView:container];
+}
+- (NSData *)historyForTab:(NSString *)tabID address:(NSString *)url {
+  auto browser = browsers.find(tabID.UTF8String);
+  if (browser == browsers.end()) return nil;
+  using Snapshot = void (*)(int, const char*, void*, void (*)(void*, const void*, size_t));
+  auto snapshot = reinterpret_cast<Snapshot>(BrowserEngineSymbol("browser_snapshot_tab_history_v1"));
+  if (!snapshot) return nil;
+  NSMutableData *data = [NSMutableData data];
+  snapshot(browser->second->GetIdentifier(), url.UTF8String, (__bridge void *)data,
+           [](void *context, const void *bytes, size_t length) {
+             [(__bridge NSMutableData *)context appendBytes:bytes length:length];
+           });
+  return data.length ? data : nil;
+}
+- (BOOL)createTab:(NSString *)tabID profile:(NSString *)profileID url:(NSString *)url archiveHistory:(NSData *)history inView:(NSView *)container {
   if (!running || quitting || (!Allowed(url) && !LocalDocument(url))) return NO;
   if (browsers.count(tabID.UTF8String) || pendingBrowsers.count(tabID.UTF8String)) return YES;
   auto context = ContextForProfile(profileID);
   if (!context) return NO;
-  if (readyProfiles.count(profileID.UTF8String)) return CreateChromeTab(self, tabID, url, container, context);
+  if (readyProfiles.count(profileID.UTF8String)) return CreateChromeTab(self, tabID, url, container, context, history);
   pendingBrowsers[tabID.UTF8String] = false;
   __weak BrowserEngine *owner = self;
   profileReadyCallbacks[profileID.UTF8String].push_back([^{
@@ -1219,7 +1340,7 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
       if (quitting) QuitNext();
       return;
     }
-    if (!CreateChromeTab(engine, tabID, url, container, context)) {
+    if (!CreateChromeTab(engine, tabID, url, container, context, history)) {
       pendingBrowsers.erase(key);
       [engine.delegate browserClosed:tabID];
     }
@@ -1272,7 +1393,7 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
 }
 - (void)closePictureInPicture:(NSString *)tabID { if (nativePiP && [nativePiP->tab() isEqual:tabID]) nativePiP->Close(); }
 - (BOOL)hasPictureInPicture:(NSString *)tabID { return nativePiP && nativePiP->active() && [nativePiP->tab() isEqual:tabID]; }
-- (void)checkArchiveIdle:(NSString *)tabID completion:(void (^)(BOOL))completion { CheckArchiveMedia(tabID,completion); }
+- (void)checkIdleTab:(NSString *)tabID forSleep:(BOOL)forSleep completion:(void (^)(BOOL))completion { CheckArchiveMedia(tabID,forSleep,completion); }
 - (void)goBack:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end() && i->second->CanGoBack()) i->second->GoBack(); }
 - (void)goForward:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end() && i->second->CanGoForward()) i->second->GoForward(); }
 - (void)reload:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->Reload(); }
@@ -1293,12 +1414,31 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
 }
 - (void)printPage:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetHost()->Print(); }
 - (void)stop:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->StopLoad(); }
-- (void)closeTab:(NSString *)tabID { auto i = browsers.find(tabID.UTF8String); if (i != browsers.end()) i->second->GetHost()->CloseBrowser(false); else if (pendingBrowsers.count(tabID.UTF8String)) pendingBrowsers[tabID.UTF8String] = true; else [self.delegate browserClosed:tabID]; }
+- (void)closeTab:(NSString *)tabID {
+  const std::string key = tabID.UTF8String;
+  automaticallyClosing.erase(key);  // An explicit close takes over any pending automatic close.
+  auto it = browsers.find(key);
+  if (it != browsers.end()) it->second->GetHost()->CloseBrowser(false);
+  else if (pendingBrowsers.count(key)) pendingBrowsers[key] = true;
+  else [self.delegate browserClosed:tabID];
+}
+- (BOOL)hasTabHistory:(NSString *)tabID {
+  auto it = browsers.find(tabID.UTF8String);
+  return it != browsers.end() && (it->second->CanGoBack() || it->second->CanGoForward());
+}
+- (BOOL)canSleepTab:(NSString *)tabID address:(NSString *)address {
+  const auto key = tabID.UTF8String;
+  auto it = browsers.find(key);
+  if (quitting || it == browsers.end() || tabVisibility[key] || pageTranslations.count(key) ||
+      !it->second->IsValid() || it->second->IsLoading() || HasActiveDownload(it->second)) return NO;
+  auto entry = it->second->GetHost()->GetVisibleNavigationEntry();
+  return entry && entry->IsValid() && !entry->HasPostData() && [Str(entry->GetURL()) isEqual:address];
+}
 - (void)tryAutoArchiveTab:(NSString *)tabID {
   const std::string key = tabID.UTF8String;
   auto it = browsers.find(key);
   if (quitting || it == browsers.end() || !it->second->IsValid() || it->second->IsLoading()
-      || capturingTabs.count(key) || audibleTabs.count(key) || [self hasPictureInPicture:tabID] || [self hasDeveloperTools:tabID]) {
+      || tabVisibility[key] || HasActiveDownload(it->second) || capturingTabs.count(key) || audibleTabs.count(key) || [self hasPictureInPicture:tabID] || [self hasDeveloperTools:tabID]) {
     [self.delegate browserCloseCancelled:tabID]; return;
   }
   automaticallyClosing.insert(key);

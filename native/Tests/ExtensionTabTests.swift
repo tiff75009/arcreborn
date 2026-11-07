@@ -41,6 +41,36 @@ import Foundation
         session.cancelExtensionTab(sharedPopup)
         expect(session.spaces[1].selectedTabID == source && session.validated(),
                "Failed creation restores the shared favorite selection")
-        print("Extension tab state: 10 checks passed")
+        var order = BrowserSession.fresh()
+        let space = order.activeSpaceID
+        let a = order.createTab(), b = order.createTab(), c = order.createTab()
+        func temporary(_ state:BrowserSession) -> [SidebarItem] {
+            state.sidebarChildren(spaceID:space,parentID:nil,temporary:true)
+        }
+        expect(temporary(order) == [c,b,a].map(SidebarItem.tab),"New tabs appear first")
+        // Mix legacy implicit positions with explicit drag positions.
+        for i in order.tabs.indices { order.tabs[i].sidebarOrder = nil }
+        _ = order.moveSidebarItem(.tab(c),spaceID:space,to:.init(parentID:nil,before:.tab(b),temporary:true))
+        let relative = order.createTab(above:b)
+        expect(temporary(order) == [a,c,relative,b].map(SidebarItem.tab),"Insert above an inactive, manually ordered tab")
+        let plain = order.reserveExtensionTab(sourceTabID:c,active:false,pinned:false,index:-1)!
+        expect(temporary(order).first == .tab(plain.id),"Implicit browser and extension tabs go to the top")
+        let link = order.reserveExtensionTab(sourceTabID:c,active:false,pinned:false,index:-1,aboveSource:true)!
+        expect(temporary(order) == [plain.id,a,link.id,c,relative,b].map(SidebarItem.tab) && order.spaces[0].selectedTabID == relative,
+               "The link menu inserts above its source and preserves background selection")
+        let indexed = order.reserveExtensionTab(sourceTabID:a,active:false,pinned:false,index:2)!
+        expect(temporary(order)[2] == .tab(indexed.id),"Explicit extension positions take precedence")
+        order.folders = [.init(id:"folder",spaceID:space,name:"Folder",collapsed:false)]
+        _ = order.moveSidebarItem(.tab(a),spaceID:space,to:.init(parentID:"folder",before:nil))
+        let sibling = order.createTab(above:a)
+        expect(order.sidebarChildren(spaceID:space,parentID:"folder") == [sibling,a].map(SidebarItem.tab),"Context action stays in its folder")
+        _ = order.mergeSplit(b,onto:c)
+        let splitPeer = order.createTab(above:b)
+        let peers = temporary(order)
+        expect(peers.firstIndex(of:.tab(splitPeer))! + 1 == min(peers.firstIndex(of:.tab(c))!,peers.firstIndex(of:.tab(b))!),
+               "A split occupies one sidebar row")
+        let saved = try! JSONDecoder().decode(BrowserSession.self,from:JSONEncoder().encode(order))
+        expect(temporary(saved) == peers && saved.validated(),"Order survives reopening the session")
+        print("PASS: tab insertion order, relative context actions, source selection, rollback, folders, splits and persistence")
     }
 }

@@ -56,6 +56,47 @@ import Foundation
         check(restored.lastSection == .downloads,"last library section survives a cold launch")
         check(restored.downloads.count == 2 && restored.downloads.first(where: { $0.id == "two" })?.state == "complete","download history persists")
         check(restored.downloads.first(where: { $0.id == "one" })?.state == "interrupted","unfinished download is interrupted after restart")
+        check(restored.downloads.first(where:{ $0.id == "one" })?.recoveryAction == "restart","legacy records with a source offer a fresh download")
+        let partial = downloads.appendingPathComponent("active.crdownload")
+        try Data([1,2,3]).write(to:partial)
+        let recoveryRoot = root.appendingPathComponent("recovery")
+        let recovery = LibraryStore(directory:recoveryRoot,downloadsDirectory:downloads)
+        let peer = LibraryStore(directory:recoveryRoot,downloadsDirectory:downloads)
+        var warningCount = 0
+        recovery.downloadBlocked = { warningCount += 1 }
+        recovery.updateDownload(id:"flagged",name:"Example.dmg",path:partial.path,source:"https://example.test/sample",profileID:"work",received:3,total:3,state:"blocked")
+        recovery.updateDownload(id:"flagged",name:"Example.dmg",path:partial.path,source:"",profileID:"work",received:3,total:3,state:"interrupted")
+        recovery.recoveryFailed("flagged")
+        recovery.flush()
+        let blocked = LibraryStore(directory:recoveryRoot,downloadsDirectory:downloads).downloads.first { $0.id == "flagged" }
+        check(warningCount == 1 && blocked?.isBlocked == true && blocked?.path == "" && blocked?.recoveryAction == nil,"blocked verdict and inaccessible file survive delayed updates and relaunch")
+        recovery.request("flagged",action:"remove")
+        recovery.updateDownload(id:"partial",name:"file",path:partial.path,source:"https://example.test/file",profileID:"work",
+                                received:3,total:20,state:"interrupted",guid:"guid",canContinue:true)
+        var attempts = [String]()
+        recovery.recover = { item,action in attempts.append(item.profileID+"/"+action) }
+        peer.recover = recovery.recover
+        recovery.request("partial",action:"restart")
+        recovery.request("partial",action:"resume")
+        peer.request("partial",action:"resume")
+        peer.removeDownload("partial")
+        check(attempts == ["work/resume"] && peer.downloads.first?.isRecovering == true,"only one recovery owns the record across windows")
+        recovery.recoveryFailed("partial")
+        check(peer.downloads.first?.recoveryAction == "restart","an unavailable native item falls back to restart")
+        peer.request("partial",action:"restart")
+        recovery.receiveDownload(["id":17,"state":"progress","received":1,"total":20],run:"new",profileID:"work",recovering:"partial")
+        peer.control = { id,action in attempts.append(id+"/"+action) }
+        peer.request("partial",action:"pause")
+        check(peer.downloads.count == 1 && attempts.last == "new-17/pause","a retry keeps its library row and routes controls to the new engine handle")
+        try FileManager.default.removeItem(at:partial)
+        recovery.updateDownload(id:"partial",name:"file",path:partial.path,source:"https://example.test/file",profileID:"work",
+                                received:3,total:20,state:"interrupted",guid:"guid",canContinue:true)
+        check(peer.downloads.first?.recoveryAction == "restart","missing partial falls back to a full download")
+        recovery.updateDownload(id:"temporary",name:"Report",path:"",source:"blob:https://example.test/a",profileID:"work",
+                                received:1,total:2,state:"interrupted",originatingPage:"https://example.test/report")
+        recovery.openDownloadPage = { _, page in attempts.append(page) }
+        recovery.request("temporary",action:"page")
+        check(attempts.last == "https://example.test/report" && recovery.downloads.first?.state == "interrupted","a document-bound URL can be regenerated from its original page")
         let before = try Data(contentsOf:downloads.appendingPathComponent("Photo Été.png"))
         store.enableMedia(); store.flush()
         check(try coldLaunch().mediaEnabled,"media opt-in persists")

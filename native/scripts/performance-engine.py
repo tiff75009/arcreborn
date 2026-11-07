@@ -17,12 +17,11 @@ import shutil
 import signal
 import subprocess
 import time
-from engine import prepare_release_tools
+from engine import PIN, prepare_release_tools
 
 
 NATIVE = Path(__file__).resolve().parents[1]
 ENGINE = NATIVE / 'Engine'
-PIN = json.loads((ENGINE / 'engine.lock.json').read_text())
 FLAGS = ENGINE / 'performance-candidate.gn'
 
 

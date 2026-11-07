@@ -20,14 +20,27 @@ case "$MODE" in
     fi
     [[ -n "$IDENTITY" ]] || { echo 'Définir BROWSER_SIGN_IDENTITY avec un certificat Developer ID Application.' >&2; exit 1; }
     # Validate the signer before copying hundreds of MB or changing any signature.
-    security find-identity -v -p codesigning | /usr/bin/python3 -c 'import re,sys; value=sys.stdin.read(); identity,team=sys.argv[1:]; rows=re.findall(r"^\s*\d+\) ([A-F0-9]{40}) \"([^\n]+)\"",value,re.M); assert any(identity in (sha,name) and name.startswith("Developer ID Application:") and name.endswith("("+team+")") for sha,name in rows), "Identité Developer ID invalide"' "$IDENTITY" "$TEAM"
+    IDENTITY="$(security find-identity -v -p codesigning | /usr/bin/python3 -c 'import re,sys; identity,team=sys.argv[1:]; rows=re.findall(r"^\s*\d+\) ([A-F0-9]{40}) \"([^\n]+)\"",sys.stdin.read(),re.M); matches=[sha for sha,name in rows if identity in (sha,name) and name.startswith("Developer ID Application:") and name.endswith("("+team+")")]; sys.exit("Identité Developer ID invalide ou ambiguë") if len(matches)!=1 else print(matches[0])' "$IDENTITY" "$TEAM")"
     mkdir -p "$(dirname "$APP")"
+    DESTINATION="$APP"
+    STAGE="$(mktemp -d "$(dirname "$APP")/signing.XXXXXX")"
+    trap 'rm -rf "$STAGE"' EXIT
+    APP="$STAGE/$(basename "$APP")"
     /bin/cp -cR "$SOURCE" "$APP"
+    APP_POLICY="$ENTITLEMENTS/app.entitlements"
+    if [[ -n "${BROWSER_PASSKEY_PROFILE:-}" ]]; then
+      APP_POLICY="$STAGE/browser.entitlements"
+      /usr/bin/python3 "$ENTITLEMENTS/passkeys.py" "$APP" "$BROWSER_PASSKEY_PROFILE" "$TEAM" "$IDENTITY" --prepare "$APP_POLICY"
+    elif [[ -e "$APP/Contents/embedded.provisionprofile" ]]; then
+      echo 'Définir BROWSER_PASSKEY_PROFILE pour signer ce bundle provisionné.' >&2
+      exit 1
+    fi
     # Debug symbols belong beside the deliverable, not under Contents/MacOS.
-    SYMBOLS="$(mktemp -d "$(dirname "$APP")/symbols.XXXXXX")"
+    SYMBOLS="$(mktemp -d "$(dirname "$DESTINATION")/symbols.XXXXXX")"
     while IFS= read -r -d '' symbol; do mv "$symbol" "$SYMBOLS/"; done < <(find "$APP/Contents/MacOS" -maxdepth 1 -name '*.dSYM' -type d -print0)
     FRAMEWORK="$APP/Contents/Frameworks/Chromium Embedded Framework.framework"
-    for suffix in '' ' (GPU)' ' (Renderer)' ' (Plugin)' ' (Alerts)'; do
+    helpers=('' ' (GPU)' ' (Renderer)' ' (Plugin)' ' (Alerts)' ' (CDM)')
+    for suffix in "${helpers[@]}"; do
       [[ -x "$APP/Contents/Frameworks/Arc Reborn Helper$suffix.app/Contents/MacOS/Arc Reborn Helper$suffix" ]] || { echo "Helper manquant : $suffix" >&2; exit 1; }
     done
     # Sign each physical nested image once, from the inside out. Never --deep-sign.
@@ -35,16 +48,28 @@ case "$MODE" in
       codesign --force --timestamp --sign "$IDENTITY" "$library"
     done < <(find "$FRAMEWORK" -type f -name '*.dylib' -print0)
     codesign --force --timestamp --sign "$IDENTITY" "$FRAMEWORK"
-    for suffix in '' ' (GPU)' ' (Renderer)' ' (Plugin)' ' (Alerts)'; do
+    CDM_CONSTRAINT="$STAGE/cdm-library.coderequirement"
+    /usr/bin/plutil -replace '$or.team-identifier' -string "$TEAM" -o "$CDM_CONSTRAINT" "$ENTITLEMENTS/cdm-library.coderequirement"
+    /usr/bin/codesign --validate-constraint "$CDM_CONSTRAINT"
+    for suffix in "${helpers[@]}"; do
       POLICY="$ENTITLEMENTS/helper.entitlements"
+      if [[ "$suffix" == ' (CDM)' ]]; then
+        codesign --force --timestamp --options runtime --sign "$IDENTITY" --entitlements "$ENTITLEMENTS/cdm.entitlements" \
+          --library-constraint "$CDM_CONSTRAINT" "$APP/Contents/Frameworks/Arc Reborn Helper$suffix.app"
+        continue
+      fi
       case "$suffix" in ' (GPU)'|' (Renderer)') POLICY="$ENTITLEMENTS/jit.entitlements";; esac
       codesign --force --timestamp --options runtime --sign "$IDENTITY" --entitlements "$POLICY" "$APP/Contents/Frameworks/Arc Reborn Helper$suffix.app"
     done
     "$NATIVE_ROOT/scripts/sign-sparkle.sh" "$APP/Contents/Frameworks/Sparkle.framework" "$IDENTITY"
-    codesign --force --timestamp --options runtime --sign "$IDENTITY" --entitlements "$ENTITLEMENTS/app.entitlements" "$APP"
+    codesign --force --timestamp --options runtime --sign "$IDENTITY" --entitlements "$APP_POLICY" "$APP"
     codesign --verify --deep --strict --verbose=2 "$APP"
+    if [[ -n "${BROWSER_PASSKEY_PROFILE:-}" ]]; then
+      /usr/bin/python3 "$ENTITLEMENTS/passkeys.py" "$APP" "$BROWSER_PASSKEY_PROFILE" "$TEAM" "$IDENTITY"
+    fi
     codesign --display --verbose=4 "$APP"
-    echo "Signé : $APP"
+    mv "$APP" "$DESTINATION"
+    echo "Signé : $DESTINATION"
     ;;
   submit)
     [[ -d "$APP" ]] || { echo 'Indiquer le bundle signé.' >&2; exit 1; }

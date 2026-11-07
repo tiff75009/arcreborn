@@ -1,0 +1,24 @@
+{
+  "baseVersion": "156.0.8078.80-arcreborn.10",
+  "version": "156.0.8078.80-arcreborn.10-passkeys.1",
+  "patch": {
+    "file": "patches/appkit-passkey-window.patch",
+    "sha256": "94525ab05e2c7c769c74e1948188254a9f9a8208310bc9c8cb843766d44c3de7"
+  },
+  "archive": {
+    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.7-passkeys.1-macos-arm64.tar.gz",
+    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.7-passkeys.1/ArcReborn-Engine-156.0.8078.80-arcreborn.7-passkeys.1-macos-arm64.tar.gz",
+    "sha256": "7775314c8b7916a8638d844ff4f4a5ec20133c7bda4e4404229e4af6a337eec7",
+    "delta": {
+      "file": "deltas/webrtc-h264-passkeys-arm64.bsdiff",
+      "sha256": "2146584442e7cf7dc52c5bcd575c061dd73b90e2dfb927baf912b857ac2b0b6a",
+      "baseVersion": "156.0.8078.80-arcreborn.7-passkeys.1",
+      "baseBinarySHA256": "e20850ae88e0de6d0a5e94b70cf86025eb38ecfb8acd1e510ce46f1b0d6857ed",
+      "binarySHA256": "0edf86b3356f83a4fc60ecec0e64a68d3e98d1ba6293411deaf77c37eec9c77c",
+      "gnOverrides": {
+        "media_use_openh264": "true",
+        "rtc_use_h264": "true"
+      }
+    }
+  }
+}

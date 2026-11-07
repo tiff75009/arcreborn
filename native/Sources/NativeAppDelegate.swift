@@ -5,7 +5,9 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private(set) var controllers: [BrowserController] = []
     private var menus: BrowserMenus?
     let handoff = BrowserHandoff()
+    let webAuthentication = BrowserWebAuthentication()
     private var pendingDocuments = BrowserDocuments.Batch()
+    private var deferredWindowRestore = false
     private var baselines: [String:BrowserSession] = [:]
     private var privateOrigins: [String:String] = [:] // ephemeral CEF context ID → originating regular profile
     private var publishTask: DispatchWorkItem?
@@ -22,6 +24,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         favoriteMigrationAliases = sharedSession.normalizeFavoriteTabs()
         self.initial = sharedSession
         super.init()
+        webAuthentication.register()
         let center = NotificationCenter.default
         for name in [BrowserCommands.changed, Notification.Name("BrowserLanguageChanged")] {
             observers.append(center.addObserver(forName:name,object:nil,queue:.main) { [weak self] _ in self?.buildMenu() })
@@ -41,19 +44,14 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
                 })
             }
         }
-        let records = WindowPersistence(directory:store.directory).load()
-        for record in records {
-            guard let state = record.restoredSession(shared:sharedSession,favoriteAliases:favoriteMigrationAliases) else { continue }
-            let window = makeController(state:state,kind:record.kind,privateWindow:false)
-            if record.frame.count == 4, record.frame.allSatisfy(\.isFinite), record.frame[2] >= 760, record.frame[3] >= 540 {
-                let rect = NSRect(x:record.frame[0],y:record.frame[1],width:min(8000,record.frame[2]),height:min(8000,record.frame[3]))
-                if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(rect) }) { window.window.setFrame(rect,display:false) }
-            }
-            window.show()
+        deferredWindowRestore = webAuthentication.launchedForAuthentication && pendingDocuments.isEmpty
+        if !deferredWindowRestore {
+            restoreWindows()
+            deliverBrowserDocuments(pendingDocuments)
+            pendingDocuments = .init()
+            controller?.show(); NSApp.activate(ignoringOtherApps:true)
         }
-        if controllers.isEmpty { _ = openWindow(.normal) }
-        deliverBrowserDocuments(pendingDocuments); pendingDocuments = .init()
-        controller?.show(); NSApp.activate(ignoringOtherApps:true); buildMenu(); startNativeHostDiagnostics()
+        buildMenu(); startNativeHostDiagnostics()
         let profilePreview = CommandLine.arguments.contains("--preview-profiles")
         let interfacePreview = CommandLine.arguments.contains("--preview-interface")
         if (interfacePreview || profilePreview || CommandLine.arguments.contains("--preview-account")), ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil {
@@ -70,11 +68,31 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             target?.focusSidebarUpdate()
         })
         BrowserUpdates.shared.start()
-        BrowserUpdates.shared.presentNewsAfterUpgrade(existingInstallation: initial.onboardingComplete) { [weak self] in self?.sharedSession.onboardingComplete == true && self?.quitting == false }
+        BrowserUpdates.shared.presentNewsAfterUpgrade(existingInstallation: initial.onboardingComplete) { [weak self] in self?.sharedSession.onboardingComplete == true && self?.quitting == false && self?.deferredWindowRestore == false }
+        webAuthentication.engineReady { [weak self] in
+            guard let self, !self.quitting else { return nil }
+            let state = self.controller?.windowSession ?? self.sharedSession
+            guard let id = state.profile(forSpace:state.activeSpaceID)?.id else { return nil }
+            return self.privateOrigins[id] ?? id
+        }
         if ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] != nil,
            let raw = ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_AUTOCLOSE"], let seconds = Double(raw), seconds >= 10 {
             DispatchQueue.main.asyncAfter(deadline:.now()+seconds) { [weak self] in self?.requestQuit() }
         }
+    }
+    private func restoreWindows() {
+        deferredWindowRestore = false
+        let records = WindowPersistence(directory:store.directory).load()
+        for record in records {
+            guard let state = record.restoredSession(shared:sharedSession,favoriteAliases:favoriteMigrationAliases) else { continue }
+            let window = makeController(state:state,kind:record.kind,privateWindow:false)
+            if record.frame.count == 4, record.frame.allSatisfy(\.isFinite), record.frame[2] >= 760, record.frame[3] >= 540 {
+                let rect = NSRect(x:record.frame[0],y:record.frame[1],width:min(8000,record.frame[2]),height:min(8000,record.frame[3]))
+                if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(rect) }) { window.window.setFrame(rect,display:false) }
+            }
+            window.show()
+        }
+        if controllers.isEmpty { _ = openWindow(.normal) }
     }
     private func makeController(state:BrowserSession,kind:BrowserWindowKind,privateWindow:Bool) -> BrowserController {
         let id = UUID().uuidString
@@ -88,6 +106,16 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             self.refreshHandoff()
         }
         next.windowClosed = { [weak self] value in self?.closed(value) }
+        if kind == .normal && !privateWindow {
+            // A shared sidebar tab can have a renderer only in another window.
+            next.sharedTabHistory = { [weak self, weak next] tab, profile in
+                guard let self else { return nil }
+                for peer in self.controllers where peer !== next && peer.windowKind == .normal && !peer.isPrivateWindow {
+                    if let data = peer.liveTabHistory(tab,profile:profile) { return data }
+                }
+                return nil
+            }
+        }
         next.newWindowRequested = { [weak self,weak next] kind in _ = self?.openWindow(kind,from:next) }
         next.privateAddressRequested = { [weak self,weak next] address in
             guard let self else { return }
@@ -111,6 +139,13 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         return next
     }
     @discardableResult func openWindow(_ kind:BrowserWindowKind,from source:BrowserController? = nil,initialAddress:String? = nil) -> BrowserController {
+        if deferredWindowRestore {
+            restoreWindows()
+            if kind == .normal, let restored = controllers.last(where:{ $0.windowKind == .normal }) {
+                restored.show()
+                return restored
+            }
+        }
         publishTask?.cancel(); publish()
         let source = source ?? controller
         let ephemeral = kind == .privateWindow || ((kind == .compact || kind == .blank) && source?.isPrivateWindow == true)
@@ -251,6 +286,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         if value.isPrivateWindow, let id = value.windowSession.profiles.first?.id,
            !controllers.contains(where:{ $0.isPrivateWindow && $0.windowSession.profiles.first?.id == id }) {
             BrowserEngine().releasePrivateProfile(id); privateOrigins.removeValue(forKey:id)
+            TabMemorySaver.forgetPrivateProfile(id)
         }
         buildMenu(); persistWindows(); refreshHandoff()
     }
@@ -258,6 +294,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     // selection. Never close an ID based on a single window's view of it.
     @objc private func sweepArchives() {
         guard booted, !quitting else { return }
+        for window in controllers { window.sleepIdleTab() }
         let regular = controllers.filter { $0.windowKind == .normal && !$0.isPrivateWindow }
         sweepArchiveGroup(regular)
         for window in controllers where window.windowKind != .normal && window.windowKind != .compact {
@@ -295,7 +332,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     private func persistWindows() {
-        guard booted else { return }
+        guard booted, !deferredWindowRestore else { return }
         do { try WindowPersistence(directory:store.directory).save(controllers) }
         catch { NSLog("Browser window state save failed: %@",error.localizedDescription) }
     }
@@ -303,7 +340,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         guard !quitting else { return }
         publishTask?.cancel(); publish()
         for item in controllers { if !item.prepareToQuit() { controllers.forEach { $0.resumeAfterCancelledQuit() }; return } }
-        persistWindows(); quitting = true; handoff.invalidate(); BrowserEngine.requestQuit()
+        persistWindows(); quitting = true; handoff.invalidate(); webAuthentication.cancelAll(); BrowserEngine.requestQuit()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication) -> Bool { false }
     func applicationDockMenu(_ sender:NSApplication) -> NSMenu? {

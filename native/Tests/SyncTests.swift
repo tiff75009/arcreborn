@@ -58,6 +58,13 @@ import Foundation
         check(windowMerge.spaces.first { $0.id == sharedSpace }?.selectedTabID == tab && windowMerge.validated(),"window merging preserves shared favorite selections")
         let syncedFavorites = try ArcSyncCodec.applying(ArcSyncCodec.canonical(updated),to:favorites,checkpointKey:owner,checkpoint:checkpoint)
         check(syncedFavorites.spaces.first { $0.id == sharedSpace }?.selectedTabID == tab && syncedFavorites.validated(),"sync restores same-profile shared favorite selections")
+        var archivedSession = base
+        let navigation = ArchivedNavigation(profileID:base.profiles[0].id,data:Data([1,2,3]))
+        archivedSession.closeTab(id:tab,navigation:navigation)
+        let cloud = try ArcSyncCodec.decrypt(ArcSyncCodec.encrypt(archivedSession,key:key,owner:owner),key:key,owner:owner)
+        check(cloud.closedTabs.last?.id == tab && cloud.closedTabs.last?.archivedNavigation == nil,"tab navigation stays on the originating Mac")
+        let refreshedArchive = try ArcSyncCodec.applying(cloud,to:archivedSession,checkpointKey:owner,checkpoint:checkpoint)
+        check(refreshedArchive.closedTabs.last?.archivedNavigation == navigation,"cloud refresh preserves local archived navigation")
         var withFiles = base
         let file = withFiles.createTab(url:"file:///Users/test/Documents/caf%C3%A9.pdf")
         let archived = withFiles.createTab(url:"file:///Volumes/Disk/drawing.svg"); withFiles.closeTab(id:archived)

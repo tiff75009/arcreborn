@@ -10,6 +10,9 @@ func startNativeHostDiagnostics() {
         func views(_ v: NSView) -> [[String: Any]] {
             var result: [[String: Any]] = []
             let name = NSStringFromClass(type(of: v))
+            if let label = v as? NSTextField, label.accessibilityIdentifier() == "download-protection-warning" {
+                result.append(["class":"DownloadWarning", "hidden":label.isHiddenOrHasHiddenAncestor, "label":label.stringValue])
+            }
             if name.contains("WebContents") || name.contains("RenderWidget") || name.contains("TabCell") || v is NSButton || v is DownloadFlightView {
                 result.append(["class": name, "window": v.window?.windowNumber ?? -1,
                                "hidden": v.isHiddenOrHasHiddenAncestor,

@@ -139,17 +139,28 @@ def prepare(args,notes,info):
         packaged = run('plutil','-extract','NSBluetoothAlwaysUsageDescription','raw',source/'Contents/Resources'/strings,capture=True)
         expected = run('plutil','-extract','NSBluetoothAlwaysUsageDescription','raw',NATIVE/'Resources'/strings,capture=True)
         if not packaged or packaged != expected: raise ValueError('Bluetooth purpose string mismatch: '+language)
+    if not re.fullmatch(r'AIza[A-Za-z0-9_-]{35}', bundle_info.get('ArcRebornSafeBrowsingAPIKey', '')):
+        raise ValueError('Missing production Safe Browsing client key')
     if bundle_info.get('ArcRebornDevelopmentBuild'): raise ValueError('Cannot release a development bundle')
     if json.loads((source/'Contents/Resources/ReleaseNotes.json').read_text()) != notes:
         raise ValueError('Bundle release notes mismatch')
     provenance = out/'source.json'
     source_hash = bundle_digest(source)
-    if provenance.exists() and json.loads(provenance.read_text())['sha256'] != source_hash:
-        raise ValueError('Source bundle changed; use a new release output directory')
-    provenance.write_text(json.dumps({'sha256':source_hash,'version':notes['version'],'build':notes['build']},indent=2)+'\n')
+    passkey_profile = os.environ.get('BROWSER_PASSKEY_PROFILE')
+    provenance_data = {'sha256':source_hash,'version':notes['version'],'build':notes['build']}
+    if passkey_profile: provenance_data['passkeyProfileSHA256'] = digest(Path(passkey_profile))
+    if provenance.exists() and json.loads(provenance.read_text()) != provenance_data:
+        raise ValueError('Source bundle or signing profile changed; use a new release output directory')
+    provenance.write_text(json.dumps(provenance_data,indent=2)+'\n')
     app = out/'Arc Reborn.app'
     if not app.exists(): run(NATIVE/'scripts/sign-and-notarize.sh','sign',source,app)
     run('codesign','--verify','--deep','--strict',app)
+    if passkey_profile:
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp)/'signer'
+            run('codesign','-d','--extract-certificates='+str(prefix),app)
+            signer = hashlib.sha1(Path(str(prefix)+'0').read_bytes()).hexdigest().upper()
+            run('/usr/bin/python3',NATIVE/'Signing/passkeys.py',app,passkey_profile,os.environ.get('BROWSER_SIGN_TEAM','LWSP9A5UDA'),signer)
     archive = out/'notarization.zip'
     if not archive.exists(): run('ditto','-c','-k','--keepParent',app,archive)
     notarize(archive,out)
@@ -179,7 +190,7 @@ def prepare(args,notes,info):
     key = ['--ed-key-file',os.environ['SPARKLE_PRIVATE_KEY_FILE']] if os.environ.get('SPARKLE_PRIVATE_KEY_FILE') else ['--account','arc-reborn']
     prepare_feeds(notes,dmg,sparkle,key)
     run('xcrun','swift',NATIVE/'scripts/verify-release.swift',NATIVE/'Resources/Info.plist',assets)
-    release = {'version':notes['version'],'build':notes['build'],'engine':json.loads((NATIVE/'Engine/engine.lock.json').read_text())['version']}
+    release = {'version':notes['version'],'build':notes['build'],'engine':run('/usr/bin/python3',NATIVE/'scripts/engine.py','version',capture=True)}
     (assets/'release.json').write_text(json.dumps(release,indent=2)+'\n')
     (out/'CHANGELOG.md').write_text(github_notes(notes),encoding='utf-8')
     paths = [dmg,*(assets/f for f in FEEDS),assets/'release.json']

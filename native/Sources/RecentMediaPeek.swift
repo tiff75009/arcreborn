@@ -76,7 +76,10 @@ final class SidebarPeekContent: NSView {
 private struct ShelfFile {
     let file: RecentLibraryFile
     let download: LibraryDownload?
-    var key: String { file.url.standardizedFileURL.path }
+    var key: String {
+        if let download, download.isBlocked { return "blocked:" + download.id }
+        return file.url.standardizedFileURL.path
+    }
     var isActive: Bool { download?.isActive == true }
 }
 
@@ -109,7 +112,7 @@ final class RecentFileRow: NSView {
         thumbnail.wantsLayer = true; thumbnail.layer?.cornerRadius = 5; thumbnail.layer?.masksToBounds = true
         for button in [primary,secondary] { button.wantsLayer = true; button.layer?.cornerRadius = 5 }
         primary.invoke = { [weak self] in
-            guard let self, let item = self.item else { return }
+            guard let self, let item = self.item, item.download?.isBlocked != true else { return }
             if let record = item.download, record.isActive {
                 self.action?(record.id,record.state == "paused" ? "resume" : "pause")
             } else {
@@ -120,6 +123,7 @@ final class RecentFileRow: NSView {
         secondary.invoke = { [weak self] in
             guard let self, let item = self.item else { return }
             if let record = item.download, record.isActive { self.action?(record.id,"cancel") }
+            else if let record = item.download, record.isBlocked { self.action?(record.id,"remove") }
             else { self.remove?(item.file.url) }
         }
         for view in [thumbnail,nameLabel,dateLabel,primary,secondary] { addSubview(view) }
@@ -141,6 +145,9 @@ final class RecentFileRow: NSView {
             primary.image = NSImage(systemSymbolName:record.state == "paused" ? "play.fill" : "pause.fill",accessibilityDescription:nil)
             primary.toolTip = record.state == "paused" ? (fr ? "Reprendre" : "Resume") : (fr ? "Mettre en pause" : "Pause")
             secondary.toolTip = fr ? "Annuler le téléchargement" : "Cancel download"
+        } else if item.download?.isBlocked == true {
+            dateLabel.stringValue = LibraryDownload.blockedLabel(language)
+            secondary.toolTip = fr ? "Retirer de la liste" : "Remove from list"
         } else {
             let formatter = RelativeDateTimeFormatter(); formatter.locale = Locale(identifier:language); formatter.unitsStyle = .full
             dateLabel.stringValue = formatter.localizedString(for:item.file.date,relativeTo:Date())
@@ -150,6 +157,7 @@ final class RecentFileRow: NSView {
         }
         for button in [primary,secondary] { button.contentTintColor = ink.withAlphaComponent(0.8); button.setAccessibilityLabel(button.toolTip) }
         track.isHidden = !item.isActive; track.backgroundColor = ink.withAlphaComponent(0.12).cgColor
+        primary.isHidden = item.download?.isBlocked == true
         fill.backgroundColor = ink.withAlphaComponent(0.7).cgColor
         toolTip = nameLabel.stringValue
         setAccessibilityLabel(nameLabel.stringValue+", "+dateLabel.stringValue)
@@ -161,6 +169,12 @@ final class RecentFileRow: NSView {
         let key = item.key+(item.isActive ? "|pending" : "|\(item.file.date.timeIntervalSince1970)")
         guard thumbnailKey != key else { return }; thumbnailKey = key
         if let request { QLThumbnailGenerator.shared.cancel(request) }; request = nil
+        if item.download?.isBlocked == true {
+            thumbnail.image = NSImage(systemSymbolName:"exclamationmark.shield.fill",accessibilityDescription:nil)
+            thumbnail.contentTintColor = .systemOrange
+            return
+        }
+        thumbnail.contentTintColor = nil
         thumbnail.image = NSWorkspace.shared.icon(forFile:item.file.url.path)
         guard !item.isActive else { return }
         let request = QLThumbnailGenerator.Request(fileAt:item.file.url,size:NSSize(width:40,height:40),scale:window?.backingScaleFactor ?? 2,representationTypes:.all)
@@ -193,11 +207,11 @@ final class RecentFileRow: NSView {
         if bounds.contains(convert(event.locationInWindow,from:nil)) { activate() }
     }
     private func activate() {
-        guard let item, !item.isActive else { return }
+        guard let item, !item.isActive, item.download?.isBlocked != true else { return }
         if let record = item.download { seen?(record.id) }
         open?(item.file.url)
     }
-    override func accessibilityPerformPress() -> Bool { activate(); return item?.isActive == false }
+    override func accessibilityPerformPress() -> Bool { activate(); return item?.isActive == false && item?.download?.isBlocked != true }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
         tracking = NSTrackingArea(rect:.zero,options:[.activeAlways,.inVisibleRect,.mouseEnteredAndExited],owner:self); addTrackingArea(tracking!)
@@ -258,7 +272,7 @@ final class RecentMediaPeek: NSView, QLPreviewPanelDataSource {
         // Reserve room for ongoing transfers; merge finished transfers with the actual files.
         // No mode switch on unread status, and no duplicate row when a transfer finishes.
         let byPath = Dictionary(downloads.filter { !$0.path.isEmpty }.map { (URL(fileURLWithPath:$0.path).standardizedFileURL.path,$0) },uniquingKeysWith:{ a,b in a.date > b.date ? a : b })
-        var entries = downloads.filter(\.isActive).map { ShelfFile(file:RecentLibraryFile(url:URL(fileURLWithPath:$0.path.isEmpty ? "/.transfer-"+$0.id : $0.path),date:$0.date),download:$0) }
+        var entries = downloads.filter { $0.isActive || $0.isBlocked }.map { ShelfFile(file:RecentLibraryFile(url:URL(fileURLWithPath:$0.path.isEmpty ? "/.transfer-"+$0.id : $0.path),date:$0.date),download:$0) }
         let activePaths = Set(entries.map(\.key))
         entries += files.filter { !activePaths.contains($0.url.standardizedFileURL.path) }.map { ShelfFile(file:$0,download:byPath[$0.url.standardizedFileURL.path]) }
         entries = Array(entries.sorted {

@@ -45,6 +45,8 @@ final class SidebarScrollView: NSScrollView {
     }
     required init?(coder:NSCoder) { fatalError() }
     override func tile() {
+        let bottom = min(144, (bounds.height * 0.25).rounded())
+        if contentInsets.bottom != bottom { contentInsets.bottom = bottom }
         super.tile()
         guard hasVerticalScroller, let scroller = verticalScroller else { return }
         var clip = contentView.frame

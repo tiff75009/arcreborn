@@ -28,6 +28,8 @@ enum ArcSyncCodec {
     static func canonical(_ session:BrowserSession) -> BrowserSession {
         var result = session
         result.cloudSyncState = nil
+        for i in result.tabs.indices where result.tabs[i].archivedNavigation != nil { result.tabs[i].archivedNavigation = nil }
+        for i in result.closedTabs.indices where result.closedTabs[i].archivedNavigation != nil { result.closedTabs[i].archivedNavigation = nil }
         result.onboardingComplete = true
         // Navigation selection and sidebar visibility belong to each device/window.
         result.classicSidebarHidden = nil
@@ -80,9 +82,10 @@ enum ArcSyncCodec {
     }
     static func applying(_ merged:BrowserSession,to latest:BrowserSession,checkpointKey:String,checkpoint:NativeCloudCheckpoint) throws -> BrowserSession {
         var result = merged
-        func hasLocalData(_ tab:NativeTab) -> Bool { isLocalTabDocument(tab.url) }
+        func hasLocalData(_ tab:NativeTab) -> Bool { tab.archivedNavigation != nil || isLocalTabDocument(tab.url) }
         if latest.tabs.contains(where:hasLocalData) || latest.closedTabs.contains(where:hasLocalData) {
-            // Apply cloud edits over this Mac’s local documents and split groups.
+            // Merge cloud edits over the full session to keep local documents,
+            // split groups and this Mac's navigation snapshots.
             result = try BrowserSession.merging(base:canonical(latest),incoming:merged,latest:latest)
         }
         result.onboardingComplete = latest.onboardingComplete

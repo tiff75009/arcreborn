@@ -64,6 +64,10 @@ import AppKit
         }
         _ = display(224,language:"en")
         precondition(rows[0].subviews.compactMap { $0 as? NSTextField }.last!.stringValue.contains("ago"))
+        records[3].state = "blocked"; records[3].path = ""
+        let warning = display(224).first { $0.accessibilityLabel()?.contains("Bloqué pour votre sécurité") == true }!
+        precondition(!warning.accessibilityPerformPress(),"a blocked transfer cannot open a preview")
+        precondition(display(224,language:"en").contains { $0.accessibilityLabel()?.contains("Blocked for your safety") == true })
         let basket = LibraryBasketArtwork()
         let tray = basket.sublayers!.first!
         let frame = tray.frame

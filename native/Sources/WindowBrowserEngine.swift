@@ -11,6 +11,11 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     func rendererID(_ id:String) -> String { prefix+id }
     private func logical(_ id:String) -> String { id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : id }
     override func createTab(_ id:String,profile:String,url:String,container:NSView) -> Bool { bridge.createTab(rendererID(id),profile:profile,url:url,container:container) }
+    override func createTab(_ id:String,profile:String,url:String,archiveHistory:Data?,container:NSView) -> Bool {
+        bridge.createTab(rendererID(id),profile:profile,url:url,archiveHistory:archiveHistory,container:container)
+    }
+    override func history(forTab id:String,address:String) -> Data? { bridge.history(forTab:rendererID(id),address:address) }
+    func browserWillClose(_ id:String) { receiver?.browserWillClose?(logical(id)) }
     override func navigateTab(_ id:String,url:String) { bridge.navigateTab(rendererID(id),url:url) }
     override func resizeTab(_ id:String,container:NSView) { bridge.resizeTab(rendererID(id),container:container) }
     override func setTab(_ id:String,visible:Bool) { bridge.setTab(rendererID(id),visible:visible) }
@@ -19,7 +24,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     override func requestPictureInPicture(_ id:String,automatic:Bool,completion:@escaping (String)->Void) { bridge.requestPictureInPicture(rendererID(id),automatic:automatic,completion:completion) }
     override func closePictureInPicture(_ id:String) { bridge.closePictureInPicture(rendererID(id)) }
     override func hasPictureInPicture(_ id:String) -> Bool { bridge.hasPictureInPicture(rendererID(id)) }
-    override func checkArchiveIdle(_ id:String,completion:@escaping (Bool)->Void) { bridge.checkArchiveIdle(rendererID(id),completion:completion) }
+    override func checkIdleTab(_ id:String,forSleep:Bool,completion:@escaping (Bool)->Void) { bridge.checkIdleTab(rendererID(id),forSleep:forSleep,completion:completion) }
     override func goBack(_ id:String) { bridge.goBack(rendererID(id)) }
     override func goForward(_ id:String) { bridge.goForward(rendererID(id)) }
     override func reload(_ id:String) { bridge.reload(rendererID(id)) }
@@ -31,6 +36,8 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     override func printPage(_ id:String) { bridge.printPage(rendererID(id)) }
     override func stop(_ id:String) { bridge.stop(rendererID(id)) }
     override func closeTab(_ id:String) { bridge.closeTab(rendererID(id)) }
+    override func hasTabHistory(_ id:String) -> Bool { bridge.hasTabHistory(rendererID(id)) }
+    override func canSleepTab(_ id:String,address:String) -> Bool { bridge.canSleepTab(rendererID(id),address:address) }
     override func tryAutoArchiveTab(_ id:String) { bridge.tryAutoArchiveTab(rendererID(id)) }
     override func discardTab(_ id:String) { bridge.discardTab(rendererID(id)) }
     override func find(inTab id:String,text:String,forward:Bool,next:Bool) { bridge.find(inTab:rendererID(id),text:text,forward:forward,next:next) }
@@ -71,7 +78,7 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     private func reservation(_ value:[String:Any]?) -> [String:Any]? {
         guard var value, let id = value["id"] as? String else { return nil }; value["id"] = rendererID(id); return value
     }
-    func browserPrepareExtensionTab(_ source:String,active:Bool,pinned:Bool,index:Int) -> [String:Any]? { reservation(receiver?.browserPrepareExtensionTab?(logical(source),active:active,pinned:pinned,index:index)) }
+    func browserPrepareExtensionTab(_ source:String,active:Bool,pinned:Bool,index:Int,aboveSource:Bool) -> [String:Any]? { reservation(receiver?.browserPrepareExtensionTab?(logical(source),active:active,pinned:pinned,index:index,aboveSource:aboveSource)) }
     func browserExtensionTabCreated(_ id:String,success:Bool) { receiver?.browserExtensionTabCreated?(logical(id),success:success) }
     func browserPreparePopup(_ url:String,sourceTab:String) -> [String:Any]? { reservation(receiver?.browserPreparePopup?(url,sourceTab:logical(sourceTab))) }
     func browserPreparePopup(_ url:String,sourceTab:String,active:Bool) -> [String:Any]? { reservation(receiver?.browserPreparePopup?(url,sourceTab:logical(sourceTab),active:active)) }

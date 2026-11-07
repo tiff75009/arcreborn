@@ -13,19 +13,35 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
 DIRECTORIES = ['native/Sources','native/Bridge','native/Tests','native/Resources','native/Signing',
-               'native/Demo','native/Engine/patches','native/Engine/licenses','design/app-icon/ArcReborn.icon',
+               'native/Demo','native/Engine/deltas','native/Engine/patches','native/Engine/licenses','design/app-icon/ArcReborn.icon',
                '.github/workflows','.github/ISSUE_TEMPLATE','docs/development','docs/showcase']
 FILES = ['README.md','README.fr.md','LICENSE','NOTICE.md','CONTRIBUTING.md','SECURITY.md','.gitignore','Makefile',
-         '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json','native/Engine/performance-candidate.gn','native/Engine/monitor.html']
-SCRIPTS = ['test-extension-placement.sh','test-handoff.sh','build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
+         '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json','native/Engine/passkeys.lock.json','native/Engine/performance-candidate.gn','native/Engine/monitor.html']
+SCRIPTS = ['test-extension-placement.sh','test-handoff.sh','test-web-authentication.py','test-tab-history.py','test-download-recovery.py','test-tab-memory-saver.py','build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
            'engine.py','performance-engine.py','monitor-engine.py','check-performance-candidate.sh','engine-framework-fingerprint.py','check-engine-patches.py',
            'welcome-assets.sh','onboarding-demo.sh','sign-and-notarize.sh','sign-sparkle.sh','release.py','verify-release.swift','ci-signing.py','public-source.py']
 FILES += ['native/scripts/'+name for name in SCRIPTS]
 FORBIDDEN = {'server','node_modules','vendor','build','dist','.env','profile','Chromium','.DS_Store','__pycache__'}
-SUFFIXES = {'.p8','.p12','.pfx','.pem','.key','.dmg','.zip','.log','.pyc','.certSigningRequest','.mobileprovision'}
-PATTERNS = [rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
+SUFFIXES = {'.p8','.p12','.pfx','.pem','.key','.dmg','.zip','.log','.pyc','.certSigningRequest','.mobileprovision','.provisionprofile'}
+PATTERNS = [rb'\bAIza[0-9A-Za-z_-]{35}\b', rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
             rb'postgres(?:ql)?://[^\s/:]+:[^\s/@]+@',rb'gh[pousr]_[A-Za-z0-9]{30,}',
             rb'\bre_[A-Za-z0-9]{30,}',rb'\bAKIA[0-9A-Z]{16}\b']
+
+def pinned_engine_delta(root, relative):
+    if relative.parent != Path('native/Engine/deltas') or relative.suffix != '.bsdiff':
+        return False
+    path = root/relative
+    if path.stat().st_size > 16*1024*1024:
+        return False
+    for lock in ('engine.lock.json', 'passkeys.lock.json'):
+        manifest = root/'native/Engine'/lock
+        if not manifest.is_file() or manifest.is_symlink():
+            continue
+        delta = json.loads(manifest.read_text()).get('archive', {}).get('delta', {})
+        if delta.get('file') == str(relative.relative_to('native/Engine')):
+            data = path.read_bytes()
+            return data.startswith(b'BSDIFF40') and hashlib.sha256(data).hexdigest() == delta.get('sha256')
+    return False
 
 def audit(root):
     failures = []
@@ -36,7 +52,7 @@ def audit(root):
         if not path.is_file(): continue
         if any(part in FORBIDDEN or part.endswith(('.app','.framework','.sparsebundle')) for part in relative.parts) or path.suffix in SUFFIXES or path.name.startswith('.env'):
             failures.append(str(relative)+' (private/generated file)'); continue
-        if path.stat().st_size > 5*1024*1024: failures.append(str(relative)+' (large binary)'); continue
+        if path.stat().st_size > 5*1024*1024 and not pinned_engine_delta(root, relative): failures.append(str(relative)+' (large binary)'); continue
         data = path.read_bytes()
         if any(re.search(pattern,data) for pattern in PATTERNS): failures.append(str(relative)+' (potential credential)')
     if failures: raise ValueError('Public-source audit failed:\n'+'\n'.join(failures))

@@ -50,7 +50,7 @@ import Foundation
             for grabbed in 0..<size {
                 var state = BrowserSession.fresh()
                 let space = state.activeSpaceID
-                let ids = (0..<(size+3)).map { state.createTab(url:"https://example.com/group/\($0)") }
+                let ids = Array((0..<(size+3)).map { state.createTab(url:"https://example.com/group/\($0)") }.reversed())
                 let members = Array(ids.prefix(size))
                 let tail = Array(ids.dropFirst(size))
                 let selected = members.last!

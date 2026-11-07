@@ -16,6 +16,9 @@ or Arc assets are included in the public source export.
 Sparkle is distributed under its own licence; see
 `native/Resources/Sparkle-LICENSE.txt`. The fetch script pins its official archive.
 Apple SDKs and developer certificates are not redistributed in this repository.
+The WebRTC H.264 encoder uses Cisco OpenH264 under the BSD 2-Clause licence.
+The source notice is in `native/Engine/licenses/OpenH264.txt`.
+Google provides the Widevine CDM separately through Chromium's component updater.
 The icon source is in `design/app-icon/ArcReborn.icon`; compiled icon resources
 are included so contributors do not need to recompile them to change browser UI.
 

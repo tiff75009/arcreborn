@@ -35,4 +35,9 @@ elif sys.argv[1] == 'setup':
     run('security','set-key-partition-list','-S','apple-tool:,apple:,codesign:','-s','-k',password,keychain)
     run('security','list-keychains','-d','user','-s',keychain)
     with open(os.environ['GITHUB_ENV'],'a') as output:
+        if os.environ.get('APPLE_PASSKEY_PROFILE'):
+            profile = root/'browser.provisionprofile'
+            profile.write_bytes(base64.b64decode(os.environ['APPLE_PASSKEY_PROFILE'],validate=True))
+            profile.chmod(0o600)
+            output.write('BROWSER_PASSKEY_PROFILE='+str(profile)+'\n')
         output.write('BROWSER_NOTARY_KEY='+str(root/'notary.p8')+'\nSPARKLE_PRIVATE_KEY_FILE='+str(root/'sparkle.key')+'\n')
