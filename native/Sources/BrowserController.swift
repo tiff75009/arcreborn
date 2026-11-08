@@ -469,6 +469,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     var windowClosed: ((BrowserController)->Void)?
     var sharedTabHistory: ((NativeTab,String)->Data?)?
     var newWindowRequested: ((BrowserWindowKind)->Void)?
+    var relaunchAfterHistoryImport: ((@escaping ()->Void)->Void)?
     var privateAddressRequested: ((String)->Void)?
     var windowAddressRequested: ((String)->Void)?
     var promoteWindowRequested: (()->Void)?
@@ -3424,8 +3425,15 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         guard !isPrivateWindow, !isQuitting else { return }
         if let welcomeWindow { welcomeWindow.window?.makeKeyAndOrderFront(nil); return }
         guard window.attachedSheet == nil else { return }
-        let welcome = WelcomeWindow(language:session.language,start:start,standalone:standalone)
         let targetProfile = profileID ?? activeSpace?.profileID ?? session.profiles[0].id
+        let firstSetup = !standalone && !session.onboardingComplete && relaunchAfterHistoryImport != nil
+        let welcome = WelcomeWindow(language:session.language,start:start,standalone:standalone,
+                                    destinationName:session.profiles.first(where:{ $0.id == targetProfile })?.name,
+                                    automaticHistoryImport:firstSetup)
+        welcome.historyDestination = { [weak self] in
+            guard let self, !self.isPrivateWindow, self.session.profiles.contains(where:{ $0.id == targetProfile }) else { return nil }
+            return BrowserEngine.historyImportDirectory(for:targetProfile, initialize:true)
+        }
         welcome.importLinks = { [weak self] links,source in
             guard let self else { throw BrowserImportError.invalid("La fenêtre a été fermée.") }
             var candidate = self.session
@@ -3433,19 +3441,27 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             if count > 0 { try self.store.save(candidate); self.session = candidate; self.render() }
             return count
         }
-        welcome.finish = { [weak self] language,address in
-            guard let self else { return }
-            self.session.language = language; UserDefaults.standard.set(language,forKey:"BrowserLanguage")
-            self.engine.updateLanguages(); self.session.onboardingComplete = true
-            self.dismissSheet(); self.welcomeWindow = nil; self.render(); self.showSelectedTab(); self.persist()
-            NotificationCenter.default.post(name:Notification.Name("BrowserLanguageChanged"),object:language)
-            if let address {
-                var candidate = self.session
-                if candidate.openSettingsPage(address,profileID:targetProfile) != nil {
-                    do { try self.store.save(candidate); self.session = candidate; self.render(); self.showSelectedTab(); self.persist() }
-                    catch { self.showError(self.t("saveError"),detail:error.localizedDescription) }
-                }
+        welcome.finish = { [weak self,weak welcome] language,address in
+            guard let self, let welcome, !self.isQuitting else { return }
+            var candidate = self.session
+            candidate.language = language; candidate.onboardingComplete = true
+            if let address, candidate.openSettingsPage(address,profileID:targetProfile) == nil {
+                self.showError(self.t("saveError"),detail:self.splitText("Impossible d’ouvrir le gestionnaire dans le profil choisi.","Could not open the manager in the selected profile."))
+                return
             }
+            do { try self.store.save(candidate) }
+            catch { self.showError(self.t("saveError"),detail:error.localizedDescription); return }
+            self.session = candidate
+            UserDefaults.standard.set(language,forKey:"BrowserLanguage")
+            self.engine.updateLanguages()
+            NotificationCenter.default.post(name:Notification.Name("BrowserLanguageChanged"),object:language)
+            let enterBrowser = { [weak self] in
+                guard let self else { return }
+                self.dismissSheet(); self.welcomeWindow = nil; self.render(); self.showSelectedTab(); self.persist()
+            }
+            if firstSetup, welcome.stagedHistory, let relaunch = self.relaunchAfterHistoryImport {
+                relaunch(enterBrowser)
+            } else { enterBrowser() }
         }
         welcomeWindow = welcome
         sheet = welcome.window as? NSPanel

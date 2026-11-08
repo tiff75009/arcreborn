@@ -19,6 +19,16 @@ UserDefaults.standard.set(initial.formSuggestions ?? true, forKey: "BrowserFormS
     }
     withExtendedLifetime(delegate) { BrowserEngine.runMessageLoop() }
     BrowserEngine.shutdown()
+    if delegate.shouldRelaunchAfterOnboarding {
+        do { try OnboardingRelaunch.launch() }
+        catch {
+            let alert = NSAlert()
+            let english = delegate.sharedSession.language == "en"
+            alert.messageText = english ? "Reopen Arc Reborn to finish setup" : "Rouvrez Arc Reborn pour terminer la configuration"
+            alert.informativeText = english ? "Your profile is saved. Your history will be available the next time you open Arc Reborn." : "Votre profil est enregistré. Votre historique sera disponible à la prochaine ouverture d’Arc Reborn."
+            alert.runModal()
+        }
+    }
 } catch {
     let alert = NSAlert(); alert.messageText = "Impossible d’ouvrir la session"; alert.informativeText = error.localizedDescription; alert.runModal(); exit(1)
 }

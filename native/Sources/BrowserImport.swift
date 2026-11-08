@@ -37,7 +37,7 @@ enum BrowserImportReader {
         guard data.count <= maximumBytes else { throw BrowserImportError.invalid("Ce fichier dépasse la limite de 32 Mo.") }; return data
     }
     static func cleanURL(_ value:String) -> String? {
-        guard value.count < 16384, let url = URL(string:value), ["http","https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil, url.user == nil, url.password == nil else { return nil }
+        guard value.utf8.count < 16384, value.rangeOfCharacter(from:.whitespacesAndNewlines.union(.controlCharacters)) == nil, !value.contains("\\"), let url = URL(string:value), ["http","https"].contains(url.scheme?.lowercased() ?? ""), url.host?.isEmpty == false, url.user == nil, url.password == nil else { return nil }
         return value
     }
     static func preview(at url:URL,browser:ImportBrowser) throws -> BrowserImportPreview {
@@ -224,8 +224,9 @@ extension BrowserSession {
     /// Transactional: validate the whole candidate before committing; never replace a user's current space.
     mutating func importLinks(_ links:[ImportedLink],from source:String,profileID:String) throws -> Int {
         var copy = self
-        let existing = Set(tabs.map { $0.url })
-        let incoming = links.filter { !existing.contains($0.url) && BrowserImportReader.cleanURL($0.url) != nil }
+        let targetSpaces = Set(spaces.filter { $0.profileID == profileID }.map(\.id))
+        var existing = Set(tabs.filter { targetSpaces.contains($0.spaceID) }.map(\.url))
+        let incoming = links.filter { BrowserImportReader.cleanURL($0.url) != nil && existing.insert($0.url).inserted }
         if incoming.isEmpty { return 0 }
         guard incoming.count+tabs.count <= 5000 else { throw BrowserImportError.invalid("L’import dépasserait la limite de 5 000 onglets.") }
         let space = copy.createSpace(name:String("Import · \(source)".prefix(80)),color:"#6255CF",icon:"sf:tray.and.arrow.down",profileID:profileID)

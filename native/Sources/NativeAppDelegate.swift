@@ -18,6 +18,8 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private(set) var sharedSession: BrowserSession
     var booted = false
     var quitting = false
+    private var cancelledOnboardingRelaunch: (() -> Void)?
+    var shouldRelaunchAfterOnboarding: Bool { cancelledOnboardingRelaunch != nil }
     var observers: [NSObjectProtocol] = []
     init(store: SessionStore, initial: BrowserSession) {
         self.store = store; self.initial = initial; sharedSession = initial
@@ -32,10 +34,32 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         observers.append(center.addObserver(forName: Notification.Name("BrowserEngineReady"), object:nil, queue:.main) { [weak self] _ in DispatchQueue.main.async { self?.boot() } })
         observers.append(center.addObserver(forName: Notification.Name("BrowserNativeRequestQuit"), object:nil, queue:.main) { [weak self] _ in self?.requestQuit() })
         observers.append(center.addObserver(forName: Notification.Name("BrowserEngineReadyToQuit"), object:nil, queue:.main) { _ in BrowserEngine.stopMessageLoop() })
-        observers.append(center.addObserver(forName: Notification.Name("BrowserEngineQuitCancelled"), object:nil, queue:.main) { [weak self] _ in self?.quitting = false; self?.controller?.show() })
+        observers.append(center.addObserver(forName: Notification.Name("BrowserEngineQuitCancelled"), object:nil, queue:.main) { [weak self] _ in
+            guard let self else { return }
+            self.quitting = false
+            let resume = self.cancelledOnboardingRelaunch
+            self.cancelledOnboardingRelaunch = nil
+            DispatchQueue.main.async { resume?(); self.controller?.show() }
+        })
     }
     func boot() {
         guard !booted else { return }; booted = true
+        var pendingHistoryErrors: [String] = []
+        for profile in sharedSession.profiles {
+            guard let directory = BrowserEngine.historyImportDirectory(for:profile.id, initialize:false) else { continue }
+            do { try BrowserHistoryImport.applyPending(in:directory) }
+            catch { pendingHistoryErrors.append(profile.name) }
+        }
+        if !pendingHistoryErrors.isEmpty {
+            DispatchQueue.main.async {
+                let english = self.sharedSession.language == "en"
+                let alert = NSAlert()
+                alert.messageText = english ? "History import pending" : "Import de l’historique en attente"
+                let names = pendingHistoryErrors.joined(separator:", ")
+                alert.informativeText = english ? "The history for \(names) could not be updated. The saved visits will be retried the next time you open Arc Reborn." : "L’historique de \(names) n’a pas pu être mis à jour. Les visites conservées seront importées lors d’une prochaine ouverture d’Arc Reborn."
+                alert.runModal()
+            }
+        }
         if ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] == nil {
             Task { @MainActor [weak self] in
                 ArcSync.shared.configure(current:{ [weak self] in self?.sharedSession },apply:{ [weak self] state in
@@ -100,7 +124,10 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         let next = BrowserController(session:state,store:localStore,windowID:id,kind:kind,privateWindow:privateWindow)
         baselines[id] = state; controllers.append(next)
         localStore.saveHandler = { [weak self] value in try self?.save(value,from:id) }
-        next.becameKey = { [weak self] value in self?.controller = value; self?.buildMenu(); self?.refreshHandoff() }
+        next.becameKey = { [weak self] value in
+            self?.controller = value; self?.buildMenu(); self?.refreshHandoff()
+            OnboardingRelaunch.windowDidOpen()
+        }
         next.handoffPageChanged = { [weak self] value in
             guard let self, self.controller === value else { return }
             self.refreshHandoff()
@@ -117,6 +144,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         next.newWindowRequested = { [weak self,weak next] kind in _ = self?.openWindow(kind,from:next) }
+        next.relaunchAfterHistoryImport = { [weak self] cancelled in self?.requestQuit(onRelaunchCancelled:cancelled) }
         next.privateAddressRequested = { [weak self,weak next] address in
             guard let self else { return }
             self.openWindow(.privateWindow,from:next,initialAddress:address)
@@ -336,10 +364,15 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         do { try WindowPersistence(directory:store.directory).save(controllers) }
         catch { NSLog("Browser window state save failed: %@",error.localizedDescription) }
     }
-    func requestQuit() {
+    func requestQuit(onRelaunchCancelled: (() -> Void)? = nil) {
         guard !quitting else { return }
         publishTask?.cancel(); publish()
-        for item in controllers { if !item.prepareToQuit() { controllers.forEach { $0.resumeAfterCancelledQuit() }; return } }
+        for item in controllers {
+            if !item.prepareToQuit() {
+                controllers.forEach { $0.resumeAfterCancelledQuit() }; onRelaunchCancelled?(); return
+            }
+        }
+        cancelledOnboardingRelaunch = onRelaunchCancelled
         persistWindows(); quitting = true; handoff.invalidate(); webAuthentication.cancelAll(); BrowserEngine.requestQuit()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication) -> Bool { false }

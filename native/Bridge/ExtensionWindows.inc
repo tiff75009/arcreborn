@@ -4,11 +4,15 @@
 static std::map<std::string, CefRefPtr<CefWindow>> extensionWindows;
 static std::map<std::string, CefRefPtr<CefBrowserView>> extensionViews;
 
-static CefRefPtr<CefRequestContext> ContextForProfile(NSString *profileID) {
+static bool ValidProfileIdentifier(NSString *profileID) {
   NSCharacterSet *valid = [NSCharacterSet characterSetWithCharactersInString:
       @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"];
-  if (!profileID.length || profileID.length > 100 ||
-      [profileID rangeOfCharacterFromSet:valid.invertedSet].location != NSNotFound) return nullptr;
+  return profileID.length && profileID.length <= 100 &&
+      [profileID rangeOfCharacterFromSet:valid.invertedSet].location == NSNotFound;
+}
+
+static CefRefPtr<CefRequestContext> ContextForProfile(NSString *profileID) {
+  if (!ValidProfileIdentifier(profileID)) return nullptr;
   auto found = profiles.find(profileID.UTF8String);
   if (found != profiles.end()) return found->second;
   CefRequestContextSettings settings;

@@ -4,6 +4,7 @@ import Foundation
 struct BrowserImportProfile: Equatable {
     let name: String
     let url: URL
+    var historyFile: URL? = nil
 }
 
 extension ImportBrowser {
@@ -12,11 +13,12 @@ extension ImportBrowser {
         switch bundleID {
         case "com.apple.Safari":
             // Do not probe Safari's protected Library when the welcome screen opens.
-            return [.init(name:english ? "Safari bookmarks" : "Favoris de Safari",url:root.appendingPathComponent("Bookmarks.plist"))]
+            return [.init(name:"Safari",url:root.appendingPathComponent("Bookmarks.plist"),historyFile:root.appendingPathComponent("History.db"))]
         case "company.thebrowser.Browser":
             let sidebar = root.appendingPathComponent("StorableSidebar.json")
             do {
                 _ = try sidebar.resourceValues(forKeys:[.isRegularFileKey])
+                if let profiles = try? chromiumProfiles(in:root.appendingPathComponent("User Data")), !profiles.isEmpty { return profiles.map { .init(name:$0.name, url:sidebar, historyFile:$0.historyFile) } }
                 return [.init(name:english ? "Arc sidebar" : "Barre latérale d’Arc",url:sidebar)]
             } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile { }
             return try chromiumProfiles(in:root.appendingPathComponent("User Data"))
@@ -51,7 +53,7 @@ extension ImportBrowser {
         return candidates.map {
             let id = $0.lastPathComponent
             let label = cache[id]?["name"] as? String ?? ""
-            return .init(name:label.isEmpty || label == id ? id : "\(label) · \(id)",url:$0)
+            return .init(name:label.isEmpty || label == id ? id : "\(label) · \(id)",url:$0, historyFile:$0.appendingPathComponent("History"))
         }
     }
 
@@ -73,10 +75,10 @@ extension ImportBrowser {
             guard let path = entry["Path"], !path.isEmpty else { continue }
             let url = (entry["IsRelative"] == "0" ? URL(fileURLWithPath:path) : parent.appendingPathComponent(path)).standardizedFileURL
             guard (try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory) == true, seen.insert(url).inserted else { continue }
-            let profile = BrowserImportProfile(name:entry["Name"] ?? url.lastPathComponent,url:url)
+            let profile = BrowserImportProfile(name:entry["Name"] ?? url.lastPathComponent,url:url, historyFile:url.appendingPathComponent("places.sqlite"))
             if defaults.contains(path) || entry["Default"] == "1" { result.insert(profile,at:0) } else { result.append(profile) }
         }
         if !result.isEmpty { return result }
-        return try childDirectories(in:root).sorted { $0.lastPathComponent < $1.lastPathComponent }.map { .init(name:$0.lastPathComponent,url:$0) }
+        return try childDirectories(in:root).sorted { $0.lastPathComponent < $1.lastPathComponent }.map { .init(name:$0.lastPathComponent,url:$0,historyFile:$0.appendingPathComponent("places.sqlite")) }
     }
 }

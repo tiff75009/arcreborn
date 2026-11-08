@@ -11,6 +11,8 @@ xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,
 build/checks/site-settings-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserDocuments}.swift Tests/BrowserDocumentTests.swift -o build/checks/document-tests
 build/checks/document-tests Resources/Info.plist
+xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserImport,BrowserHistoryImport}.swift Tests/BrowserHistoryImportTests.swift -o build/checks/history-import-tests
+build/checks/history-import-tests
 xcrun swiftc -O Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,FavoriteUnread,FaviconPixels,FaviconCache}.swift Tests/FaviconCacheTests.swift -o build/checks/favicon-cache-tests
 build/checks/favicon-cache-tests
 xcrun swiftc -O Sources/TabSoundButton.swift Tests/TabSoundButtonTests.swift -o build/checks/tab-sound-tests

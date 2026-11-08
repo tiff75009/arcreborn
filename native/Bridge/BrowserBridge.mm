@@ -1151,6 +1151,14 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   auto value = CefValue::Create(); value->SetBool(ask);
   return ChangeDownloadPreference(kDownloadPrompt, value);
 }
++ (NSURL *)historyImportDirectoryForProfile:(NSString *)profile initialize:(BOOL)initialize {
+  if (!ValidProfileIdentifier(profile) || rootCache.empty() || privateProfiles.count(profile.UTF8String)) return nil;
+  // Only an unopened named profile may be merged into on startup.
+  if (!initialize && profiles.count(profile.UTF8String)) return nil;
+  if (initialize && !ContextForProfile(profile)) return nil;
+  NSString *root = [NSString stringWithUTF8String:rootCache.c_str()];
+  return [NSURL fileURLWithPath:[root stringByAppendingPathComponent:[@"Profile-" stringByAppendingString:profile]] isDirectory:YES];
+}
 - (BOOL)registerPrivateProfile:(NSString *)profileID {
   CEF_REQUIRE_UI_THREAD();
   if (!profileID.length || profileID.length > 100 ||

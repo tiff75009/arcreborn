@@ -1,25 +1,47 @@
 {
-  "version": "1.3.2",
-  "build": 32,
-  "showOnLaunch": false,
+  "version": "1.4.0",
+  "build": 33,
+  "showOnLaunch": true,
   "title": {
-    "en": "Stable sidebar selection",
-    "fr": "Sélection des onglets dans la barre latérale"
+    "en": "Bring your browsing history with you",
+    "fr": "Emportez votre historique de navigation"
   },
   "subtitle": {
-    "en": "Selecting a tab now keeps the sidebar at its current scroll position.",
-    "fr": "La liste garde sa position lorsque vous cliquez sur un onglet."
+    "en": "Move your history and saved passwords into Arc Reborn alongside your bookmarks and tabs.",
+    "fr": "Retrouvez dans Arc Reborn votre historique et vos mots de passe, en plus de vos favoris et de vos onglets."
   },
   "highlights": [
     {
-      "symbol": "cursorarrow",
+      "symbol": "clock.arrow.circlepath",
       "title": {
-        "en": "Open the tab under the pointer",
-        "fr": "Ouvrez l’onglet sous le pointeur"
+        "en": "Find a page from your old browser",
+        "fr": "Retrouvez une page de votre ancien navigateur"
       },
       "detail": {
-        "en": "Clicking the last or next-to-last tab opens the intended page, even when only part of its row is visible. You can still scroll past the last tab to leave space below it.",
-        "fr": "Cliquer sur le dernier ou l’avant-dernier onglet ouvre la page choisie, même si la ligne n’est visible qu’en partie. Vous pouvez toujours faire défiler la liste au-delà du dernier onglet pour laisser de l’espace en dessous."
+        "en": "Import visits from Safari, Chrome, Firefox or Arc. Each visit keeps its original date, and importing the same history twice skips duplicates.",
+        "fr": "Importez les visites de Safari, Chrome, Firefox ou Arc avec leurs dates d’origine. Vous pouvez relancer l’import sans créer de doublons."
+      }
+    },
+    {
+      "symbol": "arrow.forward.circle",
+      "title": {
+        "en": "Your history is ready after setup",
+        "fr": "Votre historique est prêt dès la fin de l’accueil"
+      },
+      "detail": {
+        "en": "Choose Open Arc Reborn at the end of setup, then press ⌘Y to see your imported visits. If you import later from the browser menu, the visits appear the next time you open Arc Reborn.",
+        "fr": "À la fin de l’accueil, cliquez sur « Ouvrir Arc Reborn », puis appuyez sur ⌘Y pour retrouver vos visites. Si vous les importez plus tard depuis le menu du navigateur, elles apparaîtront à sa prochaine ouverture."
+      }
+    },
+    {
+      "symbol": "key",
+      "title": {
+        "en": "Bring passwords into the right profile",
+        "fr": "Importez vos mots de passe dans le bon profil"
+      },
+      "detail": {
+        "en": "The assistant explains how to export passwords from your old browser as a CSV file, then opens the password manager for your chosen Arc Reborn profile. You can review the result and choose which existing logins to replace.",
+        "fr": "L’assistant vous guide pour exporter vos identifiants au format CSV, puis ouvre le gestionnaire de mots de passe du profil Arc Reborn choisi. Vous pouvez vérifier le résultat et choisir les identifiants existants à remplacer."
       }
     }
   ]

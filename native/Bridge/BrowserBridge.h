@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <notify.h>
 NS_ASSUME_NONNULL_BEGIN
 // Implemented by the application; all requests originate in the native page menu.
 @protocol BrowserTranslationPresenter <NSObject>
@@ -52,6 +53,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)asksForDownloadLocation NS_SWIFT_NAME(asksForDownloadLocation());
 + (BOOL)changeDownloadDirectory:(NSString *)path NS_SWIFT_NAME(changeDownloadDirectory(_:));
 + (BOOL)changeDownloadPrompt:(BOOL)ask NS_SWIFT_NAME(changeDownloadPrompt(_:));
++ (nullable NSURL *)historyImportDirectoryForProfile:(NSString *)profile initialize:(BOOL)initialize NS_SWIFT_NAME(historyImportDirectory(for:initialize:));
 - (BOOL)registerPrivateProfile:(NSString *)profileID;
 - (void)releasePrivateProfile:(NSString *)profileID;
 - (void)updateLanguages;

@@ -27,6 +27,13 @@ final class BrowserImportView:NSView {
     override var isFlipped:Bool { true }
     var apply:(([ImportedLink],String)throws->Int)?
     var openSettings:((String)->Void)?
+    var historyDestination:(()->URL?)?
+    var historyStaged:(()->Void)?
+    var readingChanged:((Bool)->Void)?
+    private let automaticHistoryImport:Bool
+    private var historyButton: ChapterButton?, passwordsButton: ChapterButton?
+    private var historyStatus: NSTextField?
+    private let destinationName: String?
     private var selected = 0, reading = false
     private var profiles:[BrowserImportProfile] = []
     private let profilePicker = NSPopUpButton(frame:.zero,pullsDown:false)
@@ -38,7 +45,10 @@ final class BrowserImportView:NSView {
     private let language:String
     private var tiles:[ImportSourceTile] = []
     private func tr(_ fr:String,_ en:String)->String { language == "en" ? en : fr }
-    init(frame:NSRect,language:String) { self.language = language; super.init(frame:frame); build() }
+    init(frame:NSRect,language:String,destinationName:String?,automaticHistoryImport:Bool) {
+        self.language = language; self.destinationName = destinationName; self.automaticHistoryImport = automaticHistoryImport
+        super.init(frame:frame); build()
+    }
     required init?(coder:NSCoder) { fatalError() }
     private func build() {
         let w = bounds.width, gap:CGFloat = 10, tileWidth = (w-3*gap)/4
@@ -63,11 +73,102 @@ final class BrowserImportView:NSView {
         status = welcomeText("",x:20,y:220,width:split-40,height:58,size:13,color:.secondaryLabelColor,in:self)
         importButton = button(tr("Importer","Import"),20,281,split-40,.solid) { [weak self] in self?.importSelected() }
         manualButton = button(tr("Autres options…","Other options…"),20,327,split-40,.link) { [weak self] in self?.showOptions() }
-        welcomeText(tr("Autres données","Other data"),x:split+32,y:140,width:w-split-54,height:30,size:21,weight:.semibold,in:self)
-        welcomeText(tr("Pour les mots de passe, utilisez un export CSV. L’assistant avancé permet aussi d’importer l’historique selon le navigateur.","Use a CSV export for passwords. The advanced assistant can also import history from supported browsers."),x:split+32,y:180,width:w-split-52,height:82,color:.secondaryLabelColor,in:self)
-        _ = button(tr("Mots de passe…","Passwords…"),split+32,270,w-split-52,.soft) { [weak self] in self?.openSettings?("arc://password-manager/settings") }
-        _ = button(tr("Import avancé…","Advanced import…"),split+32,319,w-split-52,.soft) { [weak self] in self?.openSettings?("arc://settings/importData") }
+        welcomeText(destinationName.map { tr("Vers le profil « ","Into profile “")+$0+tr(" »","”") } ?? tr("Données du profil","Profile data"),x:split+32,y:139,width:w-split-52,height:43,size:17,weight:.semibold,in:self)
+        let historyHint = automaticHistoryImport
+            ? tr("Retrouvez vos pages visitées dès la fin de la configuration.","Your visited pages will be in History as soon as setup is complete.")
+            : tr("Retrouvez les pages visitées dans votre historique après redémarrage.","Your visited pages appear in History after you restart.")
+        historyStatus = welcomeText(historyHint,x:split+32,y:179,width:w-split-52,height:51,color:.secondaryLabelColor,in:self)
+        historyButton = button(tr("Importer l’historique…","Import history…"),split+32,231,w-split-52,.soft) { [weak self] in self?.importHistory() }
+        welcomeText(tr("Transférez vos identifiants depuis un fichier CSV exporté.","Transfer saved logins from an exported CSV file."),x:split+32,y:279,width:w-split-52,height:41,color:.secondaryLabelColor,in:self)
+        passwordsButton = button(tr("Importer les mots de passe…","Import passwords…"),split+32,326,w-split-52,.soft) { [weak self] in self?.guidePasswords() }
         changeBrowser(ImportBrowser.all.firstIndex { $0.application != nil } ?? 0)
+    }
+    private func guidePasswords() {
+        guard let window, !reading else { return }
+        let browser = ImportBrowser.all[selected]
+        let instructions: String
+        switch browser.name {
+        case "Safari": instructions = tr("Exportez vos identifiants au format CSV depuis Mots de passe sur le Mac.", "Export your logins as a CSV from Passwords on your Mac.")
+        case "Firefox": instructions = tr("Dans Firefox, ouvrez Mots de passe, puis le menu « … » et exportez vos identifiants en CSV.", "In Firefox, open Passwords, then use the (…) menu to export your logins as a CSV.")
+        default: instructions = tr("Dans le gestionnaire de mots de passe de ","In the password manager in ")+browser.name+tr(", ouvrez les paramètres et exportez vos mots de passe en CSV.",", open Settings and export your passwords as a CSV.")
+        }
+        let alert = NSAlert()
+        alert.messageText = tr("Importer les mots de passe","Import passwords")
+        alert.informativeText = instructions + "\n\n" + tr("Dans Arc Reborn, utilisez « Sélectionner un fichier » pour choisir le CSV. Il affiche le résultat et vous laisse choisir les identifiants à remplacer. Le CSV contient vos mots de passe en clair. Supprimez-le après vérification.","In Arc Reborn, use “Select file” to choose the CSV. It shows the result and lets you choose which existing logins to replace. The CSV contains readable passwords. Delete it after checking the import.")
+        alert.addButton(withTitle:tr("Continuer vers l’import","Continue to import"))
+        alert.addButton(withTitle:tr("Annuler","Cancel"))
+        alert.beginSheetModal(for:window) { [weak self] response in
+            if response == .alertFirstButtonReturn { self?.openSettings?("arc://password-manager/settings?import=true") }
+        }
+    }
+
+    private var historySource: BrowserHistoryImport.Source {
+        switch ImportBrowser.all[selected].name {
+        case "Safari": return .safari
+        case "Firefox": return .firefox
+        default: return .chromium
+        }
+    }
+    private var selectedSourceProfile: BrowserImportProfile? {
+        let index = profilePicker.indexOfSelectedItem
+        return profiles.indices.contains(index) ? profiles[index] : nil
+    }
+    private func importHistory() {
+        guard !reading else { return }
+        if let file = selectedSourceProfile?.historyFile, FileManager.default.isReadableFile(atPath:file.path) {
+            readHistory(file, source:historySource)
+        } else { chooseHistory() }
+    }
+    @objc private func chooseHistory() {
+        guard let window, !reading else { return }
+        let browser = ImportBrowser.all[selected], source = historySource
+        let panel = NSOpenPanel()
+        panel.title = tr("Importer l’historique de ","Import history from ")+browser.name
+        panel.prompt = tr("Importer","Import")
+        panel.message = tr("Choisissez le fichier « ","Select “")+source.filename+tr(" » dans le profil à importer.","” in the source profile.")
+        panel.directoryURL = selectedSourceProfile?.historyFile?.deletingLastPathComponent() ?? browser.directory
+        if browser.name == "Arc", selectedSourceProfile?.historyFile == nil { panel.directoryURL = browser.directory.appendingPathComponent("User Data") }
+        panel.nameFieldStringValue = source.filename
+        panel.beginSheetModal(for:window) { [weak self] response in
+            if response == .OK, let file = panel.url { self?.readHistory(file,source:source) }
+        }
+    }
+    private func readHistory(_ file:URL, source:BrowserHistoryImport.Source) {
+        guard let target = historyDestination?() else {
+            historyStatus?.stringValue = HistoryImportError.destination.message(english:language == "en"); return
+        }
+        let folderGrant = grant
+        setReading(true)
+        historyStatus?.stringValue = tr("Lecture des visites…","Reading visits…")
+        DispatchQueue.global(qos:.userInitiated).async { [weak self] in
+            let scoped = file.startAccessingSecurityScopedResource()
+            defer { if scoped { file.stopAccessingSecurityScopedResource() } }
+            let result = Result { try withExtendedLifetime(folderGrant) { try BrowserHistoryImport.stage(from:file,source:source,into:target) } }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.setReading(false)
+                switch result {
+                case .success(let count):
+                    self.historyStaged?()
+                    if self.automaticHistoryImport {
+                        self.historyStatus?.stringValue = self.tr("Votre historique sera disponible dès l’ouverture du navigateur (⌘Y).","Your history will be ready when the browser opens (⌘Y).")
+                    } else {
+                        self.historyStatus?.stringValue = count == 0 ? self.tr("Ces visites sont déjà en attente du redémarrage.","These visits are already queued for restart.") :
+                            self.tr("\(count) visites en attente. Quittez puis rouvrez Arc Reborn (⌘Y).","\(count) visits queued. Quit and reopen Arc Reborn to see them (⌘Y).")
+                    }
+                case .failure(let error):
+                    self.historyStatus?.stringValue = ((error as? HistoryImportError) ?? .destination).message(english:self.language == "en")
+                }
+            }
+        }
+    }
+
+    private func setReading(_ value: Bool) {
+        reading = value; tiles.forEach { $0.isEnabled = !value }
+        profilePicker.isEnabled = !value && profiles.count > 1
+        manualButton?.isEnabled = !value; historyButton?.isEnabled = !value; passwordsButton?.isEnabled = !value
+        importButton?.isEnabled = !value && (needsAccess || !profiles.isEmpty)
+        readingChanged?(value)
     }
     private func changeBrowser(_ index:Int) {
         guard !reading else { return }
@@ -127,12 +228,15 @@ final class BrowserImportView:NSView {
     }
     @objc private func selectFolder() { choose(directory:true) }
     @objc private func selectFile() { choose(directory:false) }
+    @objc private func advancedImport() { openSettings?("arc://settings/importData") }
     private func showOptions() {
         guard let manualButton, !reading else { return }
         let menu = NSMenu()
         for (title,action) in [(tr("Importer un fichier exporté…","Import an exported file…"),#selector(selectFile)),(tr("Choisir un autre dossier de profil…","Choose another profile folder…"),#selector(selectFolder))] {
             menu.addItem(withTitle:title,action:action,keyEquivalent:"").target = self
         }
+        let historyFile = menu.addItem(withTitle:tr("Choisir un fichier d’historique…","Choose a history file…"),action:#selector(chooseHistory),keyEquivalent:""); historyFile.target = self
+        let advanced = menu.addItem(withTitle:tr("Assistant Chromium…","Chromium import assistant…"),action:#selector(advancedImport),keyEquivalent:""); advanced.target = self
         menu.popUp(positioning:nil,at:NSPoint(x:0,y:manualButton.bounds.maxY),in:manualButton)
     }
     private func choose(directory:Bool,discoverAfterGrant:Bool = false) {
@@ -173,8 +277,7 @@ final class BrowserImportView:NSView {
         let browser = ImportBrowser.all[selected]
         let token = UUID(); requestID = token
         let folderGrant = grant
-        reading = true; profilePicker.isEnabled = false; tiles.forEach { $0.isEnabled = false }
-        manualButton?.isEnabled = false; importButton?.isEnabled = false
+        setReading(true)
         status?.stringValue = tr("Importation en cours…","Importing…")
         DispatchQueue.global(qos:.userInitiated).async { [weak self] in
             let access = grantedByPanel && url.startAccessingSecurityScopedResource()
@@ -182,8 +285,7 @@ final class BrowserImportView:NSView {
             if access { url.stopAccessingSecurityScopedResource() }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.window != nil, self.requestID == token else { return }
-                self.reading = false; self.tiles.forEach { $0.isEnabled = true }; self.manualButton?.isEnabled = true
-                self.profilePicker.isEnabled = self.profiles.count > 1
+                self.setReading(false)
                 do {
                     let data = try result.get()
                     guard let apply = self.apply else { return }
@@ -202,12 +304,19 @@ final class WelcomeWindow:NSWindowController {
     enum Step:Int { case welcome, account, browserImport }
     var finish:((String,String?)->Void)?
     var importLinks:(([ImportedLink],String)throws->Int)?
+    var historyDestination:(()->URL?)?
+    private(set) var stagedHistory = false
+    private let automaticHistoryImport:Bool
+    private weak var backButton:ChapterButton?
+    private let destinationName:String?
     private(set) var step:Step
     let soundtrack = WelcomeSoundtrack()
     private let standalone:Bool
     private var language:String
     private let surface = WelcomeSurface(), content = WelcomeContent(), viewport = NSScrollView()
-    init(language:String,start:Step = .welcome,standalone:Bool = false) {
+    init(language:String,start:Step = .welcome,standalone:Bool = false,destinationName:String? = nil,automaticHistoryImport:Bool = false) {
+        self.automaticHistoryImport = automaticHistoryImport
+        self.destinationName = destinationName
         self.language = language; self.step = start; self.standalone = standalone
         let visible = NSScreen.main?.visibleFrame.size ?? NSSize(width:1024,height:900)
         let frame = NSRect(x:0,y:0,width:min(840,visible.width-32),height:min(740,visible.height-48))
@@ -226,6 +335,7 @@ final class WelcomeWindow:NSWindowController {
         let rule = NSBox(frame:NSRect(x:54,y:642,width:732,height:1)); rule.boxType = .separator; content.addSubview(rule)
         if !standalone {
             let back = ChapterButton(tr("Retour","Back"),style:.soft) { [weak self] in self?.select(previous) }
+            backButton = back
             back.frame = NSRect(x:54,y:667,width:88,height:42); content.addSubview(back)
         }
         let next = ArrivalButton(action:action); next.title = title; next.keyEquivalent = step == .account ? "" : "\r"
@@ -258,12 +368,19 @@ final class WelcomeWindow:NSWindowController {
             let next = navigation(nextTitle,at:.welcome) { [weak self] in guard let self else { return }; if self.standalone { self.finish?(self.language,nil) } else { self.select(.browserImport) } }
             form.completed = { [weak self,weak next] in guard let self else { return }; next?.title = self.standalone ? self.tr("Terminé","Done") : self.tr("Continuer","Continue") }
         case .browserImport:
-            welcomeText(tr("Emportez l’essentiel.","Bring your favorites."),x:52,y:90,width:550,height:70,size:49,weight:.semibold,in:content)
-            welcomeText(tr("Repartez avec vos favoris et vos onglets. Vos données d’origine restent intactes.","Bring your bookmarks and tabs along. Your original data stays untouched."),x:55,y:161,width:494,height:54,size:16,color:.secondaryLabelColor,in:content)
-            let imports = BrowserImportView(frame:NSRect(x:54,y:235,width:732,height:385),language:language); content.addSubview(imports)
+            welcomeText(tr("Emportez l’essentiel.","Bring your browsing data."),x:52,y:90,width:550,height:70,size:49,weight:.semibold,in:content)
+            welcomeText(tr("Choisissez les données à transférer depuis votre ancien navigateur.","Choose what to bring over from your previous browser."),x:55,y:161,width:494,height:54,size:16,color:.secondaryLabelColor,in:content)
+            let imports = BrowserImportView(frame:NSRect(x:54,y:235,width:732,height:385),language:language,destinationName:destinationName,automaticHistoryImport:automaticHistoryImport); content.addSubview(imports)
+            imports.historyDestination = { [weak self] in self?.historyDestination?() }
+            imports.historyStaged = { [weak self] in self?.stagedHistory = true }
             imports.apply = { [weak self] links,source in guard let action = self?.importLinks else { return 0 }; return try action(links,source) }
             imports.openSettings = { [weak self] address in guard let self else { return }; self.finish?(self.language,address) }
-            navigation(standalone ? tr("Terminé","Done") : tr("Ouvrir Arc Reborn","Open Arc Reborn"),at:.account) { [weak self] in guard let self else { return }; self.finish?(self.language,nil) }
+            let next = navigation(standalone ? tr("Terminé","Done") : tr("Ouvrir Arc Reborn","Open Arc Reborn"),at:.account) { [weak self] in guard let self else { return }; self.finish?(self.language,nil) }
+            imports.readingChanged = { [weak self,weak next] reading in
+                self?.backButton?.isEnabled = !reading
+                next?.isEnabled = !reading
+                next?.alphaValue = reading ? 0.5 : 1
+            }
         }
     }
 }
