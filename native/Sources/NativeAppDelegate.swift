@@ -126,7 +126,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         localStore.saveHandler = { [weak self] value in try self?.save(value,from:id) }
         next.becameKey = { [weak self] value in
             self?.controller = value; self?.buildMenu(); self?.refreshHandoff()
-            OnboardingRelaunch.windowDidOpen()
+            OnboardingRelaunch.windowDidOpen(value.window)
         }
         next.handoffPageChanged = { [weak self] value in
             guard let self, self.controller === value else { return }

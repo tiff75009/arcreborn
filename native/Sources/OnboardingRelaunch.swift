@@ -8,13 +8,27 @@ enum OnboardingRelaunch {
         "arcreborn.onboarding.window." + id.uuidString
     }
 
-    static func windowDidOpen() {
+    static func windowDidOpen(_ window: NSWindow) {
         guard let id = incoming else { return }
         incoming = nil
         unsetenv(handoffKey)
-        // Ordering the window only schedules its presentation. Let AppKit
-        // finish processing didBecomeKey before retiring the previous window.
-        DispatchQueue.main.async { notify_post(notification(id)) }
+        // AppKit may deliver didBecomeKey before WindowServer has composited
+        // the restored window, particularly when Chromium is opening settings.
+        let number = CGWindowID(window.windowNumber)
+        let deadline = DispatchTime.now() + 3
+        func waitForPresentation() {
+            let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, number) as? [[String:Any]]
+            let presented = windows?.first.map {
+                ($0[kCGWindowIsOnscreen as String] as? Bool) == true &&
+                ($0[kCGWindowAlpha as String] as? Double ?? 0) >= 0.95
+            } ?? false
+            if presented || DispatchTime.now() >= deadline {
+                notify_post(notification(id))
+            } else {
+                DispatchQueue.main.asyncAfter(deadline:.now() + .milliseconds(16), execute:waitForPresentation)
+            }
+        }
+        DispatchQueue.main.async(execute:waitForPresentation)
     }
 
     /// Chromium has released its process lock. Keep the setup window on screen
