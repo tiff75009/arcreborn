@@ -71,6 +71,54 @@ import Foundation
                "A split occupies one sidebar row")
         let saved = try! JSONDecoder().decode(BrowserSession.self,from:JSONEncoder().encode(order))
         expect(temporary(saved) == peers && saved.validated(),"Order survives reopening the session")
+        var returns = BrowserSession.fresh()
+        let returnSpace = returns.activeSpaceID
+        let origin = returns.createTab(), unrelated = returns.createTab(), recent = returns.createTab()
+        returns.selectTab(id:origin)
+        let manual = returns.createTab()
+        expect(returns.sidebarChildren(spaceID:returnSpace,parentID:nil,temporary:true).first == .tab(manual),
+               "Manual new tabs stay at the top when the selected source is lower")
+        returns.closeTab(id:manual)
+        expect(returns.spaces[0].selectedTabID == origin,"Closing a manual new tab returns to its source, not the last array entry")
+        let child = returns.createTab(above:unrelated)
+        let sidebar = returns.sidebarChildren(spaceID:returnSpace,parentID:nil,temporary:true)
+        expect(sidebar.firstIndex(of:.tab(child))!+1 == sidebar.firstIndex(of:.tab(unrelated))!,
+               "A link opens directly above its actual source")
+        returns.closeTab(id:child)
+        expect(returns.spaces[0].selectedTabID == unrelated,"An inactive source remains the return destination")
+        returns.selectTab(id:origin)
+        let intermediate = returns.createTab(above:origin)
+        let descendant = returns.createTab(above:intermediate)
+        returns.closeTab(id:intermediate)
+        expect(returns.spaces[0].selectedTabID == descendant,"Closing a background opener never steals selection")
+        returns.closeTab(id:descendant)
+        expect(returns.spaces[0].selectedTabID == origin,"A closed intermediate opener falls back to its surviving ancestor")
+        let reordered = returns.createTab(above:origin)
+        _ = returns.moveSidebarItem(.tab(reordered),spaceID:returnSpace,to:.init(parentID:nil,before:.tab(recent),temporary:true))
+        var reopened = try! JSONDecoder().decode(BrowserSession.self,from:JSONEncoder().encode(returns))
+        reopened.closeTab(id:reordered)
+        expect(reopened.spaces[0].selectedTabID == origin && reopened.validated(),"Return destination survives reordering and session restart")
+        let reserved = returns.reserveExtensionTab(sourceTabID:unrelated,active:true,pinned:false,index:0)!
+        returns.closeTab(id:reserved.id)
+        expect(returns.spaces[0].selectedTabID == unrelated,"An explicitly positioned engine tab returns to its actual source")
+        let backgroundReturn = returns.reserveExtensionTab(sourceTabID:origin,active:false,pinned:false,index:-1,aboveSource:true)!
+        returns.closeTab(id:backgroundReturn.id)
+        expect(returns.spaces[0].selectedTabID == unrelated,"Closing a background link preserves the current selection")
+        _ = returns.moveToFavorites(origin,spaceID:returnSpace,at:0)
+        let displaySpace = returns.createSpace(name:"Shared",color:"#334455",icon:"◈")
+        returns.selectTab(id:origin)
+        let favoriteLink = returns.createTab(spaceID:displaySpace,above:origin)
+        returns.closeTab(id:favoriteLink)
+        expect(returns.activeSpaceID == displaySpace && returns.spaces.last?.selectedTabID == origin,
+               "A link returns to a shared favorite without leaving its displaying space")
+        let foreignSpace = returns.createSpace(name:"Isolated",color:"#334455",icon:"◈",profileID:returns.profiles[0].id)
+        let foreign = returns.createTab(spaceID:foreignSpace)
+        returns.selectTab(id:unrelated)
+        let detached = returns.createTab()
+        returns.tabs[returns.tabs.firstIndex(where:{ $0.id == detached })!].openerTabID = foreign
+        returns.closeTab(id:detached)
+        expect(returns.activeSpaceID == returnSpace && returns.spaces[0].selectedTabID != foreign && returns.validated(),
+               "A moved or unavailable origin never selects an unrelated space")
         print("PASS: tab insertion order, relative context actions, source selection, rollback, folders, splits and persistence")
     }
 }

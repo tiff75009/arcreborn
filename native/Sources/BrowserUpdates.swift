@@ -77,8 +77,8 @@ final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
         }
         // Versions predating the read marker can still have a saved profile.
         let last = defaults.integer(forKey:key)
-        guard last < current, let installed = releaseNotes else { return }
-        let candidate = installed.showOnLaunch == false ? previousVisibleNotes : installed
+        guard last < current, releaseNotes != nil else { return }
+        let candidate = visibleReleaseNotes
         guard let notes = candidate, notes.build > last else {
             defaults.set(current, forKey:key)
             return
@@ -107,6 +107,10 @@ final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
               let current = releaseNotes, notes.build < current.build else { return nil }
         return notes
     }()
+    private var visibleReleaseNotes: ReleaseNotes? {
+        guard let notes = releaseNotes else { return nil }
+        return notes.showOnLaunch == false ? previousVisibleNotes : notes
+    }
     private func localizedNews(_ notes: ReleaseNotes) -> ReleaseNotesWindow {
         let language = ReleaseNotes.Language.current
         if let news, news.language == language, news.notes.build == notes.build { return news }
@@ -127,7 +131,7 @@ final class BrowserUpdates: NSObject, SPUUpdaterDelegate {
         if let news, news.window?.isVisible == true { _ = localizedNews(news.notes) }
     }
     @discardableResult func showNews() -> Bool {
-        guard let notes = releaseNotes else { return false }
+        guard let notes = visibleReleaseNotes else { return false }
         showNews(notes)
         return true
     }

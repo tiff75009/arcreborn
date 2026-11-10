@@ -105,6 +105,9 @@ struct NativeTab: Codable, Equatable {
     var lastViewedAt: Date? = nil
     var autoArchivedAt: Date? = nil
     var archivedNavigation: ArchivedNavigation? = nil
+    // Native navigation origin, independent of Chromium's window.opener (which
+    // is intentionally absent on noopener links). Optional for old sessions.
+    var openerTabID: String? = nil
     var displayTitle: String {
         if let customTitle { return customTitle }
         if isLocalTabDocument(url), let file = URL(string:url), title.isEmpty || title == url || title == file.path {
@@ -322,7 +325,7 @@ struct BrowserSession: Codable, Equatable {
     }
 
     @discardableResult
-    mutating func createTab(url explicitURL: String? = nil, spaceID: String? = nil, above sourceID: String? = nil) -> String {
+    mutating func createTab(url explicitURL: String? = nil, spaceID: String? = nil, above sourceID: String? = nil, openerTabID: String? = nil) -> String {
         let spaceID = spaceID ?? activeSpaceID
         guard let spaceIndex = spaces.firstIndex(where: { $0.id == spaceID }), tabs.count < 5000 else { return "" }
         let url = explicitURL ?? profile(forSpace: spaceID)?.homepage ?? "about:blank"
@@ -336,7 +339,10 @@ struct BrowserSession: Codable, Equatable {
             let row = splitGroup(containing:tab.id)?.tabIDs ?? [tab.id]
             return siblings.firstIndex { if case .tab(let id) = $0 { return row.contains(id) }; return false }
         } ?? 0
-        tabs.append(NativeTab(id:id,spaceID:spaceID,url:url,title:"",pinned:pinned,favorite:false,folderID:parent,lastViewedAt:Date()))
+        let origin = (openerTabID ?? sourceID ?? spaces[spaceIndex].selectedTabID).flatMap {
+            canSelectTab($0,in:spaceID) ? $0 : nil
+        }
+        tabs.append(NativeTab(id:id,spaceID:spaceID,url:url,title:"",pinned:pinned,favorite:false,folderID:parent,lastViewedAt:Date(),openerTabID:origin))
         siblings.insert(.tab(id),at:index)
         orderSidebarItems(siblings)
         spaces[spaceIndex].selectedTabID = id
@@ -361,10 +367,24 @@ struct BrowserSession: Codable, Equatable {
         closedTabs.removeAll { $0.id == id }
         closedTabs.append(tab)
         if tab.archivedNavigation != nil || closedTabs.count > 50 { closedTabs = Self.boundedArchive(closedTabs) }
-        if let spaceIndex = spaces.firstIndex(where: { $0.id == tab.spaceID }), spaces[spaceIndex].selectedTabID == id {
-            let peers = tabs.filter { $0.spaceID == tab.spaceID }
+        func survivingOpener(in spaceID:String) -> String? {
+            var candidate = tab.openerTabID
+            var visited:Set<String> = [id]
+            while let origin = candidate, visited.insert(origin).inserted {
+                if canSelectTab(origin,in:spaceID) { return origin }
+                // A closed intermediate tab retains its own origin. Following
+                // the archive leaves surviving tabs and deletion undo intact.
+                candidate = closedTabs.last(where:{ $0.id == origin })?.openerTabID
+            }
+            return nil
+        }
+        for spaceIndex in spaces.indices where spaces[spaceIndex].selectedTabID == id {
+            let spaceID = spaces[spaceIndex].id
+            let peers = tabs.filter { $0.spaceID == spaceID }
             if let remainingPanes, !remainingPanes.isEmpty {
                 spaces[spaceIndex].selectedTabID = remainingPanes[min(paneIndex,remainingPanes.count-1)]
+            } else if let opener = survivingOpener(in:spaceID) {
+                spaces[spaceIndex].selectedTabID = opener
             } else {
                 spaces[spaceIndex].selectedTabID = peers.isEmpty ? nil : peers[min(position, peers.count - 1)].id
             }

@@ -15,8 +15,11 @@ static int CreateNativeExtensionTab(int sourceBrowserID, int active,
   auto sourceBrowser = source->second;
   if (!sourceBrowser->IsValid()) return -1;
   NSString *sourceID = @(source->first.c_str());
+  // OpenURLParams navigations (including modifier-clicks) also use this path.
+  // Keep every source-aware request adjacent; explicit extension indices still
+  // take precedence in reserveExtensionTab. AppKit's New Tab stays at the top.
   NSDictionary *prepared = [engine.delegate browserPrepareExtensionTab:sourceID active:active != 0 pinned:pinned != 0 index:index
-                                                aboveSource:[sourceID isEqualToString:contextLinkSource]];
+                                                aboveSource:YES];
   NSString *identifier = prepared[@"id"];
   NSView *container = prepared[@"view"];
   if (!identifier.length || !container) return -1;

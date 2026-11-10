@@ -63,6 +63,7 @@ def metadata():
     return notes,info
 
 def github_notes(notes):
+    if notes.get('showOnLaunch') is False: return ''
     def section(lang):
         return notes['subtitle'][lang]+'\n\n'+'\n'.join(
             '- **'+row['title'][lang]+'** — '+row['detail'][lang] for row in notes['highlights'])
@@ -81,7 +82,8 @@ def prepare_feeds(notes, dmg, sparkle, key):
             os.link(dmg, stage/dmg.name)
             body = '<h2>'+html.escape(notes['title'][lang])+'</h2><p>'+html.escape(notes['subtitle'][lang])+'</p><ul>'
             body += ''.join('<li><b>'+html.escape(row['title'][lang])+'</b> — '+html.escape(row['detail'][lang])+'</li>' for row in notes['highlights'])+'</ul>'
-            (stage/(dmg.stem+'.html')).write_text(body+'\n',encoding='utf-8')
+            if notes.get('showOnLaunch') is not False:
+                (stage/(dmg.stem+'.html')).write_text(body+'\n',encoding='utf-8')
             run(sparkle/'bin/generate_appcast',*key,'--download-url-prefix',prefix,
                 '--embed-release-notes','--maximum-deltas','0',stage)
             (stage/'appcast.xml').replace(dmg.parent/f'appcast-{lang}.xml')
@@ -92,9 +94,10 @@ def prepare_feeds(notes, dmg, sparkle, key):
     tree = ET.parse(dmg.parent/'appcast-en.xml')
     item = tree.find('./channel/item')
     lang_attr = '{http://www.w3.org/XML/1998/namespace}lang'
-    item.find('description').set(lang_attr,'en')
-    french = ET.parse(dmg.parent/'appcast-fr.xml').find('./channel/item/description')
-    french.set(lang_attr,'fr'); item.append(french)
+    if notes.get('showOnLaunch') is not False:
+        item.find('description').set(lang_attr,'en')
+        french = ET.parse(dmg.parent/'appcast-fr.xml').find('./channel/item/description')
+        french.set(lang_attr,'fr'); item.append(french)
     legacy = dmg.parent/'appcast.xml'
     tree.write(legacy,encoding='utf-8',xml_declaration=True)
     run(sparkle/'bin/sign_update',*key,legacy)

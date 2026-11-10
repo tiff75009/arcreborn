@@ -19,7 +19,7 @@ extension BrowserSession {
         let previousSpace = activeSpaceID
         let previousTab = spaces[spaceIndex].selectedTabID
         let previousCollapsed = spaces[spaceIndex].foldersCollapsed
-        let id = createTab(url: "about:blank", spaceID: spaceID, above:aboveSource ? sourceTabID : nil)
+        let id = createTab(url: "about:blank", spaceID: spaceID, above:aboveSource ? sourceTabID : nil, openerTabID:sourceTabID)
         guard !id.isEmpty else { return nil }
         if !active {
             activeSpaceID = previousSpace

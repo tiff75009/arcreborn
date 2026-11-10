@@ -96,6 +96,11 @@ struct UpdatePreferencesTests {
             precondition(!window.isVisible)
             print("PASS: upgrading opens release notes once, fresh installs and subsequent launches stay quiet")
         }
+        let displayedNotes: ReleaseNotes
+        if notes.showOnLaunch == false {
+            let url = Bundle.main.url(forResource:"PreviousVisibleReleaseNotes",withExtension:"json")!
+            displayedNotes = try! JSONDecoder().decode(ReleaseNotes.self,from:Data(contentsOf:url))
+        } else { displayedNotes = notes }
         for (index, lang) in ["fr", "en", "fr"].enumerated() {
             defaults.set(lang,forKey:"BrowserLanguage")
             NotificationCenter.default.post(name:Notification.Name("BrowserLanguageChanged"),object:lang)
@@ -106,8 +111,9 @@ struct UpdatePreferencesTests {
                 fatalError("No visible release notes for "+lang)
             }
             let text = fields(window.contentView!)
-            precondition(text.contains(isFrench ? notes.title.fr : notes.title.en))
-            for row in notes.highlights { precondition(text.contains(isFrench ? row.detail.fr : row.detail.en)) }
+            precondition(text.contains("ARC REBORN  ·  " + displayedNotes.version))
+            precondition(text.contains(isFrench ? displayedNotes.title.fr : displayedNotes.title.en))
+            for row in displayedNotes.highlights { precondition(text.contains(isFrench ? row.detail.fr : row.detail.en)) }
             precondition(updates.feedURLString(for:first.updater)?.hasSuffix("/appcast-"+lang+".xml") == true)
             if index == 1 { window.close() }
         }

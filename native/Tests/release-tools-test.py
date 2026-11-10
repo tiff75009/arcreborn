@@ -52,6 +52,8 @@ class ReleaseTests(unittest.TestCase):
 
     def test_github_notes_keep_both_complete_translations(self):
         notes,_ = release.metadata()
+        self.assertEqual(release.github_notes(dict(notes,showOnLaunch=False)),'')
+        notes = dict(notes,showOnLaunch=True)
         english,french = release.github_notes(notes).split('<summary>Français</summary>')
         for lang,section in [('en',english),('fr',french)]:
             self.assertIn(notes['subtitle'][lang],section)
@@ -82,7 +84,11 @@ class ReleaseTests(unittest.TestCase):
             subprocess.run(['xcrun','swift',ROOT/'scripts/verify-release.swift',contents/'Info.plist',assets],check=True)
             legacy = ET.parse(assets/'appcast.xml').find('./channel/item')
             translations = {n.attrib['{http://www.w3.org/XML/1998/namespace}lang']:n.text for n in legacy.findall('description')}
-            self.assertEqual(set(translations),{'en','fr'})
+            self.assertEqual(set(translations),set() if notes.get('showOnLaunch') is False else {'en','fr'})
+            for lang in ('en','fr'):
+                item = ET.parse(assets/f'appcast-{lang}.xml').find('./channel/item')
+                self.assertEqual(item.find('enclosure').attrib,legacy.find('enclosure').attrib)
+                if notes.get('showOnLaunch') is False: self.assertIsNone(item.find('description'))
             for lang in translations:
                 item = ET.parse(assets/f'appcast-{lang}.xml').find('./channel/item')
                 self.assertEqual(item.find('enclosure').attrib,legacy.find('enclosure').attrib)

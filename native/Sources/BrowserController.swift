@@ -4091,7 +4091,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     func browserRequestedNewTab(_ url: String, sourceTab: String) {
         guard !isQuitting else { return }
         guard let source = session.tabs.first(where: { $0.id == sourceTab }), let normalized = browserURL(url,engine:session.profile(forSpace:source.spaceID)?.engine ?? .google) else { return }
-        _ = session.createTab(url: normalized.absoluteString, spaceID: session.browsingSpaceID(for:source)); render(); showSelectedTab(); persist()
+        _ = session.createTab(url: normalized.absoluteString, spaceID: session.browsingSpaceID(for:source), above:sourceTab); render(); showSelectedTab(); persist()
     }
     func browserPrepareExtensionTab(_ sourceTab: String, active: Bool, pinned: Bool, index: Int, aboveSource: Bool) -> [String: Any]? {
         guard !isQuitting, let source = session.tabs.first(where: { $0.id == sourceTab }),
@@ -4131,7 +4131,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let previousSpace = session.activeSpaceID
         let spaceID = session.browsingSpaceID(for:source)
         let selected = session.spaces.first(where: { $0.id == spaceID })?.selectedTabID
-        let id = session.createTab(url: value, spaceID: spaceID)
+        let id = session.createTab(url: value, spaceID: spaceID, above:sourceTab)
         guard !id.isEmpty else { return nil }
         if !active {
             if let index = session.spaces.firstIndex(where: { $0.id == spaceID }) { session.spaces[index].selectedTabID = selected }
