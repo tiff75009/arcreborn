@@ -149,9 +149,13 @@ class ReleaseTests(unittest.TestCase):
         release.metadata(); engine.verify_patches()
         base = engine.load_pin(False)
         candidate = engine.load_pin(True)
-        self.assertEqual(candidate['patches'][:-1],base['patches'])
-        patch = candidate['patches'][-1]
-        self.assertEqual(engine.sha(engine.ENGINE/patch['file']),patch['sha256'])
+        if any(p['file'] == 'patches/appkit-passkey-window.patch' for p in base['patches']):
+            self.assertEqual(candidate,base)
+        else:
+            self.assertEqual(candidate['patches'][:-1],base['patches'])
+            self.assertEqual(candidate['patches'][-1]['file'],'patches/appkit-passkey-window.patch')
+        for patch in candidate['patches']:
+            self.assertEqual(engine.sha(engine.ENGINE/patch['file']),patch['sha256'])
         self.assertRegex(candidate['archive']['sha256'],r'^[a-f0-9]{64}$')
 
 if __name__ == '__main__': unittest.main()
