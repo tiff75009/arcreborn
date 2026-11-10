@@ -22,7 +22,7 @@ FRAMEWORK = 'Chromium Embedded Framework.framework'
 
 def load_pin(use_passkeys):
     pin = json.loads((ENGINE / 'engine.lock.json').read_text())
-    if use_passkeys:
+    if use_passkeys and not any(p["file"] == "patches/appkit-passkey-window.patch" for p in pin["patches"]):
         variant = json.loads((ENGINE / 'passkeys.lock.json').read_text())
         if pin['version'] != variant['baseVersion']:
             raise ValueError('Rebase the passkey engine patch on the new base engine')

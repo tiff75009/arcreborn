@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)browserRequestedNewTab:(NSString *)url sourceTab:(NSString *)tabID NS_SWIFT_NAME(browserRequestedNewTab(_:sourceTab:));
 - (void)browserClosed:(NSString *)tabID NS_SWIFT_NAME(browserClosed(_:));
 @optional
+- (void)browserPasswordPrompt:(NSString *)tabID request:(uint64_t)request origin:(NSString *)origin username:(NSString *)username kind:(NSInteger)kind NS_SWIFT_NAME(browserPasswordPrompt(_:request:origin:username:kind:));
 - (void)browserFindResult:(NSString *)tabID position:(NSInteger)position total:(NSInteger)total NS_SWIFT_NAME(browserFindResult(_:position:total:));
 - (void)browserWillClose:(NSString *)tabID NS_SWIFT_NAME(browserWillClose(_:));
 // Only authentication windows implement this. Consult it before filtering a
@@ -59,6 +60,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)updateLanguages;
 - (BOOL)setSearchProvider:(NSInteger)identifier name:(NSString *)name keyword:(NSString *)keyword templateURL:(NSString *)url forProfile:(NSString *)profile NS_SWIFT_NAME(setSearchProvider(_:name:keyword:templateURL:profile:));
 - (BOOL)updateCredentialPreferences;
+- (BOOL)respondToPasswordPrompt:(uint64_t)request tab:(NSString *)tabID action:(NSInteger)action NS_SWIFT_NAME(respondToPasswordPrompt(_:tab:action:));
 - (BOOL)createTab:(NSString *)tabID profile:(NSString *)profileID url:(NSString *)url inView:(NSView *)container NS_SWIFT_NAME(createTab(_:profile:url:container:));
 - (BOOL)createTab:(NSString *)tabID profile:(NSString *)profileID url:(NSString *)url archiveHistory:(nullable NSData *)history inView:(NSView *)container NS_SWIFT_NAME(createTab(_:profile:url:archiveHistory:container:));
 - (nullable NSData *)historyForTab:(NSString *)tabID address:(NSString *)url NS_SWIFT_NAME(history(forTab:address:));

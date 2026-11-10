@@ -205,6 +205,12 @@ static void ApplyWebLanguage(CefRefPtr<CefRequestContext> context) {
 // Disabling saving also disables generation; it does not erase stored credentials.
 static bool ApplyCredentialPreferences(CefRefPtr<CefRequestContext> context) {
   if (!context) return false;
+  NSString *choice = [[NSUserDefaults standardUserDefaults] stringForKey:@"BrowserPasswordManager"] ?: @"native";
+  const bool external = ![choice isEqualToString:@"native"];
+  if (!context->CanSetPreference("arcreborn.password_manager_external")) return false;
+  auto externalValue = CefValue::Create(); externalValue->SetBool(external);
+  CefString policyError;
+  if (!context->SetPreference("arcreborn.password_manager_external",externalValue,policyError)) return false;
   const std::pair<const char*, NSString*> keys[] = {
     {"credentials_enable_service", @"BrowserSavePasswords"},
     {"credentials_enable_autosignin", @"BrowserAutomaticSignIn"},
@@ -215,12 +221,20 @@ static bool ApplyCredentialPreferences(CefRefPtr<CefRequestContext> context) {
   }
   for (const auto& key : keys) {
     id stored = [[NSUserDefaults standardUserDefaults] objectForKey:key.second];
-    auto value = CefValue::Create(); value->SetBool(context->GetCachePath().empty() ? false : (stored ? [stored boolValue] : true));
+    auto value = CefValue::Create(); value->SetBool(context->GetCachePath().empty() || external ? false : (stored ? [stored boolValue] : true));
     CefString error;
     if (!context->SetPreference(key.first, value, error)) {
       NSLog(@"Browser preference %s: %s", key.first, error.ToString().c_str());
       return false;
     }
+  }
+  using Configure = int (*)(int, const char*);
+  auto configure = reinterpret_cast<Configure>(BrowserEngineSymbol("browser_configure_password_manager_v1"));
+  if (!configure) return false;
+  for (const auto& entry : browsers) {
+    if (entry.second->GetHost()->GetRuntimeStyle() == CEF_RUNTIME_STYLE_CHROME &&
+        entry.second->GetHost()->GetRequestContext()->IsSame(context) &&
+        !configure(entry.second->GetIdentifier(),choice.UTF8String)) return false;
   }
   return true;
 }
@@ -358,6 +372,7 @@ static void ForgetPageTranslation(NSString *key);
 static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> params,
                               CefRefPtr<CefMenuModel> model, CefRefPtr<CefRunContextMenuCallback> callback);
 static void RegisterNativeExtensionTabs(bool enabled);
+static void RegisterNativePasswordPrompt(bool enabled);
 static void Notify(NSString *name) { [[NSNotificationCenter defaultCenter] postNotificationName:name object:nil]; }
 #include "DeveloperTools.inc"
 #include "PictureInPicture.inc"
@@ -387,7 +402,7 @@ class NativeApp : public CefApp, public CefBrowserProcessHandler {
       }
     }
   }
-  void OnContextInitialized() override { BrowserTrace(@"cef.ready"); auto context = CefRequestContext::GetGlobalContext(); ApplyCredentialPreferences(context); ApplyWebLanguage(context); ApplyDownloadProtection(context); ApplyDownloadLocation(context); RegisterNativeExtensionTabs(true); Notify(@"BrowserEngineReady"); }
+  void OnContextInitialized() override { BrowserTrace(@"cef.ready"); auto context = CefRequestContext::GetGlobalContext(); ApplyCredentialPreferences(context); ApplyWebLanguage(context); ApplyDownloadProtection(context); ApplyDownloadLocation(context); RegisterNativeExtensionTabs(true); RegisterNativePasswordPrompt(true); Notify(@"BrowserEngineReady"); }
   CefRefPtr<CefClient> GetDefaultClient() override { BrowserTrace(@"cef.default-client"); return NewExtensionClient(); }
   void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command) override {
     // Chromium provides a fake keychain specifically for disposable tests.
@@ -701,6 +716,7 @@ class NativeClient : public CefClient,
     if (popupFinished_) { popupFinished_(true); popupFinished_ = nullptr; }
     browsers[tabID_.UTF8String] = browser;
     if (embedded_ && chrome_) nativeTabOwners[tabID_.UTF8String] = {engine_};
+    ApplyCredentialPreferences(browser->GetHost()->GetRequestContext());
     ApplyPageAppearance(browser);
     browser->GetHost()->SetAccessibilityState(STATE_ENABLED);
     NSView *view = (__bridge NSView *)browser->GetHost()->GetWindowHandle();
@@ -1101,6 +1117,27 @@ static void QuitNext() {
 #include "ExtensionWindows.inc"
 #include "DownloadRecovery.inc"
 #include "ChromeTabs.inc"
+// The native prompt transports no password, only a request token and labels.
+static void NativePasswordPrompt(int browserID, uint64_t request, const char* origin,
+                                 const char* username, int kind) {
+  auto tab = std::find_if(browsers.begin(),browsers.end(),[browserID](const auto& entry) { return entry.second->GetIdentifier() == browserID; });
+  if (tab == browsers.end()) return;
+  auto owner = nativeTabOwners.find(tab->first);
+  id<BrowserEngineDelegate> delegate = owner == nativeTabOwners.end() ? nil : owner->second.engine.delegate;
+  if (!quitting && [delegate respondsToSelector:@selector(browserPasswordPrompt:request:origin:username:kind:)])
+    [delegate browserPasswordPrompt:@(tab->first.c_str()) request:request origin:@(origin) username:@(username) kind:kind];
+  else if (kind >= 0) {
+    using Respond = int (*)(int,uint64_t,int);
+    auto respond = reinterpret_cast<Respond>(BrowserEngineSymbol("browser_respond_password_prompt_v1"));
+    if (respond) respond(browserID,request,0);
+  }
+}
+static void RegisterNativePasswordPrompt(bool enabled) {
+  using Register = void (*)(void (*)(int,uint64_t,const char*,const char*,int));
+  auto install = reinterpret_cast<Register>(BrowserEngineSymbol("browser_set_password_prompt_v1"));
+  if (install) install(enabled ? NativePasswordPrompt : nullptr);
+}
+
 #include "PageTranslation.inc"
 #include "NativePageMenus.inc"
 #include "NativeExtensionTabs.inc"
@@ -1275,6 +1312,7 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   BrowserTrace(@"cef.shutdown.begin",@{@"browsers":@(browsers.size()),@"pending":@(pendingBrowsers.size())});
   quitSuspensions.clear(); downloadControls.clear();
   if (!running || !browsers.empty() || !pendingBrowsers.empty()) return;
+  RegisterNativePasswordPrompt(false);
   RegisterNativeExtensionTabs(false);
   profileReadyCallbacks.clear();
   extensionPreferenceRegistrations.clear();
@@ -1289,6 +1327,14 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   appearanceMode = mode == 2 ? CEF_COLOR_VARIANT_DARK : mode == 1 ? CEF_COLOR_VARIANT_LIGHT : CEF_COLOR_VARIANT_SYSTEM;
   for (auto &entry : profiles) if (readyProfiles.count(entry.first)) entry.second->SetChromeColorScheme(appearanceMode, 0);
   for (auto &entry : browsers) ApplyPageAppearance(entry.second);
+}
+- (BOOL)respondToPasswordPrompt:(uint64_t)request tab:(NSString *)tabID action:(NSInteger)action {
+  CEF_REQUIRE_UI_THREAD();
+  auto tab = browsers.find(tabID.UTF8String);
+  if (tab == browsers.end()) return NO;
+  using Respond = int (*)(int,uint64_t,int);
+  auto respond = reinterpret_cast<Respond>(BrowserEngineSymbol("browser_respond_password_prompt_v1"));
+  return respond && respond(tab->second->GetIdentifier(),request,static_cast<int>(action));
 }
 - (BOOL)updateCredentialPreferences {
   if (!running || quitting) return NO;

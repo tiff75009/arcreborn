@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "156.0.8078.80-arcreborn.10",
+  "version": "156.0.8078.80-arcreborn.11",
   "platform": "macos-arm64",
   "cefCommit": "cf671c072925b27823a61181152f4f288e8e4306",
   "chromiumCommit": "fb096c0011f9d50f0a264a9376420cdea9c421e3",
@@ -50,6 +50,14 @@
     {
       "file": "patches/appkit-download-recovery.patch",
       "sha256": "16fa1fa10fe24ebb89dbcaeb05913ea7f193c8d0744f680bb902b82fc088a24a"
+    },
+    {
+      "file": "patches/appkit-passkey-window.patch",
+      "sha256": "94525ab05e2c7c769c74e1948188254a9f9a8208310bc9c8cb843766d44c3de7"
+    },
+    {
+      "file": "patches/appkit-password-manager.patch",
+      "sha256": "8aa600361a33014e30c973c32d3eb0baf5db2378485ee64c41e4f71270cfa5b3"
     }
   ],
   "gnDefines": "use_system_xcode=true is_official_build=true is_component_build=false symbol_level=0 use_remoteexec=false proprietary_codecs=true ffmpeg_branding=\"Chrome\" media_use_openh264=true rtc_use_h264=true rtc_use_h265=false enable_hevc_parser_and_hw_decoder=true enable_platform_hevc=true is_debug=false dcheck_always_on=false enable_expensive_dchecks=false chrome_pgo_phase=2 use_thin_lto=false disable_fieldtrial_testing_config=true",
@@ -59,11 +67,11 @@
     "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.7/ArcReborn-Engine-156.0.8078.80-arcreborn.7-macos-arm64.tar.gz",
     "sha256": "0d544007f428fce03f5bb4602983caacb016dc89f8fc60a224c45be3ee9bffe0",
     "delta": {
-      "file": "deltas/webrtc-h264-arm64.bsdiff",
-      "sha256": "169a4fc7cc3b7c732e452fe7b9bb0f34111a8cd93d1ef26d6bd3f0928b6e5644",
+      "file": "deltas/password-manager-arm64.bsdiff",
+      "sha256": "e1d659641ec92471199955fb9c3e56ec8d6c023834a8091af3e59d7751e50a27",
       "baseVersion": "156.0.8078.80-arcreborn.7",
       "baseBinarySHA256": "d9c42f1bf27e0ad5486e204d9e76dae5b3fe9dd26e85651a38fc8fc52f3c31ef",
-      "binarySHA256": "0add5782122ecc3ff4f8368270895961047596d34f7b55b55f90a1a38b7863dc",
+      "binarySHA256": "36b2d64daf671f8806140926372d34b90281300d0c1a877c20f7b4cc66fe6dc1",
       "gnOverrides": {
         "media_use_openh264": "true",
         "rtc_use_h264": "true"

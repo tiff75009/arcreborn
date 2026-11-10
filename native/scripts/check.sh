@@ -3,6 +3,10 @@ set -euo pipefail
 NATIVE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$NATIVE_ROOT/build/checks"
 cd "$NATIVE_ROOT"
+xcrun swiftc Sources/{CommandPalette,FadingAddress,ActionButton,Localization}.swift Tests/CommandPaletteTests.swift -o build/checks/command-palette-tests
+xcrun swiftc Sources/{PasswordManagers,ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserWindowState}.swift Tests/PasswordManagerTests.swift -o build/checks/password-manager-tests
+build/checks/password-manager-tests
+build/checks/command-palette-tests
 xcrun swiftc -O Sources/ThemeState.swift Sources/NativeState.swift Sources/SplitState.swift Sources/SpaceContent.swift Sources/FolderTree.swift Sources/FavoritesState.swift Sources/SpaceNavigation.swift Sources/DeletionUndo.swift Tests/StateTests.swift -o build/checks/state-tests
 build/checks/state-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,ExtensionTabCreation}.swift Tests/ExtensionTabTests.swift -o build/checks/extension-tab-tests

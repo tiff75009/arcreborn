@@ -221,6 +221,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             if state.interfaceStyle != base.interfaceStyle { updated.interfaceStyle = state.interfaceStyle }
             if state.tabPreviewsEnabled != base.tabPreviewsEnabled { updated.tabPreviewsEnabled = state.tabPreviewsEnabled }
             if state.themeAppearance != base.themeAppearance { updated.themeAppearance = state.themeAppearance }
+            if state.passwordManagerID != base.passwordManagerID { updated.passwordManagerID = state.passwordManagerID }
             if state.savePasswords != base.savePasswords { updated.savePasswords = state.savePasswords }
             if state.automaticSignIn != base.automaticSignIn { updated.automaticSignIn = state.automaticSignIn }
             if state.formSuggestions != base.formSuggestions { updated.formSuggestions = state.formSuggestions }
@@ -296,6 +297,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
         publishStandaloneNavigation()
         let defaults = UserDefaults.standard
         defaults.set(state.language,forKey:"BrowserLanguage")
+        defaults.set(state.passwordManagerID ?? "native",forKey:"BrowserPasswordManager")
         defaults.set(state.savePasswords ?? true,forKey:"BrowserSavePasswords")
         defaults.set(state.automaticSignIn ?? true,forKey:"BrowserAutomaticSignIn")
         defaults.set(state.formSuggestions ?? true,forKey:"BrowserFormSuggestions")
@@ -303,7 +305,7 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             BrowserEngine().updateLanguages()
             NotificationCenter.default.post(name: Notification.Name("BrowserLanguageChanged"), object: state.language)
         }
-        if previous.savePasswords != state.savePasswords || previous.automaticSignIn != state.automaticSignIn || previous.formSuggestions != state.formSuggestions {
+        if previous.passwordManagerID != state.passwordManagerID || previous.savePasswords != state.savePasswords || previous.automaticSignIn != state.automaticSignIn || previous.formSuggestions != state.formSuggestions {
             _ = BrowserEngine().updateCredentialPreferences()
         }
         buildMenu(); persistWindows()

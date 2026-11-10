@@ -17,7 +17,7 @@ DIRECTORIES = ['native/Sources','native/Bridge','native/Tests','native/Resources
                '.github/workflows','.github/ISSUE_TEMPLATE','docs/development','docs/showcase']
 FILES = ['README.md','README.fr.md','LICENSE','NOTICE.md','CONTRIBUTING.md','SECURITY.md','.gitignore','Makefile',
          '.github/pull_request_template.md','native/CMakeLists.txt','native/Engine/engine.lock.json','native/Engine/passkeys.lock.json','native/Engine/performance-candidate.gn','native/Engine/monitor.html']
-SCRIPTS = ['test-extension-placement.sh','test-handoff.sh','test-web-authentication.py','test-tab-history.py','test-download-recovery.py','test-tab-memory-saver.py','build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
+SCRIPTS = ['test-password-managers.sh','test-extension-placement.sh','test-handoff.sh','test-web-authentication.py','test-tab-history.py','test-download-recovery.py','test-tab-memory-saver.py','build.sh','dev.sh','check.sh','fetch-cef.py','fetch-sparkle.py','make-icon.sh',
            'engine.py','performance-engine.py','monitor-engine.py','check-performance-candidate.sh','engine-framework-fingerprint.py','check-engine-patches.py',
            'welcome-assets.sh','onboarding-demo.sh','sign-and-notarize.sh','sign-sparkle.sh','release.py','verify-release.swift','ci-signing.py','public-source.py']
 FILES += ['native/scripts/'+name for name in SCRIPTS]

@@ -81,6 +81,7 @@ extension BrowserSession {
         next.tabPreviewsEnabled = tabPreviewsEnabled
         next.themeAppearance = themeAppearance; next.sidebarWidth = sidebarWidth; next.sidebarHidden = compact || sidebarHidden
         next.commandShortcuts = commandShortcuts; next.splitShortcuts = splitShortcuts
+        next.passwordManagerID = passwordManagerID
         next.savePasswords = privateProfile == nil ? savePasswords : false
         next.automaticSignIn = privateProfile == nil ? automaticSignIn : false
         next.formSuggestions = privateProfile == nil ? formSuggestions : false

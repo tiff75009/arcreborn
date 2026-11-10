@@ -480,6 +480,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private var windowCloseCancelled = false
     private lazy var pictureInPicture = PictureInPictureController(engine:engine)
     private var preferencesWindow: BrowserPreferencesWindow?
+    private var passwordSavePrompt: PasswordSavePrompt?
     private var welcomeWindow: WelcomeWindow?
     private var extensionTabReservations: [String: ExtensionTabReservation] = [:]
     private let root = PointerRootView()
@@ -802,6 +803,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         dismissFolderPeek(animated:false)
         pageCapture?.close()
         finishSpaceSwitch()
+        passwordSavePrompt?.close(); passwordSavePrompt = nil
         preferencesWindow?.close()
         dismissRecentPeek(animated:false); undoToast.dismiss(animated:false); library?.dispose(); libraryStore.flush()
         cancelSidebarHover()
@@ -1037,9 +1039,17 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
                 self.updateSidebarHover()
             })
         }
+        sidebarObservers.append(NotificationCenter.default.addObserver(forName: Notification.Name("BrowserPasswordManagerChanged"),object:nil,queue:.main) { [weak self] note in
+            guard let self, let choice = note.object as? String else { return }
+            self.session.passwordManagerID = choice
+            self.passwordSavePrompt?.close(); self.passwordSavePrompt = nil
+            self.preferencesWindow?.passwordManagerID = choice; self.preferencesWindow?.refreshPasswordManagers()
+        })
         sidebarObservers.append(NotificationCenter.default.addObserver(forName: Notification.Name("BrowserExtensionPreferencesChanged"), object:nil, queue:.main) { [weak self] note in
             guard let self, !self.isQuitting, let profile = note.object as? String else { return }
             self.extensionCatalog.invalidate(profile:profile)
+            _ = self.engine.updateCredentialPreferences()
+            self.preferencesWindow?.refreshPasswordManagers()
             let items = self.extensionCatalog.entries(profile:profile,force:true)
             guard self.activeSpace?.profileID == profile else { return }
             let ids = Set(items.map(\.id))
@@ -1611,6 +1621,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         DispatchQueue.main.asyncAfter(deadline: .now() + (intent == .reveal ? 0.08 : 0.18), execute: task)
     }
     private func render(movingSidebarItem: Bool = false) {
+        if let prompt = passwordSavePrompt, prompt.tabID != activeTab?.id { prompt.close(); passwordSavePrompt = nil }
         clearSplitPreview(animated:false)
         session.repairTabSelections()
         session.normalizeSplits()
@@ -3262,6 +3273,23 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if let menu = siteMenu, menu.isShown { menu.close(animated:false,completion:open) }
         else { open() }
     }
+    func browserPasswordPrompt(_ tabID:String,request:UInt64,origin:String,username:String,kind:Int) {
+        if kind < 0 {
+            if passwordSavePrompt?.request == request { passwordSavePrompt?.close(); passwordSavePrompt = nil }; return
+        }
+        guard !isQuitting, !isPrivateWindow, activeTab?.id == tabID,
+              (session.passwordManagerID ?? "native") == "native", let profile = activeSpace?.profileID else {
+            _ = engine.respondToPasswordPrompt(request,tab:tabID,action:0); return
+        }
+        passwordSavePrompt?.close()
+        let prompt = PasswordSavePrompt(tabID:tabID,request:request,origin:origin,username:username,
+            profile:session.profiles.first { $0.id == profile }?.name ?? "Arc Reborn",language:session.language,
+            update:kind == 1,appearance:window.effectiveAppearance) { [weak self] action in
+                guard let self else { return }; _ = self.engine.respondToPasswordPrompt(request,tab:tabID,action:action)
+                self.passwordSavePrompt = nil
+            }
+        passwordSavePrompt = prompt; prompt.show(in:window)
+    }
     func browserExtensionInstalled(_ identifier:String, name:String, profile:String) {
         guard !isQuitting else { return }
         let item = extensionCatalog.entries(profile:profile,force:true).first { $0.id == identifier }
@@ -3388,7 +3416,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         // An empty split pane uses the new-tab presentation while navigation
         // still fills that existing pane (including choosing an open tab).
         let emptySplitPane = !newTab && (activeTab?.url == "about:blank" || activeTab?.url.isEmpty == true)
-        let palette = CommandPalette(parent: window, newTab: newTab, centered: emptySplitPane, addressAnchor:usesClassicInterface ? addressButton : nil, initial: initial, icon: activeTab.flatMap(tabFavicon), tint: tint(), language: session.language, suggestions: { [weak self] query in
+        let palette = CommandPalette(parent: window, newTab: newTab, centered: emptySplitPane, addressAnchor:usesClassicInterface ? addressButton : nil, initial: initial, icon: activeTab.flatMap(tabFavicon), tint: tint(), language: session.language, searchProvider:currentEngine.spec.name, suggestions: { [weak self] query in
             self?.commandSuggestions(query,initial:initial,newTab:newTab,above:sourceID) ?? []
         }, onDismiss: { [weak self] in self?.commandPalette = nil; self?.render(); self?.updateSidebarHover() })
         commandPalette = palette; render(); palette.show()
@@ -3404,20 +3432,20 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             let searching: Bool
             if case .search = input { searching = true } else { searching = false }
             let detail = searching ? splitText("Rechercher avec ","Search with ") + currentEngine.spec.name : t("open")
-            result.append(CommandSuggestion(title: query, detail: detail, image: nil, symbol: searching ? "magnifyingglass" : "globe", perform: { [weak self] in self?.navigate(query,newTab:newTab,above:sourceID) }))
+            result.append(CommandSuggestion(title: query, detail: detail, image: nil, symbol: searching ? "magnifyingglass" : "globe", kind:searching ? .search : .address, perform: { [weak self] in self?.navigate(query,newTab:newTab,above:sourceID) }))
         }
         let ordered = session.tabs.sorted { a,b in
             if a.id == activeTab?.id { return b.id != a.id }; if b.id == activeTab?.id { return false }
             if a.favorite != b.favorite { return a.favorite }; return false
         }
         for tab in ordered where query.isEmpty || initialAddress || (tab.displayTitle+" "+tab.url).localizedCaseInsensitiveContains(query) {
-            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("switchTab"),image:tabFavicon(tab),symbol:"globe",perform:{ [weak self] in self?.selectCommandTab(tab.id,newTab:newTab) }))
+            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("switchTab"),image:tabFavicon(tab),symbol:"globe",kind:.tab,perform:{ [weak self] in self?.selectCommandTab(tab.id,newTab:newTab) }))
         }
         let openURLs = Set(session.tabs.map(\.url))
         var seen = openURLs
         for tab in session.closedTabs.reversed() where !seen.contains(tab.url) && (query.isEmpty || initialAddress || (tab.displayTitle+" "+tab.url).localizedCaseInsensitiveContains(query)) {
             seen.insert(tab.url)
-            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("restore"),image:nil,symbol:"clock",perform:{ [weak self] in self?.restoreArchivedTab(tab.id) }))
+            result.append(CommandSuggestion(title:displayTitle(tab),detail:t("restore"),image:nil,symbol:"clock",kind:.archived,perform:{ [weak self] in self?.restoreArchivedTab(tab.id) }))
         }
         return Array(result.prefix(5))
     }
@@ -3538,6 +3566,30 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             UserDefaults.standard.set(language, forKey: "BrowserLanguage")
             self.engine.updateLanguages(); self.persist(); self.render()
             NotificationCenter.default.post(name: Notification.Name("BrowserLanguageChanged"), object: language)
+        }
+        preferences.passwordManagerID = session.passwordManagerID ?? PasswordManagerChoice.native
+        preferences.passwordManagerDetections = { [weak self] profile in
+            guard let self else { return [] }
+            let settings = self.engine.extensionSettings(profile:profile) ?? ExtensionCatalog.passwordManagerSettings(directory:self.store.directory,profile:profile)
+            return PasswordManagerDetection.scan(settings:settings)
+        }
+        preferences.onManagePasswords = { [weak self] profile in _ = self?.openProfileSettings("arc://password-manager/passwords",profileID:profile) }
+        preferences.onInstallPasswordManager = { [weak self] identifier,profile in
+            guard let self, let provider = PasswordManagerProvider.all.first(where: { $0.id == identifier }),
+                  let name = self.session.profiles.first(where: { $0.id == profile })?.name else { return false }
+            return self.engine.showExtensionStore(profile:profile,name:name,address:provider.storeURL)
+        }
+        preferences.onPasswordManager = { [weak self] choice in
+            guard let self, PasswordManagerChoice.isValid(choice) else { return false }
+            let old = self.session.passwordManagerID ?? PasswordManagerChoice.native
+            UserDefaults.standard.set(choice,forKey:"BrowserPasswordManager")
+            guard self.engine.updateCredentialPreferences() else {
+                UserDefaults.standard.set(old,forKey:"BrowserPasswordManager"); _ = self.engine.updateCredentialPreferences(); return false
+            }
+            self.passwordSavePrompt?.close(); self.passwordSavePrompt = nil
+            self.session.passwordManagerID = choice; self.persist()
+            NotificationCenter.default.post(name:Notification.Name("BrowserPasswordManagerChanged"),object:choice)
+            return true
         }
         preferences.onCredentials = { [weak self] save, signIn, suggestions in
             guard let self else { return false }

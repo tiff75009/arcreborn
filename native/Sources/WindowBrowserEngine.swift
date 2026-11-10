@@ -56,6 +56,8 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     override func setPageInputSuppressed(_ value:Bool,forTab id:String) { bridge.setPageInputSuppressed(value,forTab:rendererID(id)) }
     override func clearCache(forTab id:String,completion:@escaping (Bool)->Void) { bridge.clearCache(forTab:rendererID(id),completion:completion) }
     override func clearCookies(forTab id:String,completion:@escaping (Bool)->Void) { bridge.clearCookies(forTab:rendererID(id),completion:completion) }
+    override func respondToPasswordPrompt(_ request:UInt64,tab:String,action:Int) -> Bool { bridge.respondToPasswordPrompt(request,tab:rendererID(tab),action:action) }
+    func browserPasswordPrompt(_ id:String,request:UInt64,origin:String,username:String,kind:Int) { receiver?.browserPasswordPrompt?(logical(id),request:request,origin:origin,username:username,kind:kind) }
     // Profile/global operations do not contain a tab ID and use the shared bridge implementation.
     func browserTitleChanged(_ id:String,title:String) { receiver?.browserTitleChanged(logical(id),title:title) }
     func browserSoundChanged(_ id:String,audible:Bool,muted:Bool) { receiver?.browserSoundChanged?(logical(id),audible:audible,muted:muted) }

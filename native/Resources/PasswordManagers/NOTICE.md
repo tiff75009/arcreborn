@@ -1,0 +1,1 @@
+These icons identify the corresponding password managers in the extension installer. They are from the publishers’ official Chrome Web Store packages listed in sources.json. The names and logos belong to their respective owners.

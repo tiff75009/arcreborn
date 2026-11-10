@@ -1,102 +1,47 @@
 {
-  "version": "1.3.0",
-  "build": 30,
+  "version": "1.4.0",
+  "build": 34,
   "showOnLaunch": true,
   "title": {
-    "en": "Lighter tabs, better video",
-    "fr": "Des onglets plus légers, une vidéo plus compatible"
+    "en": "Bring your browsing history with you",
+    "fr": "Emportez votre historique de navigation"
   },
   "subtitle": {
-    "en": "Memory savings, phishing warnings and better video playback and calls come to Arc Reborn.",
-    "fr": "Arc Reborn économise la mémoire, vous avertit en cas d’hameçonnage et améliore la lecture vidéo et les appels."
+    "en": "Move your history and saved passwords into Arc Reborn alongside your bookmarks and tabs.",
+    "fr": "Retrouvez dans Arc Reborn votre historique et vos mots de passe, en plus de vos favoris et de vos onglets."
   },
   "highlights": [
     {
-      "symbol": "leaf",
-      "title": {
-        "en": "Let idle tabs sleep",
-        "fr": "Mettez les onglets inutilisés en veille"
-      },
-      "detail": {
-        "en": "Inactive tabs can release memory after 30 minutes, or 10 minutes in Low Power Mode. Click a sleeping tab to return to it. Calls, playing media and unfinished forms stay awake.",
-        "fr": "Un onglet inutilisé peut libérer sa mémoire après 30 minutes, ou 10 minutes en mode économie d’énergie. Un clic le réveille. Les appels, les médias en lecture et les formulaires en cours restent actifs."
-      }
-    },
-    {
-      "symbol": "pin",
-      "title": {
-        "en": "Keep a site awake",
-        "fr": "Gardez un site actif"
-      },
-      "detail": {
-        "en": "Right-click a tab and choose Always Keep This Site Active to make an exception for that site in the current profile. You can also turn the saver off in Settings.",
-        "fr": "Faites un clic droit sur un onglet et choisissez « Toujours garder ce site actif » pour ce profil. Vous pouvez aussi désactiver l’économiseur dans les réglages."
-      }
-    },
-    {
-      "symbol": "shield",
-      "title": {
-        "en": "Warnings for unsafe sites and files",
-        "fr": "Des alertes pour les sites et fichiers dangereux"
-      },
-      "detail": {
-        "en": "Google Safe Browsing warns before you enter a known phishing page. When Chromium blocks a download, the library shows why. Google’s online file reputation service is not enabled for this release.",
-        "fr": "Google Safe Browsing vous avertit avant l’ouverture d’une page d’hameçonnage connue. Si Chromium bloque un téléchargement, la bibliothèque l’indique. Le service de réputation en ligne de Google pour les fichiers n’est pas activé dans cette version."
-      }
-    },
-    {
-      "symbol": "play.rectangle",
-      "title": {
-        "en": "Protected video playback",
-        "fr": "Lecture des vidéos protégées"
-      },
-      "detail": {
-        "en": "On macOS 14 or later, Arc Reborn can install Google’s Widevine module to play compatible protected video. Availability still depends on the streaming service.",
-        "fr": "À partir de macOS 14, Arc Reborn peut installer le module Widevine de Google pour lire les vidéos protégées compatibles. La disponibilité dépend du service de diffusion."
-      }
-    },
-    {
-      "symbol": "video",
-      "title": {
-        "en": "Send video in H.264",
-        "fr": "Envoyez de la vidéo en H.264"
-      },
-      "detail": {
-        "en": "WebRTC calls can now send and receive H.264 video, with software encoding available when hardware encoding is unavailable.",
-        "fr": "Les appels WebRTC peuvent désormais envoyer et recevoir de la vidéo en H.264, avec un encodage logiciel lorsque l’encodage matériel est indisponible."
-      }
-    },
-    {
-      "symbol": "arrow.down.circle",
-      "title": {
-        "en": "Recover interrupted downloads",
-        "fr": "Reprenez un téléchargement interrompu"
-      },
-      "detail": {
-        "en": "After reopening the browser, resume an eligible transfer from the library. When a file must start over, the library offers a restart instead.",
-        "fr": "Après avoir rouvert le navigateur, reprenez un transfert compatible depuis la bibliothèque. Si le fichier doit être téléchargé depuis le début, elle propose de le recommencer."
-      }
-    },
-    {
       "symbol": "clock.arrow.circlepath",
       "title": {
-        "en": "Reopen a tab with its history",
-        "fr": "Retrouvez l’historique d’un onglet rouvert"
+        "en": "Find a page from your old browser",
+        "fr": "Retrouvez une page de votre ancien navigateur"
       },
       "detail": {
-        "en": "Reopen an archived tab and use Back or Forward to revisit its pages. To place a new tab directly above another, use the tab’s context menu.",
-        "fr": "Rouvrez un onglet archivé et utilisez Précédent ou Suivant pour retrouver ses pages. Le menu de l’onglet permet aussi d’ouvrir un nouvel onglet juste au-dessus."
+        "en": "Import visits from Safari, Chrome, Firefox or Arc. Each visit keeps its original date, and importing the same history twice skips duplicates.",
+        "fr": "Importez les visites de Safari, Chrome, Firefox ou Arc avec leurs dates d’origine. Vous pouvez relancer l’import sans créer de doublons."
       }
     },
     {
-      "symbol": "macwindow",
+      "symbol": "arrow.forward.circle",
       "title": {
-        "en": "Sign in from a Mac app",
-        "fr": "Connectez-vous depuis une app Mac"
+        "en": "Your history is ready after setup",
+        "fr": "Votre historique est prêt dès la fin de l’accueil"
       },
       "detail": {
-        "en": "Apps that use macOS web authentication can open their sign-in flow in Arc Reborn and receive the result. Requests for a private session use a separate, temporary profile.",
-        "fr": "Les apps qui utilisent l’authentification web de macOS peuvent ouvrir leur connexion dans Arc Reborn et en recevoir le résultat. Les demandes de session privée utilisent un profil temporaire distinct."
+        "en": "Choose Open Arc Reborn at the end of setup, then press ⌘Y to see your imported visits. If you import later from the browser menu, the visits appear the next time you open Arc Reborn.",
+        "fr": "À la fin de l’accueil, cliquez sur « Ouvrir Arc Reborn », puis appuyez sur ⌘Y pour retrouver vos visites. Si vous les importez plus tard depuis le menu du navigateur, elles apparaîtront à sa prochaine ouverture."
+      }
+    },
+    {
+      "symbol": "key",
+      "title": {
+        "en": "Bring passwords into the right profile",
+        "fr": "Importez vos mots de passe dans le bon profil"
+      },
+      "detail": {
+        "en": "The assistant explains how to export passwords from your old browser as a CSV file, then opens the password manager for your chosen Arc Reborn profile. You can review the result and choose which existing logins to replace.",
+        "fr": "L’assistant vous guide pour exporter vos identifiants au format CSV, puis ouvre le gestionnaire de mots de passe du profil Arc Reborn choisi. Vous pouvez vérifier le résultat et choisir les identifiants existants à remplacer."
       }
     }
   ]

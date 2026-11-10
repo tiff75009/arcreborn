@@ -183,6 +183,7 @@ struct BrowserSession: Codable, Equatable {
     var classicSidebarHidden: Bool? = nil
 
     var currentInterface: BrowserInterface { interfaceStyle ?? .compact }
+    var passwordManagerID: String? = nil
     var savePasswords: Bool? = nil
     var automaticSignIn: Bool? = nil
     var formSuggestions: Bool? = nil

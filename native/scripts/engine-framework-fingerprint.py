@@ -24,7 +24,7 @@ def fingerprint(framework, reference):
     if 'arm64' not in arch:
         raise ValueError('The engine does not contain arm64 code')
     exports = set(subprocess.check_output(['/usr/bin/nm', '-gjU', str(binary)], text=True).split())
-    required = {'_browser_native_navigation_version_v1', '_browser_execute_extension_action_v1', '_browser_close_extension_popup_v1',
+    required = {'_browser_set_password_prompt_v1', '_browser_respond_password_prompt_v1', '_browser_configure_password_manager_v1', '_browser_native_navigation_version_v1', '_browser_execute_extension_action_v1', '_browser_close_extension_popup_v1',
                 '_browser_set_extension_tab_creator_v1', '_browser_set_extension_install_notice_v1',
                 '_browser_extension_popup_state_v1', '_browser_set_extension_dialog_bounds_v1', '_browser_attach_native_view_v1', '_browser_native_view_visibility_v1',
                 '_browser_download_info_v1', '_browser_recover_download_v1', '_browser_suspend_downloads_v1',

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "ghmbeldphafepmbegfdlkpapadhbakde",
+    "name": "Proton Pass",
+    "version": "1.43.0",
+    "sha256": "a3a2d15a1e07fd3d92a6f62518b1d7eb4bfe537744eb7280bac160e28a078066",
+    "store": "https://chromewebstore.google.com/detail/ghmbeldphafepmbegfdlkpapadhbakde"
+  },
+  {
+    "id": "aeblfdkhhhdcdjpifhhbdiojplfjncoa",
+    "name": "1Password",
+    "version": "8.12.44.33",
+    "sha256": "7024961743b1ede4e464a2e4969ac545b1ad83942cc1a0b0a00e38414cbf1f41",
+    "store": "https://chromewebstore.google.com/detail/aeblfdkhhhdcdjpifhhbdiojplfjncoa"
+  },
+  {
+    "id": "nngceckbapebfimnlniiiahkandclblb",
+    "name": "Bitwarden",
+    "version": "2026.10.2",
+    "sha256": "98c340b8ab05ae178c69ee7255e61aa52ca260489504679e82e23d40e28ce1f5",
+    "store": "https://chromewebstore.google.com/detail/nngceckbapebfimnlniiiahkandclblb"
+  },
+  {
+    "id": "fdjamakpfbbddfjaooikfcpapjohcfmg",
+    "name": "Dashlane",
+    "version": "6.2646.1",
+    "sha256": "7289c9be29b6384da875a9d6b915acbd10f7e44295e403b531c1a2aa15afe1e3",
+    "store": "https://chromewebstore.google.com/detail/fdjamakpfbbddfjaooikfcpapjohcfmg"
+  },
+  {
+    "id": "bfogiafebfohielmmehodmfbbebbbpei",
+    "name": "Keeper",
+    "version": "18.2.0",
+    "sha256": "763ca93318b931ec3f251d4277f6b56924e2fcb3811452a6bcd71476a88088f6",
+    "store": "https://chromewebstore.google.com/detail/bfogiafebfohielmmehodmfbbebbbpei"
+  },
+  {
+    "id": "hdokiejnpimakedhajhdlcegeplioahd",
+    "name": "LastPass",
+    "version": "4.157.0",
+    "sha256": "9e0497dc10e5cde290992097bfa32889ad8bf07f635c2cf8ab6779eea55b31de",
+    "store": "https://chromewebstore.google.com/detail/hdokiejnpimakedhajhdlcegeplioahd"
+  },
+  {
+    "id": "oboonakemofpalcgghocfoadofidjkkk",
+    "name": "KeePassXC",
+    "version": "1.10.4.1",
+    "sha256": "674ab5a3d7112721f00ab67921958e3c8683b55be9a6cd1efa7233973b3e5b6c",
+    "store": "https://chromewebstore.google.com/detail/oboonakemofpalcgghocfoadofidjkkk"
+  },
+  {
+    "id": "pejdijmoenmkgeppbflobdenhhabjlaj",
+    "name": "Mots de passe iCloud",
+    "version": "3.4.0",
+    "sha256": "8ae295e8502836db0c9c8543dd9bdb5f2daf29584a72f5419863d8e2076cde09",
+    "store": "https://chromewebstore.google.com/detail/pejdijmoenmkgeppbflobdenhhabjlaj"
+  }
+]

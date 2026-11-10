@@ -20,6 +20,48 @@ struct ProfileSettingsLink {
     ]
 }
 
+private final class PasswordSettingsBackdrop:NSView {
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
+    override func draw(_ rect:NSRect) {
+        let dark = effectiveAppearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua
+        (dark ? NSColor(srgbRed:0.12,green:0.12,blue:0.14,alpha:1) : NSColor(srgbRed:0.975,green:0.975,blue:0.985,alpha:1)).setFill(); bounds.fill()
+    }
+}
+private final class PasswordProviderRow:ActionButton {
+    override var isFlipped:Bool { true }
+    private let provider:PasswordManagerProvider, detail:String, chosen:Bool
+    private var area:NSTrackingArea?, hovering = false
+    init(_ provider:PasswordManagerProvider,detail:String,selected:Bool,action:@escaping()->Void) {
+        self.provider = provider; self.detail = detail; chosen = selected; super.init(provider.name,action:action)
+        setAccessibilityLabel(provider.name+", "+detail); setAccessibilityRole(.radioButton); setAccessibilityValue(selected ? 1 : 0)
+    }
+    required init?(coder:NSCoder) { fatalError() }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas(); if let area { removeTrackingArea(area) }
+        let a = NSTrackingArea(rect:.zero,options:[.activeInKeyWindow,.inVisibleRect,.mouseEnteredAndExited],owner:self); area = a; addTrackingArea(a)
+    }
+    override func mouseEntered(with event:NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event:NSEvent) { hovering = false; needsDisplay = true }
+    override func draw(_ rect:NSRect) {
+        if hovering { NSColor.labelColor.withAlphaComponent(0.035).setFill(); NSBezierPath(roundedRect:bounds.insetBy(dx:0,dy:3),xRadius:8,yRadius:8).fill() }
+        let iconBox = NSRect(x:8,y:bounds.midY-14,width:28,height:28)
+        if let image = provider.icon {
+            image.draw(in:iconBox,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
+        } else {
+            NSColor.labelColor.withAlphaComponent(0.06).setFill(); NSBezierPath(roundedRect:iconBox,xRadius:7,yRadius:7).fill()
+            let image = NSImage(systemSymbolName:provider.symbol,accessibilityDescription:nil)
+            image?.draw(in:iconBox.insetBy(dx:6,dy:6),from:.zero,operation:.sourceOver,fraction:0.75,respectFlipped:true,hints:nil)
+        }
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
+        (provider.name as NSString).draw(in:NSRect(x:50,y:bounds.midY-16,width:bounds.width-85,height:20),withAttributes:[.font:NSFont.systemFont(ofSize:13,weight:.medium),.foregroundColor:NSColor.labelColor,.paragraphStyle:paragraph])
+        (detail as NSString).draw(in:NSRect(x:50,y:bounds.midY+3,width:bounds.width-85,height:17),withAttributes:[.font:NSFont.systemFont(ofSize:11),.foregroundColor:NSColor.secondaryLabelColor,.paragraphStyle:paragraph])
+        if chosen {
+            let image = NSImage(systemSymbolName:"checkmark",accessibilityDescription:nil)?.withSymbolConfiguration(.init(paletteColors:[ChapterInk.accent]))
+            image?.draw(in:NSRect(x:bounds.width-24,y:bounds.midY-7,width:14,height:14),from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
+        }
+    }
+}
+
 private final class PreferencesCanvas: NSView {
     override var isFlipped: Bool { true }
     var resized: (() -> Void)?
@@ -145,6 +187,11 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
     var previewTheme: (() -> SpaceTheme)?
     private var interfaceMode: BrowserInterface
     var onAppearance: ((ThemeAppearance)->Void)?
+    var onPasswordManager: ((String)->Bool)?
+    var passwordManagerID = PasswordManagerChoice.native
+    var passwordManagerDetections: ((String)->[PasswordManagerDetection])?
+    var onInstallPasswordManager: ((String,String)->Bool)?
+    var onManagePasswords: ((String)->Void)?
     var onCredentials: ((Bool,Bool,Bool)->Bool)?
     var onNewProfile: (()->Void)?
     var onRenameProfile: ((String,String)->Bool)?
@@ -163,14 +210,16 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
     private let privateWindow: Bool
     private var section = 1
     private let canvas = PreferencesCanvas(), pageContent = PreferencesCanvas()
+    private let passwordBackdrop = PasswordSettingsBackdrop()
+    private var choosingExternalManager = false
     private let scroll = NSScrollView()
     private let nav = PreferencesCanvas()
     private var tabButtons:[ChapterButton] = []
     private let sheetWidth:CGFloat = 832
     private var shortcuts: CommandShortcutsPreferencesView?
     private var bodyWidth:CGFloat = 0
-    private let titles = [("Compte","Account"),("Général","General"),("Profils","Profiles"),("Interface","Interface"),("Liens","Links"),("Raccourcis","Shortcuts"),("Icône","Icon"),("Avancé","Advanced")]
-    private let symbols = ["person.crop.circle","gearshape","person.2","macwindow","link","keyboard","app.dashed","slider.horizontal.3"]
+    private let titles = [("Compte","Account"),("Général","General"),("Profils","Profiles"),("Interface","Interface"),("Liens","Links"),("Raccourcis","Shortcuts"),("Icône","Icon"),("Mots de passe","Passwords")]
+    private let symbols = ["person.crop.circle","gearshape","person.2","macwindow","link","keyboard","app.dashed","key.fill"]
     private var available:Set<Int> { privateWindow ? [1,2,3,5,7] : [0,1,2,3,5,7] }
 
     init(language:String,profiles:[PreferenceProfile],selectedProfileID:String,interfaceMode:BrowserInterface = .compact,sidebarHidden:Bool = false,appearance:ThemeAppearance,save:Bool,signIn:Bool,suggestions:Bool,privateWindow:Bool = false) {
@@ -188,6 +237,7 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         window.backgroundColor = .windowBackgroundColor; window.contentView = canvas
         window.appearance = appearance == .automatic ? nil : NSAppearance(named:appearance == .dark ? .darkAqua : .aqua)
         let paper = WelcomePaper(frame:canvas.bounds); paper.autoresizingMask = [.width,.height]; canvas.addSubview(paper)
+        passwordBackdrop.frame = canvas.bounds; passwordBackdrop.autoresizingMask = [.width,.height]; canvas.addSubview(passwordBackdrop)
         scroll.contentView = PreferencesClipView(frame:.zero)
         scroll.drawsBackground = false; scroll.borderType = .noBorder; scroll.hasVerticalScroller = true
         scroll.scrollerStyle = .overlay; scroll.autohidesScrollers = true; scroll.automaticallyAdjustsContentInsets = false
@@ -197,7 +247,9 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         window.center(); layoutPage()
     }
     required init?(coder:NSCoder) { fatalError() }
-    func windowDidBecomeKey(_ notification:Notification) { refreshDefaultBrowser() }
+    func windowDidBecomeKey(_ notification:Notification) { refreshDefaultBrowser(); if section == 7 { rebuild() } }
+    func refreshPasswordManagers() { if section == 7 { rebuild() } }
+    func showPasswords() { select(7) }
     func refreshDefaultBrowser() {
         guard let row = defaultBrowserRow else { return }
         row.isEnabled = !DefaultBrowser.isCurrent
@@ -206,7 +258,7 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
     private func tr(_ fr:String,_ en:String)->String { language == "en" ? en : fr }
     private func buildNavigation() {
         nav.subviews.forEach { $0.removeFromSuperview() }; tabButtons.removeAll()
-        let widths:[CGFloat] = language == "en" ? [95,94,96,103,72,114,67,101] : [90,96,85,102,74,118,75,95]
+        let widths:[CGFloat] = language == "en" ? [95,94,96,103,72,114,67,130] : [90,96,85,102,74,118,75,135]
         let total = widths.reduce(0,+)+CGFloat(widths.count-1)*3
         var x = (sheetWidth-total)/2
         for i in titles.indices {
@@ -283,6 +335,7 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
     }
     private func rebuild() {
         guard bodyWidth > 0 else { return }
+        passwordBackdrop.isHidden = section != 7
         if section == 5, let shortcuts {
             shortcuts.frame = NSRect(x:28,y:97,width:bodyWidth-56,height:max(330,scroll.bounds.height-110)); return
         }
@@ -554,25 +607,96 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         if onOpenProfilePage?(selectedProfileID,address) == true { window?.orderOut(nil) }
     }
     private func drawCredentials() {
-        heading(tr("Mots de passe et saisie","Passwords and autofill"),tr("Choisissez ce qu’Arc Reborn peut proposer. Ces réglages s’appliquent à tous vos profils.","Choose what Arc Reborn can suggest. These settings apply to all your profiles."))
-        let width = bodyWidth-302
-        sectionLabel(tr("Identifiants et formulaires","Credentials and forms"),x:28,y:99,width:width)
-        let panel = card(NSRect(x:28,y:121,width:width,height:219))
-        let rows = [(tr("Proposer d’enregistrer les mots de passe","Offer to save passwords"),tr("Active aussi la génération de nouveaux mots de passe.","Also enables generation of new passwords."),savePasswords),
-                    (tr("Connexion automatique","Automatic sign-in"),tr("Utiliser vos identifiants enregistrés pour vous connecter.","Use saved credentials to sign in."),automaticSignIn),
-                    (tr("Suggestions dans les formulaires","Form suggestions"),tr("Proposer vos adresses et vos saisies précédentes.","Suggest saved addresses and previous entries."),formSuggestions)]
-        for (index,row) in rows.enumerated() {
-            let y = CGFloat(index)*73
-            text(row.0,NSRect(x:22,y:y+13,width:width-115,height:24),size:14,weight:.medium,in:panel)
-            text(row.1,NSRect(x:22,y:y+36,width:width-115,height:32),size:12,color:.secondaryLabelColor,in:panel)
-            let control = PreferenceSwitch(value:row.2) { [weak self] value in self?.setCredential(index,value) }
-            control.frame = NSRect(x:width-67,y:y+23,width:42,height:26); control.setAccessibilityLabel(row.0); panel.addSubview(control)
-            if index < 2 { line(panel,y:y+73) }
+        let external = passwordManagerID != PasswordManagerChoice.native || choosingExternalManager
+        let x:CGFloat = 88, width = bodyWidth-176
+        let title = text(tr("Vos mots de passe","Your passwords"),NSRect(x:x,y:25,width:width,height:32),size:23,weight:.semibold)
+        title.alignment = .center
+        let subtitle = text(tr("Enregistrez-les à votre façon.","Save them your way."),NSRect(x:x,y:63,width:width,height:20),size:13,color:.secondaryLabelColor); subtitle.alignment = .center
+        let mode = NSSegmentedControl(labels:[tr("Coffre Arc Reborn","Arc Reborn vault"),tr("Mon gestionnaire","My password manager")],trackingMode:.selectOne,target:self,action:#selector(changePasswordMode(_:)))
+        mode.identifier = NSUserInterfaceItemIdentifier("password-manager-mode")
+        mode.segmentStyle = .rounded; mode.selectedSegment = external ? 1 : 0
+        mode.selectedSegmentBezelColor = NSColor(srgbRed:0.40,green:0.31,blue:0.87,alpha:1)
+        mode.setWidth(220,forSegment:0); mode.setWidth(220,forSegment:1)
+        mode.frame = NSRect(x:(bodyWidth-444)/2,y:103,width:444,height:34)
+        mode.setAccessibilityLabel(tr("Gestionnaire de mots de passe","Password manager")); pageContent.addSubview(mode)
+        let profilesLabel = text(tr("Profil","Profile"),NSRect(x:x,y:169,width:90,height:22),size:12,color:.secondaryLabelColor)
+        profilesLabel.alignment = .left
+        let picker = PreferencePicker(profiles.map(\.name),selected:max(0,profiles.firstIndex { $0.id == selectedProfileID } ?? 0)) { [weak self] index in
+            guard let self, self.profiles.indices.contains(index) else { return }; self.selectedProfileID = self.profiles[index].id; self.rebuild()
         }
-        let note = card(NSRect(x:44+width,y:121,width:230,height:219))
-        text(tr("Vos mots de passe restent conservés.","Your saved passwords are kept."),NSRect(x:16,y:22,width:198,height:54),weight:.medium,in:note)
-        text(tr("Ces options ne désactivent pas le remplissage des identifiants existants ni les suggestions de vos extensions.","These options do not disable filling existing credentials or suggestions from your extensions."),NSRect(x:16,y:79,width:198,height:122),size:12,color:.secondaryLabelColor,in:note)
-        pageContent.frame.size.height = max(scroll.bounds.height,372)
+        picker.frame = NSRect(x:x+width-180,y:161,width:180,height:30); picker.setAccessibilityLabel(tr("Profil des identifiants","Credentials profile")); pageContent.addSubview(picker)
+        let separator = NSBox(frame:NSRect(x:x,y:202,width:width,height:1)); separator.boxType = .separator; pageContent.addSubview(separator)
+        if !external {
+            text(tr("Votre coffre sur ce Mac","Your vault on this Mac"),NSRect(x:x,y:225,width:width-175,height:24),size:14,weight:.semibold)
+            text(tr("Chiffré, séparé par profil et protégé par le trousseau macOS.","Encrypted, separate for each profile and protected by the macOS keychain."),NSRect(x:x,y:252,width:width-175,height:36),size:12,color:.secondaryLabelColor)
+            let open = ChapterButton(tr("Ouvrir le coffre","Open vault"),style:.soft) { [weak self] in guard let self else { return }; self.onManagePasswords?(self.selectedProfileID) }
+            open.frame = NSRect(x:x+width-149,y:227,width:149,height:32); pageContent.addSubview(open)
+            let rows = [(tr("Enregistrer les mots de passe","Save passwords"),tr("Une proposition discrète après la connexion.","A discreet prompt after signing in."),savePasswords),
+                        (tr("Connexion automatique","Automatic sign-in"),tr("Utiliser les identifiants de ce coffre.","Use the credentials in this vault."),automaticSignIn),
+                        (tr("Adresses et formulaires","Addresses and forms"),tr("Retrouver vos informations déjà saisies.","Suggest information you have already entered."),formSuggestions)]
+            for (index,row) in rows.enumerated() {
+                let y:CGFloat = 310+CGFloat(index)*64
+                text(row.0,NSRect(x:x,y:y,width:width-76,height:22),size:13,weight:.medium)
+                text(row.1,NSRect(x:x,y:y+24,width:width-76,height:22),size:11,color:.secondaryLabelColor)
+                let control = PreferenceSwitch(value:row.2) { [weak self] value in self?.setCredential(index,value) }
+                control.frame = NSRect(x:x+width-42,y:y+8,width:42,height:26); control.setAccessibilityLabel(row.0); pageContent.addSubview(control)
+                if index < 2 { let rule = NSBox(frame:NSRect(x:x,y:y+56,width:width,height:1)); rule.boxType = .separator; pageContent.addSubview(rule) }
+            }
+            text(tr("Stockage local · Aucune synchronisation avec Mots de passe iCloud.","Local storage · Does not sync with iCloud Passwords."),NSRect(x:x,y:522,width:width,height:30),size:11,color:.secondaryLabelColor)
+            pageContent.frame.size.height = max(scroll.bounds.height,576)
+            return
+        }
+        let selectedName = PasswordManagerProvider.all.first { $0.id == passwordManagerID }?.name
+        text(selectedName.map { tr("\($0) s’occupe de vos identifiants.","\($0) handles your logins.") } ?? tr("Choisissez votre gestionnaire.","Choose your password manager."),NSRect(x:x,y:225,width:width,height:23),size:14,weight:.semibold)
+        text(selectedName != nil ? tr("Le coffre intégré est en veille. Les autres gestionnaires reconnus sont en pause.","The built-in vault is inactive. Other recognized managers are paused.") : tr("Installez son extension ou utilisez celle qui est déjà présente.","Install its extension or use one you already have."),NSRect(x:x,y:253,width:width,height:35),size:12,color:.secondaryLabelColor)
+        let detections = passwordManagerDetections?(selectedProfileID) ?? PasswordManagerDetection.scan(settings:[:])
+        for (index,detection) in detections.enumerated() {
+            let y:CGFloat = 302+CGFloat(index)*58, provider = detection.provider, selected = passwordManagerID == provider.id
+            let status:String
+            switch detection.extensionState {
+            case .enabled: status = tr("Installé dans ce profil","Installed in this profile")
+            case .disabled: status = tr("Installé · en pause","Installed · paused")
+            case .missing: status = detection.appInstalled ? tr("Application détectée · extension à ajouter","App detected · add the extension") : tr("Disponible pour Arc Reborn","Available for Arc Reborn")
+            }
+            let row = PasswordProviderRow(provider,detail:status,selected:selected) { [weak self] in self?.choosePasswordManager(provider.id) }
+            row.frame = NSRect(x:x-8,y:y,width:width-108,height:58); pageContent.addSubview(row)
+            let action = ChapterButton(detection.extensionState == .missing ? tr("Installer","Install") : selected ? tr("Actif","Active") : tr("Utiliser","Use"),style:selected ? .link : .soft) { [weak self] in
+                guard let self else { return }
+                if detection.extensionState == .missing {
+                    guard self.choosePasswordManager(provider.id) else { return }
+                    if self.onInstallPasswordManager?(provider.id,self.selectedProfileID) != true { self.passwordSettingError() }
+                } else { self.choosePasswordManager(provider.id) }
+            }
+            action.isEnabled = !selected || detection.extensionState == .missing
+            action.frame = NSRect(x:x+width-96,y:y+14,width:96,height:30); pageContent.addSubview(action)
+            if index < detections.count-1 { let rule = NSBox(frame:NSRect(x:x+43,y:y+58,width:width-43,height:1)); rule.boxType = .separator; pageContent.addSubview(rule) }
+        }
+        let bottom:CGFloat = 320+CGFloat(detections.count)*58
+        text(tr("Votre choix s’applique à tous les profils. Installez l’extension dans chaque profil que vous utilisez.","Your choice applies to all profiles. Install the extension in each profile you use."),NSRect(x:x,y:bottom,width:width,height:42),size:11,color:.secondaryLabelColor)
+        pageContent.frame.size.height = max(scroll.bounds.height,bottom+66)
+    }
+    @objc private func changePasswordMode(_ sender:NSSegmentedControl) {
+        defer {
+            scroll.layoutSubtreeIfNeeded(); scroll.contentView.scroll(to:.zero)
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+        if sender.selectedSegment == 0 { choosingExternalManager = false; choosePasswordManager(PasswordManagerChoice.native); rebuild() }
+        else {
+            choosingExternalManager = true
+            if passwordManagerID == PasswordManagerChoice.native,
+               let found = passwordManagerDetections?(selectedProfileID).first(where: { $0.extensionState == .enabled }) { choosePasswordManager(found.provider.id) }
+            else { rebuild() }
+        }
+    }
+    @discardableResult private func choosePasswordManager(_ id:String) -> Bool {
+        guard passwordManagerID != id else { return true }
+        guard onPasswordManager?(id) == true else { passwordSettingError(); return false }
+        passwordManagerID = id; rebuild(); return true
+    }
+    private func passwordSettingError() {
+        guard let window else { return }
+        let alert = NSAlert(); alert.messageText = tr("Gestionnaire non modifié","Password manager unchanged")
+        alert.informativeText = tr("Le changement n’a pas pu être appliqué. Votre choix précédent est conservé.","The change could not be applied. Your previous choice has been kept."); alert.beginSheetModal(for:window)
     }
     private func setCredential(_ key:Int,_ value:Bool) {
         let save = key == 0 ? value : savePasswords, signIn = key == 1 ? value : automaticSignIn, suggestions = key == 2 ? value : formSuggestions

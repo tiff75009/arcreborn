@@ -69,6 +69,32 @@ apply `appkit-tab-history.patch` and `appkit-download-recovery.patch`. Run
 `python3 native/scripts/test-download-recovery.py` after building the development app
 to exercise both library actions against a local HTTP server.
 
+## Password managers
+
+Engine `arcreborn.11` adds native password-save and update prompts. Chromium
+retains the pending credential and performs its existing encrypted, profile-scoped
+write after explicit consent. Only an origin, username and opaque request token
+cross the AppKit presentation boundary. Dismissal, site blocklisting, request
+expiry and tab destruction release the pending form without saving it.
+
+Selecting an external manager disables the built-in saving, generation, sign-in
+and filling paths, including credentials already cached by open documents.
+Recognized competing extensions are paused through Chromium’s extension registrar;
+the engine records which ones it paused so switching back can restore them without
+reactivating extensions previously disabled by the user or by policy. The iCloud
+passkey proposal is suppressed for external managers other than Apple’s selected
+extension. Installation and activation are detected independently for each profile.
+
+The default precompiled engine includes the native passkey window anchor. Its
+binary delta reconstructs the framework from the immutable public `arcreborn.7`
+archive. `BROWSER_PASSKEY_ENGINE=1` therefore selects the same current engine.
+Run `native/scripts/check.sh` for state and detection checks, and
+`BROWSER_BUILD_ROOT=/path/to/build native/scripts/test-password-managers.sh` for
+the isolated form-consent and extension lifecycle test (Node.js 22 or later).
+The latter uses only Node built-ins, mock-keychain profiles and local,
+nonfunctional extension fixtures with stable provider identities. It does not
+access a personal vault or sign in to a password-manager account.
+
 ## Native navigation and menus
 
 `appkit-native-navigation.patch` routes Chromium's complete `OpenURLParams` to a

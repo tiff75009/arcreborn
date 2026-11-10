@@ -7,6 +7,7 @@ let store = SessionStore(directory: directory)
 do {
     let initial = try store.load() ?? BrowserSession.fresh(language: Locale.preferredLanguages.first?.hasPrefix("fr") == true ? "fr" : "en")
     UserDefaults.standard.set(initial.language, forKey: "BrowserLanguage")
+UserDefaults.standard.set(initial.passwordManagerID ?? "native", forKey: "BrowserPasswordManager")
 UserDefaults.standard.set(initial.savePasswords ?? true, forKey: "BrowserSavePasswords")
 UserDefaults.standard.set(initial.automaticSignIn ?? true, forKey: "BrowserAutomaticSignIn")
 UserDefaults.standard.set(initial.formSuggestions ?? true, forKey: "BrowserFormSuggestions")
