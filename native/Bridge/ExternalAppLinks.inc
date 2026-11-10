@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+#include "ExternalAppLinkPolicy.h"
 // A handoff is a one-time action attached to a visible document. External URLs
 // never become browser addresses, popup tabs, or entries in the session.
 static NSString *ExternalAppScheme(NSString *address) {
@@ -31,7 +32,16 @@ static bool DeclaresExternalScheme(NSBundle *bundle, NSString *scheme) {
   return false;
 }
 
+static NSURL *ApplicationForExternalURL(NSWorkspace *workspace, NSURL *url) {
+  if ([url.scheme.lowercaseString isEqualToString:@"discord"]) {
+    NSURL *official = [workspace URLForApplicationWithBundleIdentifier:@"com.hnc.Discord"];
+    if (official && DeclaresExternalScheme([NSBundle bundleWithURL:official],@"discord")) return official;
+  }
+  return [workspace URLForApplicationToOpenURL:url];
+}
+
 static std::map<std::string, NSWindow *> externalAppSheets;
+static std::map<std::string, std::string> offeredDiscordInvites;
 static void DismissExternalAppSheet(const std::string& tab) {
   auto found = externalAppSheets.find(tab);
   if (found == externalAppSheets.end()) return;
@@ -40,30 +50,30 @@ static void DismissExternalAppSheet(const std::string& tab) {
   [sheet.sheetParent endSheet:sheet returnCode:NSModalResponseCancel];
 }
 
-static void AskToOpenExternalApp(CefRefPtr<CefBrowser> browser, NSString *tabID, NSView *page, NSString *address, NSString *scheme) {
+static bool AskToOpenExternalApp(CefRefPtr<CefBrowser> browser, NSString *tabID, NSView *page, NSString *address, NSString *scheme) {
   CEF_REQUIRE_UI_THREAD();
   NSWindow *parent = page.window;
   if (!parent.isKeyWindow || !parent.isVisible || parent.attachedSheet || page.hiddenOrHasHiddenAncestor ||
       [address lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 32768 ||
       [address rangeOfCharacterFromSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].location != NSNotFound ||
       [address rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
-      [address containsString:@"\\"] || [address containsString:@"%00"]) return;
+      [address containsString:@"\\"] || [address containsString:@"%00"]) return false;
   NSURL *url = [NSURL URLWithString:address];
   auto main = browser->GetMainFrame();
-  if (![url.scheme.lowercaseString isEqualToString:scheme] || !main) return;
+  if (![url.scheme.lowercaseString isEqualToString:scheme] || !main) return false;
   NSString *source = Str(main->GetURL());
   NSURLComponents *origin = [NSURLComponents componentsWithString:source];
   bool local = LocalDocument(source) != nil;
-  if (!local && (![@[@"http",@"https"] containsObject:origin.scheme.lowercaseString] || !origin.host.length)) return;
+  if (!local && (![@[@"http",@"https"] containsObject:origin.scheme.lowercaseString] || !origin.host.length)) return false;
 
   NSWorkspace *workspace = NSWorkspace.sharedWorkspace;
-  NSURL *app = [workspace URLForApplicationToOpenURL:url];
+  NSURL *app = ApplicationForExternalURL(workspace,url);
   NSBundle *bundle = app ? [NSBundle bundleWithURL:app] : nil;
   // Hand Web links only to apps which explicitly register this scheme. macOS
   // system helpers also register administrative protocols unrelated to web links.
   if (app && (!DeclaresExternalScheme(bundle, scheme) || [bundle.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier] ||
       ([bundle.bundleIdentifier hasPrefix:@"com.apple."] &&
-       ![@[@"mailto",@"tel",@"sms",@"facetime",@"facetime-audio",@"maps",@"webcal",@"itms-apps",@"itms"] containsObject:scheme]))) return;
+       ![@[@"mailto",@"tel",@"sms",@"facetime",@"facetime-audio",@"maps",@"webcal",@"itms-apps",@"itms"] containsObject:scheme]))) return false;
   NSAlert *alert = [NSAlert new];
   NSString *name = [bundle objectForInfoDictionaryKey:@"CFBundleDisplayName"] ?: [bundle objectForInfoDictionaryKey:@"CFBundleName"] ?: app.lastPathComponent.stringByDeletingPathExtension;
   if (app) {
@@ -101,4 +111,25 @@ static void AskToOpenExternalApp(CefRefPtr<CefBrowser> browser, NSString *tabID,
         });
       }];
   }];
+  return true;
+}
+
+static void ScheduleDiscordInviteOffer(CefRefPtr<CefBrowser> browser, NSString *tabID, NSView *page) {
+  // Discord's script may lose its activation before Chromium dispatches the
+  // custom protocol. Offer the same native handoff from the canonical HTTPS
+  // invitation instead. Showing a dialog never opens or joins the server.
+  if (quitting || !browser->IsValid()) return;
+  auto frame = browser->GetMainFrame();
+  NSString *candidate = frame ? DiscordWebInviteCode([NSURLComponents componentsWithString:Str(frame->GetURL())]) : nil;
+  if (!candidate || offeredDiscordInvites[tabID.UTF8String] == candidate.UTF8String) return;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (quitting || !browser->IsValid() || !tabVisibility[tabID.UTF8String]) return;
+    auto main = browser->GetMainFrame();
+    if (!main) return;
+    NSString *code = DiscordWebInviteCode([NSURLComponents componentsWithString:Str(main->GetURL())]);
+    if (!code || offeredDiscordInvites[tabID.UTF8String] == code.UTF8String) return;
+    NSString *address = [@"discord:///invite-proxy/" stringByAppendingString:code];
+    if (!ApplicationForExternalURL(NSWorkspace.sharedWorkspace,[NSURL URLWithString:address])) return;
+    if (AskToOpenExternalApp(browser,tabID,page,address,@"discord")) offeredDiscordInvites[tabID.UTF8String] = code.UTF8String;
+  });
 }

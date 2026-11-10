@@ -109,6 +109,10 @@ static void LayoutChromeTab(const std::string& key) {
   [native orderOut:nil];
   tab.content.frame = pageFrame;
   LayoutDeveloperTools(key,container);
+  auto owner = nativeTabOwners.find(key);
+  if (visible && owner != nativeTabOwners.end() &&
+      ![owner->second.engine.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)])
+    ScheduleDiscordInviteOffer(browser,@(key.c_str()),tab.content);
 }
 
 class ChromeTabWindow : public CefWindowDelegate {

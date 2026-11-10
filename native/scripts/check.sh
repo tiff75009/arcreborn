@@ -61,6 +61,8 @@ xcrun swiftc Sources/LibraryDrawerMotion.swift Tests/LibraryDrawerMotionTests.sw
 build/checks/library-drawer-motion-tests
 xcrun clang++ -fobjc-arc -framework Foundation Tests/TestKeychainPolicyTests.mm -o build/checks/test-keychain-policy
 build/checks/test-keychain-policy
+xcrun clang++ -fobjc-arc -framework Foundation Tests/ExternalAppLinkPolicyTests.mm -o build/checks/external-app-link-policy
+build/checks/external-app-link-policy
 /usr/bin/python3 scripts/release.py check
 /usr/bin/python3 Tests/release-tools-test.py
 xcrun swiftc Sources/{SidebarUpdateSession,SidebarUpdateCard,SidebarListChrome,LibraryStore,Localization,ActionButton,DownloadCard,RecentMediaPeek}.swift Tests/SidebarUpdateTests.swift -o build/checks/sidebar-update-tests

@@ -749,6 +749,7 @@ class NativeClient : public CefClient,
     BrowserTrace(@"tab.before-close",@{@"tab":tabID_,@"browser":@(browser->GetIdentifier()),@"quitting":@(quitting)});
     DismissSitePermissionSheet(tabID_.UTF8String);
     DismissExternalAppSheet(tabID_.UTF8String);
+    offeredDiscordInvites.erase(tabID_.UTF8String);
     favicon_->closed = true;
     ++favicon_->generation;
     CloseTabDeveloperTools(tabID_.UTF8String);
@@ -809,6 +810,8 @@ class NativeClient : public CefClient,
     if (LocalDocument(address)) requestedLocalDocuments.erase(tabID_.UTF8String);
     else if (!Allowed(address)) return;
     [engine_.delegate browserURLChanged:tabID_ url:address];
+    if (embedded_ && ![engine_.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)])
+      ScheduleDiscordInviteOffer(browser,tabID_,chrome_ ? VisibleChromePage(tabID_) : (__bridge NSView *)browser->GetHost()->GetWindowHandle());
   }
   void OnLoadingProgressChange(CefRefPtr<CefBrowser> browser, double progress) override {
     CEF_REQUIRE_UI_THREAD();
@@ -817,6 +820,8 @@ class NativeClient : public CefClient,
   }
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool back, bool forward) override {
     [engine_.delegate browserLoadingChanged:tabID_ loading:loading back:back forward:forward];
+    if (!loading && embedded_ && ![engine_.delegate respondsToSelector:@selector(browserShouldCancelAuthenticationNavigation:url:)])
+      ScheduleDiscordInviteOffer(browser,tabID_,chrome_ ? VisibleChromePage(tabID_) : (__bridge NSView *)browser->GetHost()->GetWindowHandle());
   }
   void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedURL) override {
     if (!embedded_ || !frame->IsMain() || errorCode == ERR_ABORTED) return;
@@ -847,6 +852,7 @@ class NativeClient : public CefClient,
     }
     if (chrome_ && frame->IsMain()) {
       NSURLComponents *location = [NSURLComponents componentsWithString:url];
+      if ([@[@"http",@"https"] containsObject:location.scheme.lowercaseString]) offeredDiscordInvites.erase(tabID_.UTF8String);
       ExtensionStoreCompatibility(browser, [location.scheme isEqualToString:@"https"] && [location.host isEqualToString:@"chromewebstore.google.com"] && !location.user && !location.password);
     }
     if (NSURL *file = LocalDocument(url)) {

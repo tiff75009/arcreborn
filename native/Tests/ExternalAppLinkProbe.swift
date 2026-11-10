@@ -43,6 +43,17 @@ if CommandLine.arguments.dropFirst().first == "--sheet" {
         }
     }
     exit(button == nil ? 0 : 1)
+} else if CommandLine.arguments.dropFirst().first == "--activate" {
+    guard CommandLine.arguments.count == 3, let pid = Int32(CommandLine.arguments[2]),
+          let app = NSRunningApplication(processIdentifier:pid) else { exit(2) }
+    app.activate(options:[])
+} else if CommandLine.arguments.dropFirst().first == "--app-name", CommandLine.arguments.count == 3 {
+    let url = URL(string:CommandLine.arguments[2])!
+    let workspace = NSWorkspace.shared
+    let official = url.scheme == "discord" ? workspace.urlForApplication(withBundleIdentifier:"com.hnc.Discord") : nil
+    if let app = official ?? workspace.urlForApplication(toOpen:url), let bundle = Bundle(url:app) {
+        print(bundle.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String ?? bundle.object(forInfoDictionaryKey:"CFBundleName") as? String ?? app.deletingPathExtension().lastPathComponent)
+    }
 } else {
     let receiver = Receiver()
     NSApplication.shared.delegate = receiver
