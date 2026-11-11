@@ -1522,6 +1522,41 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   NSData *data = [NSData dataWithBytes:json.data() length:json.size()];
   return [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 }
+- (BOOL)restoreStoreExtensions:(NSArray<NSString *> *)identifiers withdrawPending:(NSArray<NSString *> *)withdrawn profile:(NSString *)profile {
+  CEF_REQUIRE_UI_THREAD();
+  if (quitting || !running || !ValidProfileIdentifier(profile) ||
+      [profile hasPrefix:@"private-"] || privateProfiles.count(profile.UTF8String)) return NO;
+  auto context = ContextForProfile(profile);
+  if (!context || !readyProfiles.count(profile.UTF8String)) return NO;
+  const char *key = "extensions.install.initiallist";
+  auto settings = context->GetPreference("extensions.settings");
+  auto current = context->GetPreference(key);
+  if (!current || current->GetType() != VTYPE_LIST ||
+      !settings || settings->GetType() != VTYPE_DICTIONARY) return NO;
+  auto installed = settings->GetDictionary();
+  auto list = current->GetList()->Copy();
+  NSSet<NSString *> *cancel = [NSSet setWithArray:withdrawn];
+  for (size_t i = list->GetSize(); i > 0; --i) {
+    if (list->GetType(i-1) != VTYPE_STRING) continue;
+    auto id = list->GetString(i-1);
+    if ([cancel containsObject:Str(id)] && !installed->HasKey(id)) list->Remove(i-1);
+  }
+  std::set<std::string> requested;
+  for (size_t i = 0; i < list->GetSize(); ++i)
+    if (list->GetType(i) == VTYPE_STRING) requested.insert(list->GetString(i).ToString());
+  auto invalid = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnop"].invertedSet;
+  for (NSString *identifier in identifiers) {
+    if (identifier.length != 32 || [identifier rangeOfCharacterFromSet:invalid].location != NSNotFound) return NO;
+    if (!installed->HasKey(CefStr(identifier)) && requested.insert(identifier.UTF8String).second)
+      list->SetString(list->GetSize(), CefStr(identifier));
+  }
+  if (list->IsEqual(current->GetList())) return YES;
+  // Chromium's profile-scoped provider downloads and verifies the signed Web
+  // Store package and owns the normal permission and disablement workflow.
+  auto next = CefValue::Create(); next->SetList(list);
+  CefString error;
+  return context->CanSetPreference(key) && context->SetPreference(key, next, error);
+}
 - (BOOL)setExtensionPinned:(NSString *)identifier profile:(NSString *)profile pinned:(BOOL)pinned {
   if (identifier.length != 32 || [identifier rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnop"].invertedSet].location != NSNotFound) return NO;
   auto context = ContextForProfile(profile);

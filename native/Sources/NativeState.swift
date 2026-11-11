@@ -53,6 +53,12 @@ struct NativeProfile: Codable, Equatable {
     // No opt-in date (including existing profiles) means never auto-archive.
     // Starting a new interval on reactivation prevents retroactive closures.
     var autoArchiveEnabledSince: Date? = nil
+    // Signed Web Store installations, grouped by their stable Chromium profile.
+    // nil is an older snapshot which did not inventory extensions.
+    var storeExtensionIDs: [String]? = nil
+    static func validStoreID(_ id: String) -> Bool {
+        id.utf8.count == 32 && id.utf8.allSatisfy { (97...112).contains($0) }
+    }
     var autoArchiveEnabled: Bool { autoArchiveEnabledSince != nil }
     var archiveDelay: ArchiveDelay { archiveAfterHours.flatMap(ArchiveDelay.init(rawValue:)) ?? .twelveHours }
     var engine: SearchEngine { searchEngineID.flatMap(SearchEngine.init(rawValue:)) ?? .google }
@@ -63,6 +69,10 @@ struct NativeCloudCheckpoint: Codable, Equatable {
     var revision: Int
     var ciphertext: String?
     var lastSync: Date?
+    // Local observation at the last successful exchange. A download still in
+    // progress on this Mac must not be interpreted as a user uninstall.
+    var observedExtensions: [String:[String]]? = nil
+    var pendingExtensionWithdrawals: [String:[String]]? = nil
 }
 struct SpaceCreationDraft {
     var name = ""
@@ -262,7 +272,11 @@ struct BrowserSession: Codable, Equatable {
             tabs.count <= 5000, folders.count <= 1000, closedTabs.count <= Self.automaticArchiveCapacity + 50,
             uniqueIDs(profiles.map(\.id)), uniqueIDs(spaces.map(\.id)), uniqueIDs(tabs.map(\.id)),
             uniqueIDs(folders.map(\.id)), uniqueIDs(closedTabs.map(\.id)),
-            profiles.allSatisfy({ validLabel($0.name) }) else { return false }
+            profiles.allSatisfy({ profile in
+                guard validLabel(profile.name) else { return false }
+                guard let ids = profile.storeExtensionIDs else { return true }
+                return Set(ids).count == ids.count && ids.allSatisfy(NativeProfile.validStoreID)
+            }) else { return false }
         let profileIDs = Set(profiles.map(\.id)), spaceIDs = Set(spaces.map(\.id))
         guard spaceIDs.contains(activeSpaceID), spaces.allSatisfy({ space in
             validLabel(space.name) && validColor(space.color) && validIcon(space.icon) && profileIDs.contains(space.profileID)

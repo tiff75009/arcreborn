@@ -75,6 +75,35 @@ import Foundation
         var changed = filtered; let remoteTab = changed.createTab(url:"https://example.com/elsewhere")
         let afterSync = try ArcSyncCodec.applying(changed,to:withFiles,checkpointKey:owner,checkpoint:checkpoint)
         check(afterSync.validated() && afterSync.tabs.contains(where:{$0.id == remoteTab}) && afterSync.spaces.first?.selectedTabID == file && afterSync.splitGroup(containing:file)?.tabIDs.contains(tab) == true && afterSync.closedTabs.contains(where:{$0.id == archived}),"receiving cloud edits keeps this Mac’s selected document, split and archive")
+        let a = String(repeating:"a",count:32), b = String(repeating:"b",count:32), c = String(repeating:"c",count:32)
+        func installed(_ loc:Int, store:Bool = true) -> [String:Any] {
+            ["location":loc,"from_webstore":store,"path":"1.0","disable_reasons":[1]]
+        }
+        let inventory = ArcSyncCodec.storeIDs(in:[a:installed(1), b:installed(6), c:installed(4),
+            String(repeating:"d",count:32):installed(7), String(repeating:"e",count:32):installed(5),
+            String(repeating:"f",count:32):installed(1,store:false), "invalid":installed(1)])
+        check(inventory == [a,b],"catalog includes signed store installations even if disabled or without toolbar actions")
+        let pid = base.profiles[0].id
+        let source = ArcSyncCodec.samplingExtensions(in:base,baseline:nil,previous:[:]) { _ in [a] }
+        let envelope = try ArcSyncCodec.encrypt(source.session,key:key,owner:owner)
+        let cloudExtensions = try ArcSyncCodec.decrypt(envelope,key:key,owner:owner)
+        let target = try ArcSyncCodec.merge(local:.fresh(),baseline:nil,remote:cloudExtensions)
+        check(target.profiles.first?.id == pid && target.profiles[0].storeExtensionIDs == [a],"new device restores extension IDs under their original profile")
+        let pending = ArcSyncCodec.samplingExtensions(in:target,baseline:cloudExtensions,previous:[pid:[]]) { _ in [] }
+        check(pending.session.profiles[0].storeExtensionIDs == [a],"unfinished or offline restoration survives subsequent sync")
+        let unreadable = ArcSyncCodec.samplingExtensions(in:target,baseline:cloudExtensions,previous:[pid:[a]]) { _ in nil }
+        check(unreadable.session.profiles[0].storeExtensionIDs == [a] && unreadable.observed[pid] == [a],"unavailable inventory preserves last observation")
+        let replacing = ArcSyncCodec.samplingExtensions(in:base,baseline:cloudExtensions,previous:[pid:[a]]) { _ in [b] }
+        var concurrent = cloudExtensions; concurrent.profiles[0].storeExtensionIDs = [a,c]
+        let concurrentResult = try ArcSyncCodec.merge(local:replacing.session,baseline:cloudExtensions,remote:concurrent)
+        check(concurrentResult.profiles[0].storeExtensionIDs == [b,c],"concurrent additions survive while an observed uninstall leaves the restore list")
+        let legacyResult = try ArcSyncCodec.merge(local:cloudExtensions,baseline:cloudExtensions,remote:base)
+        check(legacyResult.profiles[0].storeExtensionIDs == [a],"legacy writer omitting the field keeps existing extension inventory")
+        var used = BrowserSession.fresh(); used.profiles[0].storeExtensionIDs = [b]
+        let usedResult = try ArcSyncCodec.merge(local:used,baseline:nil,remote:cloudExtensions)
+        check(usedResult.profiles.count == 2 && usedResult.profiles.first(where:{$0.id == used.profiles[0].id})?.storeExtensionIDs == [b],"a local profile with only an extension stays separate")
+        var malformed = base; malformed.profiles[0].storeExtensionIDs = ["https://example.com/file.crx"]
+        rejects("arbitrary package locations rejected") { _ = try ArcSyncCodec.encrypt(malformed,key:key,owner:owner) }
         print("PASS \(count) sync checks; real browser profile untouched")
     }
 }

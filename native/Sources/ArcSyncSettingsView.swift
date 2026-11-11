@@ -3,16 +3,17 @@ import AppKit
 final class ArcSyncSettingsView:NSView {
     override var isFlipped:Bool { true }
     private let status = NSTextField(wrappingLabelWithString:"")
-    private var activation:ActionButton!, syncNow:ActionButton!, recovery:ActionButton!
+    private var activation:ActionButton!, syncNow:ActionButton!, recovery:ActionButton!, review:ActionButton!
     private var observer:NSObjectProtocol?, task:Task<Void,Never>?
     private var busy = false
     override init(frame:NSRect) {
         super.init(frame:frame)
         let title = NSTextField(labelWithString:"Synchronisation chiffrée")
         title.font = .systemFont(ofSize:16,weight:.semibold); title.frame = NSRect(x:0,y:0,width:bounds.width,height:24); addSubview(title)
-        let detail = NSTextField(wrappingLabelWithString:"Vos espaces, onglets, épingles et réglages natifs. Les mots de passe des sites et les fenêtres privées restent sur ce Mac.")
+        let detail = NSTextField(wrappingLabelWithString:"Vos espaces, onglets, épingles, extensions du Chrome Web Store et réglages natifs. Les mots de passe des sites et les fenêtres privées restent sur ce Mac.")
         detail.font = .systemFont(ofSize:12); detail.textColor = .secondaryLabelColor; detail.frame = NSRect(x:0,y:31,width:bounds.width,height:61); addSubview(detail)
         status.frame = NSRect(x:0,y:101,width:bounds.width,height:54); status.font = .systemFont(ofSize:12); status.textColor = .secondaryLabelColor; addSubview(status)
+        review = button("Vérifier les extensions…",rect:NSRect(x:0,y:130,width:bounds.width,height:28)) { ArcSync.shared.reviewRestoredExtensions() }
         activation = button("",rect:NSRect(x:0,y:166,width:bounds.width,height:32)) { [weak self] in self?.toggle() }
         syncNow = button("Synchroniser",rect:NSRect(x:0,y:208,width:bounds.width*0.44,height:30)) { [weak self] in
             self?.task = Task { await ArcSync.shared.synchronize() }
@@ -29,6 +30,8 @@ final class ArcSyncSettingsView:NSView {
     private func refresh() {
         let sync = ArcSync.shared
         status.stringValue = sync.status
+        review.isHidden = !sync.isEnabled || sync.reviewProfile == nil
+        status.frame.size.height = review.isHidden ? 54 : 28
         activation.title = sync.isEnabled ? "Mettre en pause sur ce Mac" : "Activer sur ce Mac…"
         activation.isEnabled = !busy && sync.configured
         syncNow.isEnabled = sync.isEnabled && !busy && !sync.isWorking

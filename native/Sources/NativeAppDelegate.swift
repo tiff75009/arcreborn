@@ -61,6 +61,11 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         if ProcessInfo.processInfo.environment["BROWSER_NATIVE_TEST_DATA"] == nil {
+            observers.append(NotificationCenter.default.addObserver(forName:Notification.Name("BrowserExtensionPreferencesChanged"),object:nil,queue:.main) { [weak self] note in
+                guard let id = note.object as? String,
+                      self?.sharedSession.profiles.contains(where:{ $0.id == id }) == true else { return }
+                Task { @MainActor in ArcSync.shared.localChanged() }
+            })
             Task { @MainActor [weak self] in
                 ArcSync.shared.configure(current:{ [weak self] in self?.sharedSession },apply:{ [weak self] state in
                     guard let self else { throw SessionStoreError.invalidState }

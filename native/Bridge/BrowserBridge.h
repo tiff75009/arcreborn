@@ -90,6 +90,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)findInTab:(NSString *)tabID text:(NSString *)text forward:(BOOL)forward next:(BOOL)next;
 - (void)stopFinding:(NSString *)tabID;
 - (nullable NSDictionary<NSString *, id> *)extensionSettingsForProfile:(NSString *)profile NS_SWIFT_NAME(extensionSettings(profile:));
+- (BOOL)restoreStoreExtensions:(NSArray<NSString *> *)identifiers withdrawPending:(NSArray<NSString *> *)withdrawn profile:(NSString *)profile NS_SWIFT_NAME(restoreStoreExtensions(_:withdrawPending:profile:));
 - (BOOL)setExtensionPinned:(NSString *)identifier profile:(NSString *)profile pinned:(BOOL)pinned NS_SWIFT_NAME(setExtensionPinned(_:profile:pinned:));
 - (NSInteger)activateExtension:(NSString *)identifier forTab:(NSString *)tabID anchor:(NSRect)screenAnchor NS_SWIFT_NAME(activateExtension(_:tab:anchor:));
 - (void)closeExtensionPopup;

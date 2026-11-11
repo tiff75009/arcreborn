@@ -10,10 +10,12 @@ import Security
     private struct Receipt: Decodable { let revision:Int }
     private var current: (() -> BrowserSession?)?
     private var apply: ((BrowserSession) throws -> Void)?
+    private let extensionEngine = BrowserEngine()
     private var observer:NSObjectProtocol?, timer:Timer?, pending:Task<Void,Never>?
     private var running = false, generation = 0
     private(set) var status = "Désactivée sur ce Mac"
     private(set) var isWorking = false
+    private(set) var reviewProfile:NativeProfile?
     var configured:Bool { current != nil }
     private var account:ArcAccount { .shared }
     private var identifier:String? {
@@ -37,6 +39,7 @@ import Security
     }
     private func accountChanged() {
         generation += 1; pending?.cancel()
+        reviewProfile = nil
         updateStatus(isEnabled ? "Synchronisation…" : "Désactivée sur ce Mac")
         localChanged()
     }
@@ -50,8 +53,20 @@ import Security
         pending = Task { [weak self] in
             do { try await Task.sleep(nanoseconds:3_000_000_000); try Task.checkCancellation() }
             catch { return }
+            self?.pending = nil
             await self?.synchronize()
         }
+    }
+    private func extensionSettings(_ profile:String) -> [String:Any]? {
+        if let live = extensionEngine.extensionSettings(profile:profile) { return live }
+        // An unopened profile may already have installs. nil from a profile
+        // being initialized or an unreadable file is not an empty inventory.
+        guard let directory = BrowserEngine.historyImportDirectory(for:profile,initialize:false) else { return nil }
+        return ExtensionCatalog.diskSettings(in:directory)
+    }
+    func reviewRestoredExtensions() {
+        guard isEnabled, let profile = reviewProfile else { return }
+        _ = extensionEngine.showExtensions(profile:profile.id,name:profile.name,store:false)
     }
     private func keyQuery(_ identifier:String)->[String:Any] {
         [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"app.arc-reborn.sync",kSecAttrAccount as String:identifier]
@@ -103,7 +118,7 @@ import Security
     func pause() throws {
         guard let identifier, var local = current?(), var entry = checkpoint else { return }
         generation += 1; pending?.cancel(); entry.enabled = false; local.cloudSyncState?[identifier] = entry
-        try apply?(local); updateStatus("En pause sur ce Mac")
+        try apply?(local); reviewProfile = nil; updateStatus("En pause sur ce Mac")
     }
     func synchronize() async {
         guard !running, isEnabled, let owner = account.user?.id, let identifier, let initial = current?() else { return }
@@ -113,12 +128,17 @@ import Security
         do {
             guard let key = try readKey(identifier) else { throw ArcAccount.Failure.message("Saisissez votre code de récupération pour déverrouiller la synchronisation sur ce Mac.") }
             let baseCiphertext = initial.cloudSyncState?[identifier]?.ciphertext
+            let observed = initial.cloudSyncState?[identifier]?.observedExtensions ?? [:]
             let baseline = try await Task.detached(priority:.utility) { try baseCiphertext.map { try ArcSyncCodec.decrypt($0,key:key,owner:owner) } }.value
             for _ in 0..<3 {
                 try ensureCurrent(owner,epoch)
                 let remote = try await remote()
                 try ensureCurrent(owner,epoch)
-                guard let local = current?() else { return }
+                guard let state = current?() else { return }
+                let sample = ArcSyncCodec.samplingExtensions(in:state,baseline:baseline,previous:observed) { profile in
+                    extensionSettings(profile).map(ArcSyncCodec.storeIDs)
+                }
+                let local = sample.session
                 let result = try await Task.detached(priority:.utility) { () throws -> (BrowserSession,String?,Bool) in
                     let cloud = try remote.ciphertext.map { try ArcSyncCodec.decrypt($0,key:key,owner:owner) }
                     let merged = try cloud.map { try ArcSyncCodec.merge(local:local,baseline:baseline,remote:$0) } ?? ArcSyncCodec.canonical(local)
@@ -139,12 +159,52 @@ import Security
                 try ensureCurrent(owner,epoch)
                 guard let latest = current?() else { return }
                 // Preserve edits made on this Mac while the network was in flight.
-                let applied = try ArcSyncCodec.merge(local:latest,baseline:local,remote:result.0)
-                let entry = NativeCloudCheckpoint(enabled:true,revision:revision,ciphertext:result.1,lastSync:Date())
+                var approvals = [String:Set<String>](), registered = [String:Set<String>]()
+                let latestSample = ArcSyncCodec.samplingExtensions(in:latest,baseline:baseline,previous:observed) { profile in
+                    guard let settings = extensionSettings(profile) else { return nil }
+                    registered[profile] = Set(settings.keys)
+                    let ids = ArcSyncCodec.storeIDs(in:settings)
+                    approvals[profile] = Set(ids.filter { id in
+                        let item = settings[id] as? [String:Any]
+                        // Chromium DISABLE_EXTERNAL_EXTENSION. A deliberate user
+                        // disable, a policy block or a revoked install is distinct.
+                        return (item?["disable_reasons"] as? [Int])?.contains(1 << 13) == true
+                    })
+                    return ids
+                }
+                let applied = try ArcSyncCodec.merge(local:latestSample.session,baseline:local,remote:result.0)
+                var entry = NativeCloudCheckpoint(enabled:true,revision:revision,ciphertext:result.1,lastSync:Date(),observedExtensions:sample.observed)
+                var withdrawals = [String:[String]]()
+                for profile in applied.profiles {
+                    let old = baseline?.profiles.first { $0.id == profile.id }?.storeExtensionIDs ?? []
+                    let retry = initial.cloudSyncState?[identifier]?.pendingExtensionWithdrawals?[profile.id] ?? []
+                    let withdrawn = Set(old).union(retry).subtracting(profile.storeExtensionIDs ?? [])
+                    if !withdrawn.isEmpty && !extensionEngine.restoreStoreExtensions([],withdrawPending:withdrawn.sorted(),profile:profile.id) {
+                        withdrawals[profile.id] = withdrawn.sorted()
+                    }
+                }
+                entry.pendingExtensionWithdrawals = withdrawals.isEmpty ? nil : withdrawals
                 let next = try ArcSyncCodec.applying(applied,to:latest,checkpointKey:identifier,checkpoint:entry)
                 guard next.validated() else { throw SessionStoreError.invalidState }
                 try apply?(next)
-                updateStatus("À jour · "+DateFormatter.localizedString(from:Date(),dateStyle:.none,timeStyle:.short))
+                var awaitingExtensions = false
+                reviewProfile = nil
+                for profile in applied.profiles {
+                    let wanted = Set(profile.storeExtensionIDs ?? [])
+                    if reviewProfile == nil, !wanted.isDisjoint(with:approvals[profile.id] ?? []) {
+                        reviewProfile = profile
+                    }
+                    let missing = wanted.subtracting(registered[profile.id] ?? Set(latestSample.observed[profile.id] ?? []))
+                    if !missing.isEmpty {
+                        awaitingExtensions = true
+                        _ = extensionEngine.restoreStoreExtensions(missing.sorted(),withdrawPending:[],profile:profile.id)
+                    }
+                }
+                if let profile = reviewProfile {
+                    updateStatus("Extensions à activer dans le profil « "+profile.name+" ».")
+                } else {
+                    updateStatus(awaitingExtensions ? "Restauration des extensions en cours…" : "À jour · "+DateFormatter.localizedString(from:Date(),dateStyle:.none,timeStyle:.short))
+                }
                 // Applying the reply also incorporates edits still in window memory.
                 if ArcSyncCodec.canonical(current?() ?? next) != result.0 { localChanged() }
                 return

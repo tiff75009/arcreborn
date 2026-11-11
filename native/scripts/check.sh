@@ -11,6 +11,8 @@ xcrun swiftc -O Sources/ThemeState.swift Sources/NativeState.swift Sources/Split
 build/checks/state-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,ExtensionTabCreation}.swift Tests/ExtensionTabTests.swift -o build/checks/extension-tab-tests
 build/checks/extension-tab-tests
+xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserWindowState,ArcAccount,ArcSyncState}.swift Tests/SyncTests.swift -o build/checks/sync-tests
+build/checks/sync-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation}.swift Tests/SiteSettingsTests.swift -o build/checks/site-settings-tests
 build/checks/site-settings-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserDocuments}.swift Tests/BrowserDocumentTests.swift -o build/checks/document-tests

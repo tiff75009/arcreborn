@@ -47,6 +47,38 @@ enum ArcSyncCodec {
         }
         return result
     }
+    static func storeIDs(in settings:[String:Any]) -> [String] {
+        settings.compactMap { id, raw in
+            guard NativeProfile.validStoreID(id), let item = raw as? [String:Any],
+                  item["from_webstore"] as? Bool == true,
+                  let location = item["location"] as? Int, [1, 6].contains(location),
+                  item["path"] is String, item["was_installed_by_default"] as? Bool != true,
+                  item["was_installed_by_oem"] as? Bool != true else { return nil }
+            return id
+        }.sorted()
+    }
+
+    static func samplingExtensions(in session:BrowserSession, baseline:BrowserSession?,
+                                   previous:[String:[String]], inventory:(String)->[String]?)
+        -> (session:BrowserSession, observed:[String:[String]]) {
+        var local = session, observations = [String:[String]]()
+        for i in local.profiles.indices {
+            let profile = local.profiles[i].id
+            let saved = baseline?.profiles.first { $0.id == profile }?.storeExtensionIDs
+            local.profiles[i].storeExtensionIDs = saved
+            guard !profile.hasPrefix("private-") else { continue }
+            guard let installed = inventory(profile) else {
+                observations[profile] = previous[profile]
+                continue
+            }
+            observations[profile] = installed
+            let now = Set(installed), before = Set(previous[profile] ?? [])
+            let desired = Set(saved ?? []).subtracting(before.subtracting(now))
+                .union(saved == nil ? now : now.subtracting(before))
+            local.profiles[i].storeExtensionIDs = desired.sorted()
+        }
+        return (local,observations)
+    }
     static func encrypt(_ session:BrowserSession,key:Data,owner:String) throws -> String {
         let state = canonical(session)
         guard key.count == 32, state.validated(), !state.profiles.contains(where:{ $0.id.hasPrefix("private-") }) else { throw SessionStoreError.invalidState }
@@ -71,14 +103,27 @@ enum ArcSyncCodec {
     static func merge(local:BrowserSession,baseline:BrowserSession?,remote:BrowserSession) throws -> BrowserSession {
         let hasLocalDocuments = local.tabs.contains { isLocalTabDocument($0.url) } || local.closedTabs.contains { isLocalTabDocument($0.url) }
         let local = canonical(local), remote = canonical(remote)
-        if let baseline { return canonical(try BrowserSession.merging(base:canonical(baseline),incoming:local,latest:remote)) }
         // A fresh installation restores the existing workspace without adding an
         // extra empty Personal space. A used installation merges by stable ID.
-        if !hasLocalDocuments && local.profiles.count == 1 && local.spaces.count == 1 && local.folders.isEmpty && local.closedTabs.isEmpty
+        if baseline == nil && !hasLocalDocuments && local.profiles.count == 1 && local.profiles[0].storeExtensionIDs?.isEmpty != false && local.spaces.count == 1 && local.folders.isEmpty && local.closedTabs.isEmpty
             && local.tabs.allSatisfy({ $0.url == "about:blank" && !$0.pinned }) { return remote }
         var empty = local
         empty.profiles = []; empty.spaces = []; empty.tabs = []; empty.closedTabs = []; empty.folders = []; empty.splitGroups = nil
-        return canonical(try BrowserSession.merging(base:empty,incoming:local,latest:remote))
+        let base = baseline.map(canonical) ?? empty
+        var merged = try BrowserSession.merging(base:base,incoming:local,latest:remote)
+        for i in merged.profiles.indices {
+            let id = merged.profiles[i].id
+            let old = base.profiles.first { $0.id == id }?.storeExtensionIDs
+            let incoming = local.profiles.first { $0.id == id }?.storeExtensionIDs
+            let latest = remote.profiles.first { $0.id == id }?.storeExtensionIDs
+            guard old != nil || incoming != nil || latest != nil else { continue }
+            // Missing metadata from an older client is not an uninstall. Apply
+            // changes per extension so concurrent installations both survive.
+            let before = Set(old ?? []), edited = Set(incoming ?? old ?? [])
+            merged.profiles[i].storeExtensionIDs = Set(latest ?? old ?? [])
+                .subtracting(before.subtracting(edited)).union(edited.subtracting(before)).sorted()
+        }
+        return canonical(merged)
     }
     static func applying(_ merged:BrowserSession,to latest:BrowserSession,checkpointKey:String,checkpoint:NativeCloudCheckpoint) throws -> BrowserSession {
         var result = merged

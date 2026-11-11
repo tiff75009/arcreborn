@@ -131,11 +131,14 @@ extension ExtensionCatalog {
     /// Read metadata only; Chromium remains the sole writer of extension state.
     static func passwordManagerSettings(directory:URL,profile:String) -> [String:Any] {
         guard !profile.isEmpty, profile.count <= 100, profile.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { return [:] }
-        let file = directory.appendingPathComponent("Chromium/Profile-"+profile+"/Secure Preferences")
+        return diskSettings(in:directory.appendingPathComponent("Chromium/Profile-"+profile)) ?? [:]
+    }
+    static func diskSettings(in profileDirectory:URL) -> [String:Any]? {
+        let file = profileDirectory.appendingPathComponent("Secure Preferences")
         guard let size = try? file.resourceValues(forKeys:[.fileSizeKey]).fileSize, size < 16_000_000,
               let data = try? Data(contentsOf:file), let json = try? JSONSerialization.jsonObject(with:data) as? [String:Any],
-              let extensions = json["extensions"] as? [String:Any] else { return [:] }
-        return extensions["settings"] as? [String:Any] ?? [:]
+              let extensions = json["extensions"] as? [String:Any] else { return nil }
+        return extensions["settings"] as? [String:Any]
     }
 }
 
