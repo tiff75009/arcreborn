@@ -3,6 +3,7 @@ import AppKit
 /// A snapshot of the sidebar tree. Previewing a folder never wakes its tabs.
 private struct PeekItem {
     let id: SidebarItem
+    let folderID: String
     let title: String
     let detail: String
     let address: String
@@ -24,11 +25,11 @@ private struct FolderPeekContents {
                 case .folder(let id):
                     guard let child = folders[id] else { return nil }
                     pending.append(child)
-                    return PeekItem(id:item,title:child.name,detail:"",address:"")
+                    return PeekItem(id:item,folderID:folder.id,title:child.name,detail:"",address:"")
                 case .tab(let id):
                     guard let tab = tabs[id] else { return nil }
                     let host = URL(string:tab.url)?.host ?? tab.url
-                    return PeekItem(id:item,title:tab.displayTitle.isEmpty ? host : tab.displayTitle,detail:host,address:tab.url)
+                    return PeekItem(id:item,folderID:folder.id,title:tab.displayTitle.isEmpty ? host : tab.displayTitle,detail:host,address:tab.url)
                 }
             }
         }
@@ -50,6 +51,15 @@ private struct FolderPeekContents {
 private final class PeekWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+private final class PeekList: NSTableView {
+    // Rows contain only artwork and labels. Let the table handle the first
+    // click anywhere on a row while the browser still owns keyboard focus.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 private final class PeekSurface: NSView {
@@ -110,15 +120,16 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     private var attachment = NSRect.zero
     private var motionGeneration = 0
     private let surface = PeekSurface(), search = NSTextField(), lead = NSButton(), separator = NSBox()
-    private let scroll = NSScrollView(), list = NSTableView(), column = NSTableColumn(identifier:.init("entry"))
+    private let scroll = NSScrollView(), list = PeekList(), column = NSTableColumn(identifier:.init("entry"))
     private let empty = NSTextField(labelWithString:"")
     private var contents: FolderPeekContents
     private var path: [(id:String,name:String)]
     private var items = [PeekItem]()
     private let french: Bool
     private let artwork: (String) -> NSImage?
-    private let openTab: (String) -> Void
+    private let openTab: (String, String) -> Void
     private var monitor: Any?
+    private var pressedFromParent: SidebarItem?
     private var closing = false
     weak var parent: NSWindow?
     var pointerChanged: (() -> Void)?
@@ -133,7 +144,7 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     var isKey: Bool { panel.isKeyWindow }
     private(set) var folderID: String
 
-    init?(session:BrowserSession,folder:NativeFolder,artwork:@escaping (String)->NSImage?,open:@escaping (String)->Void) {
+    init?(session:BrowserSession,folder:NativeFolder,artwork:@escaping (String)->NSImage?,open:@escaping (String,String)->Void) {
         contents = FolderPeekContents(session,root:folder)
         guard contents.children[folder.id]?.isEmpty == false else { return nil }
         folderID = folder.id; path = [(folder.id,folder.name)]; french = session.language != "en"
@@ -271,17 +282,39 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         rebuild()
         converge(from:compactFrame(target),to:target,opening:true)
         parent.addChildWindow(panel,ordered:.above); panel.orderFront(nil)
-        monitor = NSEvent.addLocalMonitorForEvents(matching:[.mouseMoved,.mouseEntered,.mouseExited,.leftMouseDragged,.leftMouseDown,.rightMouseDown,.otherMouseDown,.scrollWheel,.keyDown]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching:[.mouseMoved,.mouseEntered,.mouseExited,.leftMouseDragged,.leftMouseDown,.leftMouseUp,.rightMouseDown,.otherMouseDown,.scrollWheel,.keyDown]) { [weak self] event in
             guard let self, !self.closing else { return event }
             if event.type == .keyDown { return self.handleKey(event) ? nil : event }
+            if event.type == .leftMouseDown { self.pressedFromParent = nil }
+            if event.type == .leftMouseUp, let pressed = self.pressedFromParent {
+                self.pressedFromParent = nil
+                if let window = event.window, window === parent || window === self.panel,
+                   let row = self.row(atScreenPoint:window.convertPoint(toScreen:event.locationInWindow)),
+                   self.items[row].id == pressed { self.activate(row) }
+                return nil
+            }
             if event.window === self.panel { self.pointerChanged?(); return event }
             if [.leftMouseDown,.rightMouseDown,.otherMouseDown,.scrollWheel].contains(event.type), let window = event.window {
                 let point = window.convertPoint(toScreen:event.locationInWindow)
-                if window === parent && self.panel.frame.contains(point) { return nil }
+                if window === parent && self.panel.frame.contains(point) {
+                    // AppKit can still address the parent just after the hover panel appears.
+                    if event.type == .leftMouseDown, let row = self.row(atScreenPoint:point) {
+                        self.pressedFromParent = self.items[row].id
+                        self.list.selectRowIndexes(IndexSet(integer:row),byExtendingSelection:false)
+                    }
+                    return nil
+                }
                 if event.type != .scrollWheel { self.dismiss?() }
             }
             return event
         }
+    }
+
+    private func row(atScreenPoint point: NSPoint) -> Int? {
+        let local = list.convert(panel.convertPoint(fromScreen:point),from:nil)
+        guard list.visibleRect.contains(local) else { return nil }
+        let row = list.row(at:local)
+        return items.indices.contains(row) ? row : nil
     }
 
     private func handleKey(_ event:NSEvent) -> Bool {
@@ -331,7 +364,7 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         guard items.indices.contains(row) else { return }
         let item = items[row]
         switch item.id {
-        case .tab(let id): openTab(id)
+        case .tab(let id): openTab(id,item.folderID)
         case .folder(let id):
             guard !path.contains(where:{ $0.id == id }) else { return }
             transitionList(forward:true); path.append((id,item.title)); search.stringValue = ""; rebuild()

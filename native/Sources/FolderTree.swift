@@ -18,6 +18,20 @@ struct SidebarDestination: Equatable {
 enum SidebarCollapseScope: Hashable { case space(String), folder(String) }
 struct SidebarCollapseState {
     private(set) var retainedTabs: [SidebarCollapseScope:String] = [:]
+    mutating func expandPath(to folderID: String?, spaceID: String, in session: inout BrowserSession) {
+        guard let space = session.spaces.firstIndex(where: { $0.id == spaceID }) else { return }
+        if session.spaces[space].foldersCollapsed == true { session.spaces[space].foldersCollapsed = false }
+        retainedTabs.removeValue(forKey:.space(spaceID))
+        var parent = folderID
+        var visited = Set<String>()
+        while let id = parent, visited.insert(id).inserted,
+              let index = session.folders.firstIndex(where: { $0.id == id && $0.spaceID == spaceID }) {
+            session.folders[index].collapsed = false
+            retainedTabs.removeValue(forKey:.folder(id))
+            parent = session.folders[index].parentID
+        }
+    }
+
     mutating func toggle(_ scope: SidebarCollapseScope, in session: inout BrowserSession) {
         let spaceID: String
         let closing: Bool

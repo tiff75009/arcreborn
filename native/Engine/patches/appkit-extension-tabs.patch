@@ -77,7 +77,7 @@ diff --git a/cef/libcef/browser/chrome/chrome_browser_host_impl.cc b/cef/libcef/
 diff --git a/chrome/browser/extensions/open_tab_helper.cc b/chrome/browser/extensions/open_tab_helper.cc
 --- a/chrome/browser/extensions/open_tab_helper.cc
 +++ b/chrome/browser/extensions/open_tab_helper.cc
-@@ -3,6 +3,11 @@
+@@ -3,7 +3,12 @@
  // found in the LICENSE file.
  
  #include "chrome/browser/extensions/open_tab_helper.h"
@@ -87,6 +87,7 @@ diff --git a/chrome/browser/extensions/open_tab_helper.cc b/chrome/browser/exten
 +#include "cef/libcef/browser/chrome/browser_util.h"
 +#endif
  
+ #include "base/memory/weak_ptr.h"
  #include "base/strings/string_number_conversions.h"
  #include "base/types/expected_macros.h"
 @@ -184,18 +189,43 @@

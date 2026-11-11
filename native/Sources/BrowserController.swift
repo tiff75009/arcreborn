@@ -1589,10 +1589,13 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let peek = FolderPeek(session:self.session,folder:folder,artwork:{ [weak self] id in
                 guard let self, let tab = self.session.tabs.first(where:{ $0.id == id }) else { return nil }
                 return self.tabFavicon(tab)
-            },open:{ [weak self] id in
+            },open:{ [weak self] id, folderID in
                 guard let self else { return }
                 self.dismissFolderPeek(animated:false)
-                if self.session.canSelectTab(id,in:self.session.activeSpaceID) { self.selectTab(id) }
+                guard self.session.canSelectTab(id,in:self.session.activeSpaceID) else { return }
+                self.sidebarCollapse.expandPath(to:folderID,spaceID:self.session.activeSpaceID,in:&self.session)
+                self.selectTab(id)
+                _ = self.sidebarView(containing:id, inFolder:folderID)
             }) else { self.folderHoverSuppressed = target; return }
             self.folderPeek = peek; self.cancelSidebarHover()
             peek.dismiss = { [weak self] in self?.dismissFolderPeek(animated:false) }
@@ -4588,9 +4591,11 @@ extension BrowserController {
         let point = root.convert(window.convertPoint(fromScreen:NSEvent.mouseLocation),from:nil)
         picker.show(relativeTo:NSRect(x:point.x,y:point.y,width:1,height:1),of:root)
     }
-    private func sidebarView(containing id:String) -> NSView? {
+    private func sidebarView(containing id:String, inFolder folderID:String? = nil) -> NSView? {
         let ids = session.splitGroup(containing:id)?.tabIDs ?? [id]
-        guard let row = rows.firstIndex(where: { if case .tab(let value) = $0 { return ids.contains(value) }; return false }) else { return nil }
+        let matches: (SidebarRow) -> Bool = { if case .tab(let value) = $0 { return ids.contains(value) }; return false }
+        let folderRow = folderID.flatMap { folder in treeRows.indices.first { treeRows[$0].parentID == folder && matches(rows[$0]) } }
+        guard let row = folderRow ?? rows.firstIndex(where:matches) else { return nil }
         table.scrollRowToVisible(row); table.layoutSubtreeIfNeeded()
         return table.view(atColumn:0,row:row,makeIfNecessary:true)
     }
@@ -4922,12 +4927,7 @@ extension BrowserController {
     private func revealActiveTab() {
         guard let tab = activeTab else { return }
         if session.sidebarHidden { toggleSidebarAction(nil) }
-        if activeSpace?.foldersCollapsed == true { sidebarCollapse.toggle(.space(session.activeSpaceID),in:&session) }
-        var folder = tab.folderID
-        var visited = Set<String>()
-        while let id = folder, visited.insert(id).inserted, let item = session.folders.first(where: { $0.id == id }) {
-            if item.collapsed { sidebarCollapse.toggle(.folder(id),in:&session) }; folder = item.parentID
-        }
+        sidebarCollapse.expandPath(to:tab.folderID,spaceID:session.activeSpaceID,in:&session)
         render(); persist(); _ = sidebarView(containing:tab.id)
     }
     private func arrangeBrowserWindow(_ command: String) {

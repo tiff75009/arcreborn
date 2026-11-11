@@ -9,6 +9,8 @@ build/checks/password-manager-tests
 build/checks/command-palette-tests
 xcrun swiftc -O Sources/ThemeState.swift Sources/NativeState.swift Sources/SplitState.swift Sources/SpaceContent.swift Sources/FolderTree.swift Sources/FavoritesState.swift Sources/SpaceNavigation.swift Sources/DeletionUndo.swift Tests/StateTests.swift -o build/checks/state-tests
 build/checks/state-tests
+xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,FolderPeek}.swift Tests/FolderPeekTests.swift -o build/checks/folder-peek-tests
+build/checks/folder-peek-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,ExtensionTabCreation}.swift Tests/ExtensionTabTests.swift -o build/checks/extension-tab-tests
 build/checks/extension-tab-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserWindowState,ArcAccount,ArcSyncState}.swift Tests/SyncTests.swift -o build/checks/sync-tests

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "156.0.8078.80-arcreborn.11",
+  "version": "156.0.8078.88-arcreborn.1",
   "platform": "macos-arm64",
-  "cefCommit": "cf671c072925b27823a61181152f4f288e8e4306",
-  "chromiumCommit": "fb096c0011f9d50f0a264a9376420cdea9c421e3",
-  "depotToolsCommit": "a20039648c0de69d8156906b18052bd47e9bf230",
+  "cefCommit": "57389f04a61ab0e9603d9f96602843d0e08bb11c",
+  "chromiumCommit": "8954d18543712dc11b97c3aca0a6e714aa2d7dcd",
+  "depotToolsCommit": "132599ebbd8d22d1b1bd5ea703a6d3bc493edd71",
   "branch": "8078",
   "patches": [
     {
@@ -13,7 +13,7 @@
     },
     {
       "file": "patches/appkit-extension-tabs.patch",
-      "sha256": "c9146e92eb30bb43db67bab380d689c28fe8260d74ccdb5ce532b4b78fa95509"
+      "sha256": "57200d83cd87439c792bfc7980c8c9f9468ccb8a6f8409d4ddc82706ca1b05c4"
     },
     {
       "file": "patches/appkit-extension-lifecycle.patch",
@@ -63,19 +63,9 @@
   "gnDefines": "use_system_xcode=true is_official_build=true is_component_build=false symbol_level=0 use_remoteexec=false proprietary_codecs=true ffmpeg_branding=\"Chrome\" media_use_openh264=true rtc_use_h264=true rtc_use_h265=false enable_hevc_parser_and_hw_decoder=true enable_platform_hevc=true is_debug=false dcheck_always_on=false enable_expensive_dchecks=false chrome_pgo_phase=2 use_thin_lto=false disable_fieldtrial_testing_config=true",
   "buildTarget": "cef_framework",
   "archive": {
-    "name": "ArcReborn-Engine-156.0.8078.80-arcreborn.7-macos-arm64.tar.gz",
-    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.80-arcreborn.7/ArcReborn-Engine-156.0.8078.80-arcreborn.7-macos-arm64.tar.gz",
-    "sha256": "0d544007f428fce03f5bb4602983caacb016dc89f8fc60a224c45be3ee9bffe0",
-    "delta": {
-      "file": "deltas/password-manager-arm64.bsdiff",
-      "sha256": "e1d659641ec92471199955fb9c3e56ec8d6c023834a8091af3e59d7751e50a27",
-      "baseVersion": "156.0.8078.80-arcreborn.7",
-      "baseBinarySHA256": "d9c42f1bf27e0ad5486e204d9e76dae5b3fe9dd26e85651a38fc8fc52f3c31ef",
-      "binarySHA256": "36b2d64daf671f8806140926372d34b90281300d0c1a877c20f7b4cc66fe6dc1",
-      "gnOverrides": {
-        "media_use_openh264": "true",
-        "rtc_use_h264": "true"
-      }
-    }
-  }
+    "name": "ArcReborn-Engine-156.0.8078.88-arcreborn.1-macos-arm64.tar.gz",
+    "url": "https://github.com/tiff75009/arcreborn/releases/download/engine-156.0.8078.88-arcreborn.1/ArcReborn-Engine-156.0.8078.88-arcreborn.1-macos-arm64.tar.gz",
+    "sha256": "69199ef5742ed547e1f2a7dc56f71c3395dc96f1eb46831f4e0bc24bb1e58610"
+  },
+  "cefVersion": "156.0.28"
 }

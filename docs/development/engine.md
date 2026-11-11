@@ -85,9 +85,8 @@ reactivating extensions previously disabled by the user or by policy. The iCloud
 passkey proposal is suppressed for external managers other than Apple’s selected
 extension. Installation and activation are detected independently for each profile.
 
-The default precompiled engine includes the native passkey window anchor. Its
-binary delta reconstructs the framework from the immutable public `arcreborn.7`
-archive. `BROWSER_PASSKEY_ENGINE=1` therefore selects the same current engine.
+The standard build includes the native passkey window anchor. Arc Reborn 1.5.4 uses the complete [Chromium 156.0.8078.88 engine archive](https://github.com/tiff75009/arcreborn/releases/tag/engine-156.0.8078.88-arcreborn.1), built with CEF 156.0.28. The archive includes the matching CEF headers and wrapper, the patches and the build provenance. The source pin records the SHA-256 of the full package.
+`BROWSER_PASSKEY_ENGINE=1` selects the same engine.
 Run `native/scripts/check.sh` for state and detection checks, and
 `BROWSER_BUILD_ROOT=/path/to/build native/scripts/test-password-managers.sh` for
 the isolated form-consent and extension lifecycle test (Node.js 22 or later).
