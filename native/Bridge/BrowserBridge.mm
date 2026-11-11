@@ -374,6 +374,36 @@ static bool RunNativePageMenu(NSString *key, CefRefPtr<CefContextMenuParams> par
 static void RegisterNativeExtensionTabs(bool enabled);
 static void RegisterNativePasswordPrompt(bool enabled);
 static void Notify(NSString *name) { [[NSNotificationCenter defaultCenter] postNotificationName:name object:nil]; }
+
+// A browser's OnBeforeClose precedes the destruction of its Views window.
+// Keep Chromium's UI loop alive through both callbacks, including auxiliary
+// windows which don't have a tab ID.
+static size_t liveChromeWindows = 0;
+static CFRunLoopObserverRef quitIdleObserver = nullptr;
+static void ClearQuitIdleObserver() {
+  if (!quitIdleObserver) return;
+  CFRunLoopObserverInvalidate(quitIdleObserver);
+  CFRelease(quitIdleObserver);
+  quitIdleObserver = nullptr;
+}
+static bool CanStopBrowserLoop() {
+  return running && quitting && browsers.empty() && pendingBrowsers.empty() && liveChromeWindows == 0;
+}
+class TrackedChromeWindow : public CefWindowDelegate {
+ public:
+  void OnWindowCreated(CefRefPtr<CefWindow> window) final {
+    ++liveChromeWindows;
+    WindowCreated(window);
+  }
+  void OnWindowDestroyed(CefRefPtr<CefWindow> window) final {
+    WindowDestroyed(window);
+    --liveChromeWindows;
+    if (CanStopBrowserLoop()) dispatch_async(dispatch_get_main_queue(), ^{ QuitNext(); });
+  }
+ protected:
+  virtual void WindowCreated(CefRefPtr<CefWindow> window) = 0;
+  virtual void WindowDestroyed(CefRefPtr<CefWindow> window) = 0;
+};
 #include "DeveloperTools.inc"
 #include "PictureInPicture.inc"
 #include "ArchiveProbe.inc"
@@ -944,7 +974,10 @@ class NativeClient : public CefClient,
     pendingBrowsers.erase(key); pendingNavigation.erase(key); discardedBrowsers.erase(key);
     NSString *identifier = @(key.c_str());
     __weak BrowserEngine *engine = engine_;
-    dispatch_async(dispatch_get_main_queue(), ^{ [engine.delegate browserClosed:identifier]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [engine.delegate browserClosed:identifier];
+      if (quitting) QuitNext();
+    });
   }
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser, TerminationStatus status, int code, const CefString& message) override {
     BrowserTrace(@"tab.renderer-terminated",@{@"tab":tabID_,@"browser":@(browser->GetIdentifier()),@"status":@(status),@"code":@(code)});
@@ -1114,7 +1147,7 @@ class NativeClient : public CefClient,
 
 static void QuitNext() {
   if (!quitting) return;
-  if (browsers.empty()) { if (pendingBrowsers.empty()) Notify(@"BrowserEngineReadyToQuit"); return; }
+  if (browsers.empty()) { if (CanStopBrowserLoop()) Notify(@"BrowserEngineReadyToQuit"); return; }
   browsers.begin()->second->GetHost()->CloseBrowser(false);
 }
 
@@ -1287,18 +1320,28 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
   BrowserTrace(@"cef.initialize.end",@{@"success":@(running)});
   return running;
 }
-+ (void)runMessageLoop { if (running) { BrowserTrace(@"cef.loop.begin"); CefRunMessageLoop(); BrowserTrace(@"cef.loop.end",@{@"quitting":@(quitting)}); } }
++ (void)runMessageLoop {
+  if (!running) return;
+  BrowserTrace(@"cef.loop.begin");
+  CefRunMessageLoop();
+  ClearQuitIdleObserver();
+  BrowserTrace(@"cef.loop.end",@{@"quitting":@(quitting)});
+}
 + (void)stopMessageLoop {
-  if (!running || !quitting || !browsers.empty() || !pendingBrowsers.empty()) return;
+  if (!CanStopBrowserLoop() || quitIdleObserver) return;
   BrowserTrace(@"cef.loop.stop-request",@{@"quitting":@(quitting)});
   CefQuitMessageLoop();
-  // The host owns NSApplication's loop. Chrome can retain a macOS keep-alive
-  // after the last private window closes; all native browser owners are already
-  // drained here, so let the host return from its loop and run CefShutdown.
-  [NSApp stop:nil];
-  [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
-      location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
-      context:nil subtype:0 data1:0 data2:0] atStart:NO];
+  // Chrome posts Browser destruction onto its UI queue after closing the
+  // widget. Let that queue drain before stopping a residual macOS keep-alive.
+  quitIdleObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault,
+      kCFRunLoopBeforeWaiting, false, LONG_MAX, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+    if (!CanStopBrowserLoop()) { ClearQuitIdleObserver(); return; }
+    [NSApp stop:nil];
+    [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
+        location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
+        context:nil subtype:0 data1:0 data2:0] atStart:NO];
+  });
+  CFRunLoopAddObserver(CFRunLoopGetMain(), quitIdleObserver, kCFRunLoopDefaultMode);
 }
 + (void)requestQuit {
   BrowserTrace(@"app.quit-request",@{@"alreadyQuitting":@(quitting),@"browsers":@(browsers.size()),@"stack":NSThread.callStackSymbols});
@@ -1315,7 +1358,7 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
 }
 + (void)shutdown {
   [extensionOpenTraceTimer invalidate]; extensionOpenTraceTimer = nil;
-  BrowserTrace(@"cef.shutdown.begin",@{@"browsers":@(browsers.size()),@"pending":@(pendingBrowsers.size())});
+  BrowserTrace(@"cef.shutdown.begin",@{@"browsers":@(browsers.size()),@"pending":@(pendingBrowsers.size()),@"windows":@(liveChromeWindows)});
   quitSuspensions.clear(); downloadControls.clear();
   if (!running || !browsers.empty() || !pendingBrowsers.empty()) return;
   RegisterNativePasswordPrompt(false);

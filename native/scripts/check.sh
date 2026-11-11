@@ -69,4 +69,6 @@ build/checks/external-app-link-policy
 /usr/bin/python3 Tests/release-tools-test.py
 xcrun swiftc Sources/{SidebarUpdateSession,SidebarUpdateCard,SidebarListChrome,LibraryStore,Localization,ActionButton,DownloadCard,RecentMediaPeek}.swift Tests/SidebarUpdateTests.swift -o build/checks/sidebar-update-tests
 build/checks/sidebar-update-tests
+xcrun swiftc Sources/DefaultBrowser.swift Tests/DefaultBrowserTests.swift -o build/checks/default-browser-tests
+build/checks/default-browser-tests
 bash Tests/update-preferences.sh

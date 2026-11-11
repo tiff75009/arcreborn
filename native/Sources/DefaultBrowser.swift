@@ -12,4 +12,12 @@ enum DefaultBrowser {
         return Bundle(url: handler)?.bundleIdentifier == id
     }
     static var isCurrent: Bool { webSchemes.allSatisfy(owns) }
+
+    static func keptCurrentBrowser(_ error: NSError) -> Bool {
+        // Launch Services wraps userCanceledErr in NSFileReadUnknownError.
+        if error.domain == NSOSStatusErrorDomain && error.code == Int(userCanceledErr) { return true }
+        if error.domain == NSCocoaErrorDomain && error.code == NSUserCancelledError { return true }
+        guard let cause = error.userInfo[NSUnderlyingErrorKey] as? NSError else { return false }
+        return keptCurrentBrowser(cause)
+    }
 }

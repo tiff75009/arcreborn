@@ -17,6 +17,9 @@ final class SidebarUpdateCard: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     private let surface = UpdateCardSurface()
     private let heading = NSTextField(labelWithString:"")
+    private let stageIcon = NSImageView()
+    private let percentage = NSTextField(labelWithString:"")
+    private let progressFill = CAGradientLayer()
     private let automatic = UpdateAutomaticButton()
     private let install = UpdateInstallButton()
     private let separator = CALayer()
@@ -24,6 +27,11 @@ final class SidebarUpdateCard: NSView {
     private var available = false
     private var suppressed = false
     private var ink = NSColor.white
+    private var stageTitle: String?
+    private var showsActivity = false
+    private var fraction: Double?
+    private var accent = NSColor.systemIndigo
+    private var offerTitle = ""
     private var closeTask: DispatchWorkItem?
     private var revision = 0
     var activate: (() -> Void)?
@@ -38,9 +46,17 @@ final class SidebarUpdateCard: NSView {
         surface.wantsLayer = true; surface.layer?.masksToBounds = true
         surface.layer?.borderWidth = 1
         addSubview(surface)
+        progressFill.startPoint = CGPoint(x:0,y:0.5)
+        progressFill.endPoint = CGPoint(x:1,y:0.5)
+        surface.layer?.insertSublayer(progressFill,at:0)
         heading.alignment = .center; heading.font = .systemFont(ofSize:12.5,weight:.medium)
         heading.lineBreakMode = .byTruncatingTail
         surface.addSubview(heading)
+        stageIcon.setAccessibilityElement(false)
+        surface.addSubview(stageIcon)
+        percentage.font = .monospacedDigitSystemFont(ofSize:11,weight:.semibold)
+        percentage.alignment = .right
+        surface.addSubview(percentage)
         surface.layer?.addSublayer(separator)
         automatic.target = self; automatic.action = #selector(automaticPressed)
         automatic.font = .systemFont(ofSize:12.5,weight:.medium)
@@ -58,38 +74,71 @@ final class SidebarUpdateCard: NSView {
         let french = language.lowercased().hasPrefix("fr")
         available = phase != .hidden
         isHidden = !available || suppressed
-        self.ink = ink
-        heading.stringValue = french ? "Nouvelle version disponible" : "New Arc Reborn Version Available"
+        self.ink = ink; self.accent = accent
+        offerTitle = french ? "Nouvelle version disponible" : "New Arc Reborn Version Available"
         self.automatic.title = french ? "Mises à jour automatiques" : "Automatic Updates"
         self.automatic.state = automatic ? .on : .off
         self.automatic.isEnabled = allowsAutomatic
         install.isEnabled = actionable
+        var icon: String?
+        fraction = nil
+        showsActivity = phase == .downloading || phase == .preparing || phase == .installing
         switch phase {
         case .downloading:
-            install.title = (french ? "Téléchargement" : "Downloading") + (progress.map { " · \(Int($0 * 100)) %" } ?? "…")
-        case .preparing: install.title = french ? "Préparation…" : "Preparing…"
-        case .awaitingRestart: install.title = french ? "Réessayer le redémarrage" : "Retry Restart"
-        case .installing: install.title = french ? "Redémarrage…" : "Restarting…"
-        default: install.title = french ? "Redémarrer et mettre à jour" : "Restart and Update"
+            stageTitle = french ? "Téléchargement" : "Downloading"
+            fraction = progress; icon = "arrow.down.circle"
+        case .preparing:
+            stageTitle = french ? "Préparation" : "Preparing"
+            fraction = progress; icon = "shippingbox"
+        case .awaitingRestart:
+            stageTitle = french ? "Redémarrage en attente" : "Restart pending"
+            icon = "pause.circle"
+        case .installing:
+            stageTitle = french ? "Redémarrage…" : "Restarting…"
+            icon = "arrow.clockwise"
+        default: stageTitle = nil
+        }
+        let percent = fraction.map { "\(Int($0 * 100))" + (french ? " %" : "%") }
+        percentage.stringValue = percent ?? ""
+        stageIcon.image = icon.flatMap { NSImage(systemSymbolName:$0,accessibilityDescription:nil) }
+        if phase == .awaitingRestart {
+            install.title = french ? "Réessayer le redémarrage" : "Retry Restart"
+        } else if let stageTitle {
+            install.title = stageTitle + (percent.map { " · " + $0 } ?? "")
+        } else {
+            install.title = french ? "Redémarrer et mettre à jour" : "Restart and Update"
         }
         install.setAccessibilityLabel(install.title)
-        install.setColor(accent); install.setProgress(progress)
-        setAccessibilityLabel(heading.stringValue)
+        install.setColor(accent); install.setProgress(fraction)
+        setAccessibilityLabel(stageTitle ?? offerTitle)
+        setAccessibilityValue(percent)
         if !available { setExpanded(false,animated:false) }
         refreshColors(); needsLayout = true
     }
 
     func setSuppressed(_ value:Bool) {
+        guard value != suppressed else { return }
         suppressed = value; isHidden = !available || value
         if value { setExpanded(false,animated:false) }
+        needsLayout = true
     }
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let height = occupiedHeight
         surface.frame = NSRect(x:0,y:bounds.height-height,width:bounds.width,height:height)
-        heading.frame = NSRect(x:6,y:4,width:max(0,bounds.width-12),height:18)
+        let compactProgress = !expanded && stageTitle != nil && !isHidden
+        heading.stringValue = compactProgress ? (stageTitle ?? offerTitle) : offerTitle
+        heading.alignment = compactProgress ? .left : .center
+        stageIcon.isHidden = !compactProgress
+        percentage.isHidden = !compactProgress || fraction == nil
+        stageIcon.frame = NSRect(x:10,y:5,width:15,height:15)
+        percentage.frame = NSRect(x:bounds.width-61,y:5,width:50,height:16)
+        let left: CGFloat = compactProgress ? 31 : 6
+        let right: CGFloat = percentage.isHidden ? 6 : 54
+        heading.frame = NSRect(x:left,y:4,width:max(0,bounds.width-left-right),height:18)
         heading.font = .systemFont(ofSize:bounds.width < 220 ? 11.5 : 12.5,weight:.medium)
+        layoutProgressFill(visible:compactProgress)
         separator.frame = NSRect(x:0,y:26,width:bounds.width,height:0.5)
         automatic.sizeToFit()
         automatic.frame = NSRect(x:max(6,(bounds.width-automatic.frame.width)/2),y:33,width:min(bounds.width-12,automatic.frame.width),height:20)
@@ -102,8 +151,35 @@ final class SidebarUpdateCard: NSView {
         surface.layer?.borderColor = (expanded ? NSColor.white.withAlphaComponent(0.20) : ink.withAlphaComponent(0.18)).cgColor
         surface.layer?.cornerRadius = expanded ? 13 : Self.collapsedHeight/2
         heading.textColor = expanded ? .white : ink
+        percentage.textColor = ink
+        stageIcon.contentTintColor = ink
         separator.backgroundColor = NSColor.white.withAlphaComponent(0.16).cgColor
         CATransaction.commit()
+    }
+    private func layoutProgressFill(visible: Bool) {
+        progressFill.isHidden = !visible
+        let color = accent.blended(withFraction:0.30,of:ink) ?? ink
+        if visible, let fraction {
+            progressFill.removeAnimation(forKey:"activity")
+            progressFill.locations = nil
+            progressFill.colors = [color.withAlphaComponent(0.17).cgColor,color.withAlphaComponent(0.42).cgColor]
+            progressFill.frame = NSRect(x:0,y:0,width:bounds.width * CGFloat(fraction),height:Self.collapsedHeight)
+        } else if visible && showsActivity {
+            progressFill.frame = surface.bounds
+            progressFill.colors = [NSColor.clear.cgColor,color.withAlphaComponent(0.30).cgColor,NSColor.clear.cgColor]
+            progressFill.locations = [0,0.5,1]
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                progressFill.removeAnimation(forKey:"activity")
+            } else if progressFill.animation(forKey:"activity") == nil {
+                let sweep = CABasicAnimation(keyPath:"locations")
+                sweep.fromValue = [-0.8,-0.4,0]; sweep.toValue = [1,1.4,1.8]
+                sweep.duration = 1.8; sweep.repeatCount = .infinity
+                progressFill.add(sweep,forKey:"activity")
+            }
+        } else {
+            progressFill.isHidden = true
+            progressFill.removeAnimation(forKey:"activity")
+        }
     }
     func setExpanded(_ value:Bool, animated:Bool = true) {
         let value = value && available && !suppressed
@@ -220,6 +296,7 @@ private final class UpdateInstallButton: NSButton {
     var invoke: (() -> Void)?
     private let light = CAGradientLayer(), progressLayer = CALayer()
     private var hovered = false
+    private var fraction: Double?
     override init(frame:NSRect) {
         super.init(frame:frame)
         isBordered = false; wantsLayer = true; layer?.cornerRadius = 7
@@ -238,6 +315,7 @@ private final class UpdateInstallButton: NSButton {
     override func layout() {
         super.layout(); CATransaction.begin(); CATransaction.setDisableActions(true)
         light.frame = bounds.insetBy(dx:-bounds.width*0.3,dy:0)
+        progressLayer.frame = NSRect(x:0,y:0,width:bounds.width*CGFloat(fraction ?? 0),height:bounds.height)
         CATransaction.commit()
     }
     func setColor(_ color:NSColor) {
@@ -248,7 +326,8 @@ private final class UpdateInstallButton: NSButton {
         layer?.backgroundColor = NSColor(srgbRed:rgb.redComponent*scale,green:rgb.greenComponent*scale,blue:rgb.blueComponent*scale,alpha:1).cgColor
     }
     func setProgress(_ progress:Double?) {
-        progressLayer.frame = NSRect(x:0,y:0,width:bounds.width*CGFloat(progress ?? 0),height:bounds.height)
+        guard fraction != progress else { return }
+        fraction = progress; needsLayout = true
     }
     func setHovered(_ value:Bool) {
         let value = value && isEnabled

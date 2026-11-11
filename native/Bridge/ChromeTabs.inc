@@ -115,7 +115,7 @@ static void LayoutChromeTab(const std::string& key) {
     ScheduleDiscordInviteOffer(browser,@(key.c_str()),tab.content);
 }
 
-class ChromeTabWindow : public CefWindowDelegate {
+class ChromeTabWindow : public TrackedChromeWindow {
  public:
   ChromeTabWindow(CefRefPtr<CefBrowserView> view, NSString *key, NSView *container)
       : view_(view), key_(key.UTF8String), container_(container) {}
@@ -125,7 +125,7 @@ class ChromeTabWindow : public CefWindowDelegate {
   bool CanMinimize(CefRefPtr<CefWindow>) override { return false; }
   bool CanMaximize(CefRefPtr<CefWindow>) override { return false; }
   cef_runtime_style_t GetWindowRuntimeStyle() override { return CEF_RUNTIME_STYLE_CHROME; }
-  void OnWindowCreated(CefRefPtr<CefWindow> window) override {
+  void WindowCreated(CefRefPtr<CefWindow> window) override {
     BrowserTrace(@"tab.window-created",@{@"tab":@(key_.c_str())});
     window->AddChildView(view_);
     if (auto toolbar = view_->GetChromeToolbar()) window->AddChildView(toolbar);
@@ -149,7 +149,7 @@ class ChromeTabWindow : public CefWindowDelegate {
     auto browser = view_ ? view_->GetBrowser() : nullptr;
     return !browser || browser->GetHost()->TryCloseBrowser();
   }
-  void OnWindowDestroyed(CefRefPtr<CefWindow> window) override {
+  void WindowDestroyed(CefRefPtr<CefWindow> window) override {
     BrowserTrace(@"tab.window-destroyed",@{@"tab":@(key_.c_str()),@"quitting":@(quitting)});
     auto surface = chromeTabs.find(key_);
     // A quick wake may already have attached a replacement for this tab ID.

@@ -1,58 +1,36 @@
 {
-  "version": "1.5.0",
-  "build": 35,
+  "version": "1.5.2",
+  "build": 37,
   "showOnLaunch": true,
   "title": {
-    "en": "Your passwords, your way",
-    "fr": "Vos mots de passe, à votre façon"
+    "fr": "Retrouvez vos extensions sur un autre Mac",
+    "en": "Bring your extensions to another Mac"
   },
   "subtitle": {
-    "en": "Save logins in your local Arc Reborn vault or use your preferred password manager.",
-    "fr": "Enregistrez vos identifiants dans le coffre local d’Arc Reborn ou utilisez votre gestionnaire habituel."
+    "fr": "La synchronisation de votre compte restaure les extensions du Chrome Web Store dans leur profil d’origine.",
+    "en": "Account sync restores your Chrome Web Store extensions to their original profiles."
   },
   "highlights": [
     {
-      "symbol": "key.fill",
-      "title": {
-        "en": "A native password prompt",
-        "fr": "Une proposition native et discrète"
-      },
-      "detail": {
-        "en": "Save or update a login from a compact prompt at the top center of the window. Your vault stays separate for each profile, encrypted on this Mac with a key protected by the macOS keychain.",
-        "fr": "Enregistrez ou mettez à jour un identifiant depuis une fenêtre compacte, centrée en haut du navigateur. Chaque profil conserve son coffre, chiffré sur ce Mac avec une clé protégée par le trousseau macOS."
-      }
-    },
-    {
       "symbol": "puzzlepiece.extension",
       "title": {
-        "en": "Choose your password manager",
-        "fr": "Choisissez votre gestionnaire"
+        "fr": "Synchronisez d’abord le Mac qui possède vos extensions",
+        "en": "Sync the Mac that already has your extensions first"
       },
       "detail": {
-        "en": "Passwords settings detects supported extensions and desktop apps, and opens the installation page for Proton Pass, 1Password, Bitwarden and other supported managers. Extension status is shown for the selected profile.",
-        "fr": "Les réglages Mots de passe détectent les extensions et applications reconnues et ouvrent directement l’installation de Proton Pass, 1Password, Bitwarden et des autres gestionnaires proposés. L’état de l’extension est indiqué pour le profil sélectionné."
+        "fr": "Mettez Arc Reborn à jour sur les deux Mac. Dans Préférences → Compte, synchronisez le premier Mac, puis le second avec le même compte. Les extensions sont téléchargées depuis le Store. Leurs données internes restent sur chaque appareil.",
+        "en": "Update Arc Reborn on both Macs. In Preferences → Account, sync the first Mac, then sync the second with the same account. Extensions download from the store. Their data stays on each device."
       }
     },
     {
-      "symbol": "checkmark.shield",
+      "symbol": "checkmark.circle",
       "title": {
-        "en": "One manager at a time",
-        "fr": "Un seul gestionnaire à la fois"
+        "fr": "Activez les extensions qui demandent votre accord",
+        "en": "Enable extensions that need your approval"
       },
       "detail": {
-        "en": "Choosing an external manager turns off built-in password prompts and filling, and pauses recognized competing extensions. Your existing saved passwords are kept.",
-        "fr": "Le choix d’un gestionnaire externe désactive les propositions et le remplissage intégrés et met les autres extensions reconnues en pause. Vos mots de passe déjà enregistrés sont conservés."
-      }
-    },
-    {
-      "symbol": "command",
-      "title": {
-        "en": "A clearer command palette",
-        "fr": "Une palette de commandes plus lisible"
-      },
-      "detail": {
-        "en": "Search suggestions, open tabs and archived tabs are grouped in a refreshed interface that follows your window appearance. Keyboard navigation and accented queries are preserved.",
-        "fr": "Les recherches, les onglets ouverts et les onglets archivés sont regroupés dans une interface renouvelée qui suit l’apparence de la fenêtre. La navigation au clavier et les recherches avec accents sont conservées."
+        "fr": "Si une extension attend votre accord, cliquez sur « Vérifier les extensions… » dans les réglages du compte. Le gestionnaire s’ouvre sur le bon profil pour que vous puissiez l’activer.",
+        "en": "If an extension needs your approval, use the review button in your account settings to open its profile and enable it."
       }
     }
   ]

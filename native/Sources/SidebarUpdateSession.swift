@@ -37,8 +37,13 @@ final class SidebarUpdateSession {
     func awaitingTermination(retry: @escaping () -> Void) { reply = retry; set(.awaitingRestart) }
     func finish() { reply = nil; installRequested = false; set(.hidden) }
     private func set(_ phase: Phase, progress: Double? = nil) {
+        let previousProgress = self.progress
+        let continuing = self.phase == phase && (phase == .downloading || phase == .preparing)
         self.phase = phase
         self.progress = progress.flatMap { $0.isFinite ? min(1,max(0,$0)) : nil }
+        // Sparkle may deliver hundreds of chunks per second. Repaint each
+        // sidebar when its displayed percentage changes.
+        if continuing, previousProgress.map({ Int($0 * 100) }) == self.progress.map({ Int($0 * 100) }) { return }
         NotificationCenter.default.post(name:Self.changed,object:self)
     }
 }

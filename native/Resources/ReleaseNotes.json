@@ -1,36 +1,47 @@
 {
-  "version": "1.5.2",
-  "build": 37,
+  "version": "1.5.3",
+  "build": 38,
   "showOnLaunch": true,
   "title": {
-    "fr": "Retrouvez vos extensions sur un autre Mac",
-    "en": "Bring your extensions to another Mac"
+    "fr": "Suivez votre mise à jour",
+    "en": "Follow your update"
   },
   "subtitle": {
-    "fr": "La synchronisation de votre compte restaure les extensions du Chrome Web Store dans leur profil d’origine.",
-    "en": "Account sync restores your Chrome Web Store extensions to their original profiles."
+    "fr": "La barre latérale affiche la progression de la mise à jour, même quand vous éloignez le pointeur.",
+    "en": "The sidebar shows update progress even after you move the pointer away."
   },
   "highlights": [
     {
-      "symbol": "puzzlepiece.extension",
+      "symbol": "arrow.down.circle",
       "title": {
-        "fr": "Synchronisez d’abord le Mac qui possède vos extensions",
-        "en": "Sync the Mac that already has your extensions first"
+        "fr": "La progression en un coup d’œil",
+        "en": "Progress at a glance"
       },
       "detail": {
-        "fr": "Mettez Arc Reborn à jour sur les deux Mac. Dans Préférences → Compte, synchronisez le premier Mac, puis le second avec le même compte. Les extensions sont téléchargées depuis le Store. Leurs données internes restent sur chaque appareil.",
-        "en": "Update Arc Reborn on both Macs. In Preferences → Account, sync the first Mac, then sync the second with the same account. Extensions download from the store. Their data stays on each device."
+        "fr": "La pastille se remplit pendant le téléchargement et indique le pourcentage, puis la préparation et le redémarrage.",
+        "en": "The pill fills as the update downloads and shows the percentage, then switches to preparation and restart."
       }
     },
     {
-      "symbol": "checkmark.circle",
+      "symbol": "arrow.clockwise",
       "title": {
-        "fr": "Activez les extensions qui demandent votre accord",
-        "en": "Enable extensions that need your approval"
+        "fr": "Un redémarrage plus fiable",
+        "en": "A more reliable restart"
       },
       "detail": {
-        "fr": "Si une extension attend votre accord, cliquez sur « Vérifier les extensions… » dans les réglages du compte. Le gestionnaire s’ouvre sur le bon profil pour que vous puissiez l’activer.",
-        "en": "If an extension needs your approval, use the review button in your account settings to open its profile and enable it."
+        "fr": "Arc Reborn attend que Chromium ait fermé ses fenêtres avant de quitter. Cela corrige un crash qui pouvait déclencher une alerte macOS pendant la mise à jour.",
+        "en": "Arc Reborn waits for Chromium to close its windows before quitting. This fixes a crash that could trigger a macOS alert during an update."
+      }
+    },
+    {
+      "symbol": "globe",
+      "title": {
+        "fr": "Gardez votre navigateur actuel",
+        "en": "Keep your current browser"
+      },
+      "detail": {
+        "fr": "Si vous choisissez « Conserver » dans la fenêtre de macOS, Arc Reborn vous rappelle discrètement que vous pourrez changer de navigateur par défaut plus tard dans les réglages.",
+        "en": "If you choose Keep in the macOS prompt, Arc Reborn shows a brief reminder that you can change your default browser later in Settings."
       }
     }
   ]

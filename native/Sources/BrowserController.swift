@@ -3554,7 +3554,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
         preferences.onWelcome = { [weak self] in self?.preferencesWindow?.close(); self?.showOnboarding() }
         preferences.onImport = { [weak self] id in self?.preferencesWindow?.close(); self?.showOnboarding(start:.browserImport,standalone:true,profileID:id) }
-        preferences.onDefaultBrowser = { [weak self] in self?.setDefaultBrowser() }
+        preferences.onDefaultBrowser = { [weak self, weak preferences] in self?.setDefaultBrowser(from:preferences?.window) }
         preferences.onRenameProfile = { [weak self] id,name in
             guard let self, !self.isPrivateWindow, self.session.renameProfile(id:id,name:name) else { return false }
             self.persist(); self.render(); return true
@@ -3874,8 +3874,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         return true
     }
     func browserUndoRequested() -> Bool { undoLastDeletion() }
-    private func showError(_ title: String, detail: String) {
-        let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = title; alert.informativeText = detail; alert.addButton(withTitle: t("close")); alert.beginSheetModal(for: window)
+    private func showError(_ title: String, detail: String, in parent: NSWindow? = nil) {
+        let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = title; alert.informativeText = detail; alert.addButton(withTitle: t("close")); alert.beginSheetModal(for: parent ?? window)
     }
 
     // CEF delegate callbacks arrive on the AppKit/UI thread.
@@ -4950,7 +4950,7 @@ extension BrowserController {
         }
         window.setFrame(frame,display:true,animate:!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
-    private func setDefaultBrowser() {
+    private func setDefaultBrowser(from source: NSWindow? = nil) {
         func register(_ remaining: ArraySlice<String>) {
             guard let scheme = remaining.first else { preferencesWindow?.refreshDefaultBrowser(); return }
             if DefaultBrowser.owns(scheme) { register(remaining.dropFirst()); return }
@@ -4958,7 +4958,14 @@ extension BrowserController {
                 DispatchQueue.main.async {
                     if let error {
                         self.preferencesWindow?.refreshDefaultBrowser()
-                        self.showError(self.splitText("Navigateur par défaut","Default Browser"),detail:error.localizedDescription)
+                        let parent = source.flatMap { $0.isVisible ? $0 : nil } ?? self.window
+                        if DefaultBrowser.keptCurrentBrowser(error as NSError) {
+                            let message = self.splitText("Vous pourrez changer de navigateur par défaut plus tard dans les réglages.",
+                                                         "You can change your default browser later in Settings.")
+                            self.undoToast.show(in:parent,message:message,suffix:"",undoLabel:"",color:self.tint(),offersUndo:false)
+                        } else {
+                            self.showError(self.splitText("Navigateur par défaut","Default Browser"),detail:error.localizedDescription,in:parent)
+                        }
                     } else { register(remaining.dropFirst()) }
                 }
             }

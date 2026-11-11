@@ -333,7 +333,7 @@ class DeveloperFrontendEvents : public CefDevToolsMessageObserver {
   std::weak_ptr<DeveloperToolsState> state_;
   IMPLEMENT_REFCOUNTING(DeveloperFrontendEvents);
 };
-class DeveloperToolsWindow : public CefWindowDelegate {
+class DeveloperToolsWindow : public TrackedChromeWindow {
  public:
   DeveloperToolsWindow(std::string key,std::shared_ptr<DeveloperToolsState> state,CefRefPtr<CefBrowserView> view) : key_(std::move(key)),state_(std::move(state)),view_(view) {}
   bool IsFrameless(CefRefPtr<CefWindow>) override { return true; }
@@ -342,7 +342,7 @@ class DeveloperToolsWindow : public CefWindowDelegate {
   bool CanMinimize(CefRefPtr<CefWindow>) override { return false; }
   bool CanMaximize(CefRefPtr<CefWindow>) override { return false; }
   cef_runtime_style_t GetWindowRuntimeStyle() override { return CEF_RUNTIME_STYLE_CHROME; }
-  void OnWindowCreated(CefRefPtr<CefWindow> window) override {
+  void WindowCreated(CefRefPtr<CefWindow> window) override {
     state_->window = window; state_->view = view_;
     state_->frontend = view_->GetBrowser(); state_->opening = false;
     state_->frontendEvents = state_->frontend->GetHost()->AddDevToolsMessageObserver(new DeveloperFrontendEvents(key_,state_));
@@ -361,7 +361,7 @@ class DeveloperToolsWindow : public CefWindowDelegate {
     auto browser = view_ ? view_->GetBrowser() : nullptr;
     return !browser || browser->GetHost()->TryCloseBrowser();
   }
-  void OnWindowDestroyed(CefRefPtr<CefWindow>) override {
+  void WindowDestroyed(CefRefPtr<CefWindow>) override {
     [state_->content removeFromSuperview];
     state_->window = nullptr; state_->view = nullptr; view_ = nullptr;
   }

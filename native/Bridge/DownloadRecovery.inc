@@ -85,12 +85,12 @@ class RecoveryClient : public CefClient, public CefLifeSpanHandler, public CefDo
   IMPLEMENT_REFCOUNTING(RecoveryClient);
 };
 
-class RecoveryWindow : public CefWindowDelegate {
+class RecoveryWindow : public TrackedChromeWindow {
  public:
   explicit RecoveryWindow(CefRefPtr<CefBrowserView> view) : view_(view) {}
   cef_runtime_style_t GetWindowRuntimeStyle() override { return CEF_RUNTIME_STYLE_CHROME; }
-  void OnWindowCreated(CefRefPtr<CefWindow> window) override { window->AddChildView(view_); }
-  void OnWindowDestroyed(CefRefPtr<CefWindow>) override { view_ = nullptr; }
+  void WindowCreated(CefRefPtr<CefWindow> window) override { window->AddChildView(view_); }
+  void WindowDestroyed(CefRefPtr<CefWindow>) override { view_ = nullptr; }
  private:
   CefRefPtr<CefBrowserView> view_;
   IMPLEMENT_REFCOUNTING(RecoveryWindow);

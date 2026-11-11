@@ -154,6 +154,10 @@ async function browserSmoke(){
     const trace=await fs.readFile(path.join(diagnostics,run,'events.jsonl'),'utf8');
     assert.doesNotMatch(trace, /"event":"chrome.unmanaged-created"/, 'A new tab escaped into a Chromium window');
     assert.doesNotMatch(trace, /"event":"app.uncaught-exception"/);
+    const events = trace.trim().split('\n').map(line => JSON.parse(line));
+    const shutdown = events.find(entry => entry.event === 'cef.shutdown.begin');
+    assert.equal(shutdown?.windows, 0, 'Every native Chromium window must close before profile shutdown');
+    assert.equal(events.at(-1).event, 'app.normal-exit');
   }
   check('No standalone Chromium window for links, popups, POST or restoration');
   const logs=await fs.readFile(path.join(root,'build','smoke-app.log'),'utf8');assert.doesNotMatch(logs,/Keychain lookup failed|Encryption is not available|Cannot create profile/);check('No Keychain or profile initialization errors');

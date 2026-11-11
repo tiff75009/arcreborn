@@ -27,8 +27,8 @@ private final class UpdateTestCanvas:NSView { override var isFlipped:Bool { true
         let host = NSView(frame:NSRect(x:0,y:0,width:300,height:500))
         let card = SidebarUpdateCard(frame:NSRect(x:8,y:20,width:229,height:94))
         host.addSubview(card)
-        func update(_ phase:SidebarUpdateSession.Phase = .ready, language:String = "fr") {
-            card.update(phase:phase,progress:nil,actionable:true,automatic:false,allowsAutomatic:true,accent:.systemIndigo,ink:.white,language:language)
+        func update(_ phase:SidebarUpdateSession.Phase = .ready, progress:Double? = nil, language:String = "fr") {
+            card.update(phase:phase,progress:progress,actionable:true,automatic:false,allowsAutomatic:true,accent:.systemIndigo,ink:.white,language:language)
             card.layoutSubtreeIfNeeded(); card.layout()
         }
         func labels(_ view:NSView) -> [String] { view.subviews.flatMap { ($0 as? NSTextField).map { [$0.stringValue] } ?? labels($0) } }
@@ -79,6 +79,23 @@ private final class UpdateTestCanvas:NSView { override var isFlipped:Bool { true
             }
         }
         precondition(target(100,360) === tab,"area above a collapsed pill remains scrollable")
+        update(.downloading,progress:0.42)
+        card.trackPointer(card.convert(NSPoint(x:120,y:82),to:nil))
+        precondition(card.isExpanded)
+        card.trackPointer(nil)
+        RunLoop.main.run(until:Date(timeIntervalSinceNow:0.6))
+        precondition(!card.isExpanded && labels(card).contains("Téléchargement") && labels(card).contains("42 %"))
+        precondition(card.accessibilityValue() as? String == "42 %")
+        update(.preparing,progress:0.75,language:"en")
+        precondition(labels(card).contains("Preparing") && card.accessibilityValue() as? String == "75%")
+        update(.preparing)
+        precondition(card.accessibilityValue() == nil && labels(card).contains("Préparation"))
+        update(.installing)
+        precondition(card.accessibilityValue() == nil && labels(card).contains("Redémarrage…"))
+        update(.awaitingRestart)
+        precondition(labels(card).contains("Redémarrage en attente"))
+        update()
+        precondition(labels(card).contains("Nouvelle version disponible") && card.accessibilityValue() == nil)
         card.setExpanded(true,animated:false)
         for x in stride(from:CGFloat(9),to:291,by:4) {
             for y in stride(from:CGFloat(357),to:449,by:3) {

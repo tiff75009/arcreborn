@@ -120,11 +120,11 @@ class ExtensionClient : public CefClient,
 };
 static CefRefPtr<CefClient> NewExtensionClient() { return new ExtensionClient(); }
 
-class ExtensionWindow : public CefWindowDelegate {
+class ExtensionWindow : public TrackedChromeWindow {
  public:
   ExtensionWindow(CefRefPtr<CefBrowserView> view, std::string profile, NSString *name)
       : view_(view), profile_(std::move(profile)), title_(CefStr([@"Extensions — " stringByAppendingString:name])) {}
-  void OnWindowCreated(CefRefPtr<CefWindow> window) override {
+  void WindowCreated(CefRefPtr<CefWindow> window) override {
     if (!profile_.empty()) { extensionWindows[profile_] = window; extensionViews[profile_] = view_; }
     window->SetTitle(title_);
     CefBoxLayoutSettings settings;
@@ -141,7 +141,7 @@ class ExtensionWindow : public CefWindowDelegate {
     window->Show();
     view_->RequestFocus();
   }
-  void OnWindowDestroyed(CefRefPtr<CefWindow> window) override {
+  void WindowDestroyed(CefRefPtr<CefWindow> window) override {
     auto found = extensionWindows.find(profile_);
     if (found != extensionWindows.end() && found->second->IsSame(window)) { extensionWindows.erase(found); extensionViews.erase(profile_); }
     view_ = nullptr;
