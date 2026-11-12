@@ -1,25 +1,47 @@
 {
-  "version": "1.5.5",
-  "build": 40,
-  "showOnLaunch": false,
+  "version": "1.5.6",
+  "build": 41,
+  "showOnLaunch": true,
   "title": {
-    "fr": "Aperçu des dossiers",
-    "en": "Folder preview"
+    "fr": "Navigation privée et plein écran vidéo",
+    "en": "Private browsing and fullscreen video"
   },
   "subtitle": {
-    "fr": "Ouvrez un onglet depuis l’aperçu d’un dossier.",
-    "en": "Open a tab from a folder preview."
+    "fr": "Retrouvez votre disposition habituelle en privé et profitez des vidéos en plein écran sur Mac.",
+    "en": "Use your usual layout in private windows and watch videos in fullscreen on your Mac."
   },
   "highlights": [
     {
-      "symbol": "cursorarrow.click",
+      "symbol": "sidebar.left",
       "title": {
-        "fr": "Ouverture au premier clic",
-        "en": "Open on the first click"
+        "fr": "Une seule barre d’adresse en privé",
+        "en": "One address bar in private windows"
       },
       "detail": {
-        "fr": "Un clic sur l’onglet dans l’aperçu ouvre sa page.",
-        "en": "Click a tab in the preview to open its page."
+        "fr": "La barre d’adresse en double a disparu. La fenêtre privée reprend le mode classique ou compact de votre fenêtre normale, ainsi que la largeur et la visibilité de la barre latérale.",
+        "en": "The duplicate address bar is gone. Private windows follow your regular window’s Classic or Compact layout, including the sidebar’s width and whether it is shown or hidden."
+      }
+    },
+    {
+      "symbol": "paintpalette",
+      "title": {
+        "fr": "Une couleur à vous pour la navigation privée",
+        "en": "A colour of your own for private browsing"
+      },
+      "detail": {
+        "fr": "Le violet reste la couleur par défaut. Pour la changer, faites un clic droit sur « Navigation privée », puis choisissez « Modifier la couleur du thème… ». Les prochaines fenêtres privées reprendront ce choix, même après un redémarrage.",
+        "en": "Purple is still the default. To change it, right-click Private Browsing and choose Edit Theme Color. New private windows remember your choice, even after you restart Arc Reborn."
+      }
+    },
+    {
+      "symbol": "arrow.up.left.and.arrow.down.right",
+      "title": {
+        "fr": "Les vidéos passent en plein écran macOS",
+        "en": "Videos now enter macOS fullscreen"
+      },
+      "detail": {
+        "fr": "Sur YouTube et les autres lecteurs compatibles, le bouton plein écran utilise tout l’écran du Mac, même en vue partagée. Appuyez sur Échap pour retrouver votre disposition.",
+        "en": "On YouTube and other supported players, the fullscreen button uses your entire Mac display, even in split view. Press Esc to return to your layout."
       }
     }
   ]

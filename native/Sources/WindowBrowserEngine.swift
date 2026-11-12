@@ -60,6 +60,8 @@ final class WindowBrowserEngine: BrowserEngine, BrowserEngineDelegate {
     func browserPasswordPrompt(_ id:String,request:UInt64,origin:String,username:String,kind:Int) { receiver?.browserPasswordPrompt?(logical(id),request:request,origin:origin,username:username,kind:kind) }
     // Profile/global operations do not contain a tab ID and use the shared bridge implementation.
     func browserTitleChanged(_ id:String,title:String) { receiver?.browserTitleChanged(logical(id),title:title) }
+    func browserFullscreenChanged(_ id:String,fullscreen:Bool) { receiver?.browserFullscreenChanged?(logical(id),fullscreen:fullscreen) }
+    override func exitPageFullscreen(_ id:String) { bridge.exitPageFullscreen(rendererID(id)) }
     func browserSoundChanged(_ id:String,audible:Bool,muted:Bool) { receiver?.browserSoundChanged?(logical(id),audible:audible,muted:muted) }
     func browserInboxChanged(_ id:String,document:String,unread:Bool) { receiver?.browserInboxChanged?(logical(id),document:document,unread:unread) }
     func browserURLChanged(_ id:String,url:String) { receiver?.browserURLChanged(logical(id),url:url) }

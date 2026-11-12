@@ -194,10 +194,15 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
                 privateOrigins[id] = regular; privateID = id
             }
         }
-        var state = kind == .normal ? sharedSession : seed.standaloneWindow(privateProfile:privateID,compact:kind == .compact,initialAddress:initialAddress)
+        // A Little Window always hides its sidebar. Use its originating full
+        // window's layout when opening or promoting a private window from it.
+        let opener = source?.windowKind == .compact ? source?.layoutOpener : source
+        let layout = ephemeral ? WindowSidebarLayout(opener?.windowSession ?? sharedSession) : nil
+        var state = kind == .normal ? sharedSession : seed.standaloneWindow(privateProfile:privateID,compact:kind == .compact,initialAddress:initialAddress,layout:layout,privateTheme:ephemeral ? PrivateSpaceTheme.load() : PrivateSpaceTheme.original)
         // Every window opens a usable command surface, even when there are no tabs.
         if state.tabs.isEmpty { _ = state.createTab(); if kind == .normal { sharedSession = state } }
         let result = makeController(state:state,kind:kind,privateWindow:ephemeral)
+        if ephemeral || kind == .compact { result.trackSidebarLayout(from:opener) }
         if let source {
             let offset = source.window.frame.offsetBy(dx:28,dy:-28)
             let size = result.window.frame.size
@@ -275,6 +280,11 @@ final class NativeAppDelegate: NSObject, NSApplicationDelegate {
     private func publishStandaloneNavigation() {
         for item in controllers where (item.windowKind != .normal || item.isPrivateWindow) && !item.isClosingWindow {
             item.receiveInterfaceStyle(sharedSession.interfaceStyle)
+            if baselines[item.windowID]?.themeAppearance != sharedSession.themeAppearance {
+                item.receiveThemeAppearance(sharedSession.themeAppearance)
+                baselines[item.windowID]?.themeAppearance = sharedSession.themeAppearance
+            }
+            item.refreshPrivateSidebarLayout()
             item.receiveTabPreviews(sharedSession.tabPreviewsEnabled)
             baselines[item.windowID]?.tabPreviewsEnabled = sharedSession.tabPreviewsEnabled
             baselines[item.windowID]?.interfaceStyle = sharedSession.interfaceStyle

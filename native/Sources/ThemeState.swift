@@ -104,3 +104,21 @@ struct SpaceTheme: Codable, Equatable {
         gradient = max(gradient,0.65)
     }
 }
+
+/// Local appearance preference only. Private spaces, profiles and tabs are never encoded.
+enum PrivateSpaceTheme {
+    static let original = SpaceTheme.solid("#403355")
+    private static let key = "BrowserPrivateSpaceTheme"
+
+    static func load(from defaults: UserDefaults = .standard) -> SpaceTheme {
+        guard let data = defaults.data(forKey:key),
+              let theme = try? JSONDecoder().decode(SpaceTheme.self,from:data),
+              theme.validated() else { return original }
+        return theme
+    }
+
+    static func remember(_ theme: SpaceTheme, in defaults: UserDefaults = .standard) {
+        guard theme.validated(), let data = try? JSONEncoder().encode(theme) else { return }
+        defaults.set(data,forKey:key)
+    }
+}

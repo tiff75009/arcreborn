@@ -803,6 +803,10 @@ class NativeClient : public CefClient,
     if (embedded_) [engine_.delegate browserTitleChanged:tabID_ title:Str(title)];
     else { NSView *view = (__bridge NSView *)browser->GetHost()->GetWindowHandle(); view.window.title = Str(title); }
   }
+  void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {
+    if (embedded_ && [engine_.delegate respondsToSelector:@selector(browserFullscreenChanged:fullscreen:)])
+      [engine_.delegate browserFullscreenChanged:tabID_ fullscreen:fullscreen];
+  }
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType transition) override {
     CEF_REQUIRE_UI_THREAD();
     FinishArchiveProbe(tabID_.UTF8String,false);
@@ -1097,6 +1101,10 @@ class NativeClient : public CefClient,
   }
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle osEvent, bool* shortcut) override {
     if (event.windows_key_code == 27 && (event.type == KEYEVENT_RAWKEYDOWN || event.type == KEYEVENT_KEYDOWN)) {
+      if (embedded_ && browser->GetHost()->IsFullscreen()) {
+        browser->GetHost()->ExitFullscreen(true);
+        return true;
+      }
       auto tools = developerTools.find(tabID_.UTF8String);
       if (tools != developerTools.end() && tools->second->picking) { CancelNativeInspection(tabID_.UTF8String); return true; }
     }
@@ -1733,6 +1741,11 @@ static bool ChangeDownloadPreference(const char* key, CefRefPtr<CefValue> value)
 - (void)clearCacheForTab:(NSString *)tabID completion:(void (^)(BOOL))completion {
   auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) { completion(NO); return; }
   i->second->GetHost()->GetRequestContext()->ClearHttpCache(new SiteCompletion(completion));
+}
+- (void)exitPageFullscreen:(NSString *)tabID {
+  auto tab = browsers.find(tabID.UTF8String);
+  if (tab != browsers.end() && tab->second->GetHost()->IsFullscreen())
+    tab->second->GetHost()->ExitFullscreen(true);
 }
 - (void)setPageInputSuppressed:(BOOL)suppressed forTab:(NSString *)tabID {
   auto i = browsers.find(tabID.UTF8String); if (i == browsers.end()) return;

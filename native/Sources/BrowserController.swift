@@ -463,6 +463,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     let windowID: String
     let windowKind: BrowserWindowKind
     let isPrivateWindow: Bool
+    private(set) weak var layoutOpener: BrowserController?
+    private var lastOpenerLayout: WindowSidebarLayout?
+    private let initialSpaceID: String
     private let engine: WindowBrowserEngine
     var becameKey: ((BrowserController)->Void)?
     var handoffPageChanged: ((BrowserController)->Void)?
@@ -474,6 +477,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     var windowAddressRequested: ((String)->Void)?
     var promoteWindowRequested: (()->Void)?
     private var windowChrome: WindowChromeBar?
+    private let fullscreenSurface = NSView()
+    private var fullscreenTab: String?
+    private var fullscreenEscapeMonitor: Any?
+    private var pageRequestedNativeFullscreen = false
+    private var nativeFullscreenTransition: Bool?
     private var closingWindow = false
     private var closeParticipants = Set<String>()
     private var closeWaiting = Set<String>()
@@ -642,6 +650,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
 
     init(session: BrowserSession, store: SessionStore, windowID:String = UUID().uuidString, kind:BrowserWindowKind = .normal, privateWindow:Bool = false) {
         self.windowID = windowID; windowKind = kind; isPrivateWindow = privateWindow
+        initialSpaceID = session.activeSpaceID
         engine = WindowBrowserEngine(windowID:windowID)
         self.session = session; self.store = store
         renderedTabIDs = Set(session.tabs.map(\.id))
@@ -725,7 +734,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         recentPeek.transferAction = { [weak self] in self?.libraryStore.request($0,action:$1) }
         recentPeek.removeRecent = { [weak self] in self?.libraryStore.dismissRecentFile($0) }
         recentPeek.transferSeen = { [weak self] in self?.libraryStore.acknowledge([$0]) }
-        if kind == .compact || privateWindow {
+        if kind == .compact {
             let bar = WindowChromeBar(compact:kind == .compact,privateWindow:privateWindow,language:session.language,
                 back:{ [weak self] in self?.backAction(nil) },forward:{ [weak self] in self?.forwardAction(nil) },reload:{ [weak self] in self?.reloadAction(nil) },expand:{ [weak self] in self?.promoteWindowRequested?() })
             bar.navigate = { [weak self] value in self?.navigate(value,newTab:false) }
@@ -737,6 +746,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         updateDownloadIndicator(); render(); layout()
     }
     deinit {
+        if let fullscreenEscapeMonitor { NSEvent.removeMonitor(fullscreenEscapeMonitor) }
         if let spaceScrollMonitor { NSEvent.removeMonitor(spaceScrollMonitor) }
         if let observer = quitCancellationObserver { NotificationCenter.default.removeObserver(observer) }
         folderHoverTask?.cancel(); folderPeek?.close(animated:false)
@@ -821,6 +831,97 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         finishSpaceSwitch()
         sidebarTransition += 1; sidebarAnimating = false
         sidebarHost.layer?.removeAllAnimations()
+        layout()
+    }
+    func browserFullscreenChanged(_ tabID:String,fullscreen:Bool) {
+        guard fullscreen else {
+            if fullscreenTab == tabID { leavePageFullscreen(exitRenderer:false) }
+            return
+        }
+        guard fullscreenTab != tabID else { return }
+        guard !isQuitting, !closingWindow, window.isVisible, nativeFullscreenTransition != false,
+              activeTab?.id == tabID || activeSplit?.tabIDs.contains(tabID) == true,
+              let container = containers[tabID], !container.isHiddenOrHasHiddenAncestor else {
+            engine.exitPageFullscreen(tabID)
+            return
+        }
+        if fullscreenTab != nil { leavePageFullscreen(exitRenderer:true) }
+        if activeTab?.id != tabID { focusSplitPane(tabID,keyboard:false) }
+        dismissFolderPeek(animated:false); dismissSidebarTip()
+        fullscreenTab = tabID
+        fullscreenSurface.wantsLayer = true
+        fullscreenSurface.layer?.backgroundColor = NSColor.black.cgColor
+        root.addSubview(fullscreenSurface,positioned:.above,relativeTo:nil)
+        fullscreenSurface.addSubview(container)
+        // Escape belongs to the page first, even when the user had already
+        // placed the browser window in its own macOS fullscreen Space.
+        fullscreenEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] event in
+            guard let self, self.fullscreenTab != nil, event.keyCode == 53,
+                  event.window === self.window, event.modifierFlags.intersection([.command,.control,.option]).isEmpty else { return event }
+            self.leavePageFullscreen(exitRenderer:true)
+            return nil
+        }
+        layoutFullscreenPage()
+        layoutWindowButtons()
+        engine.focusTab(tabID)
+        reconcileNativeFullscreen()
+    }
+    private func layoutFullscreenPage() {
+        guard let id = fullscreenTab, let container = containers[id] else { return }
+        fullscreenSurface.frame = root.bounds
+        container.frame = fullscreenSurface.bounds
+        engine.resizeTab(id,container:container)
+    }
+    private func leavePageFullscreen(exitRenderer:Bool) {
+        guard let id = fullscreenTab else { return }
+        fullscreenTab = nil
+        if let fullscreenEscapeMonitor {
+            NSEvent.removeMonitor(fullscreenEscapeMonitor)
+            self.fullscreenEscapeMonitor = nil
+        }
+        if exitRenderer { engine.exitPageFullscreen(id) }
+        showSelectedTab()
+        fullscreenSurface.removeFromSuperview()
+        layoutWindowButtons()
+        if activeTab?.id == id { engine.focusTab(id) }
+        reconcileNativeFullscreen()
+    }
+    private func reconcileNativeFullscreen() {
+        guard nativeFullscreenTransition == nil, !isQuitting, !closingWindow else { return }
+        let isNative = window.styleMask.contains(.fullScreen)
+        if fullscreenTab != nil && !isNative {
+            pageRequestedNativeFullscreen = true
+            nativeFullscreenTransition = true
+            window.toggleFullScreen(nil)
+        } else if fullscreenTab == nil && pageRequestedNativeFullscreen {
+            pageRequestedNativeFullscreen = false
+            if isNative {
+                nativeFullscreenTransition = false
+                window.toggleFullScreen(nil)
+            }
+        }
+    }
+    func windowWillEnterFullScreen(_ notification:Notification) { nativeFullscreenTransition = true }
+    func windowDidEnterFullScreen(_ notification:Notification) {
+        nativeFullscreenTransition = nil
+        layout(); reconcileNativeFullscreen()
+    }
+    func windowWillExitFullScreen(_ notification:Notification) {
+        nativeFullscreenTransition = false
+        pageRequestedNativeFullscreen = false
+        leavePageFullscreen(exitRenderer:true)
+    }
+    func windowDidExitFullScreen(_ notification:Notification) {
+        nativeFullscreenTransition = nil
+        layout()
+    }
+    func windowDidFailToEnterFullScreen(_ window:NSWindow) {
+        nativeFullscreenTransition = nil
+        pageRequestedNativeFullscreen = false
+        leavePageFullscreen(exitRenderer:true)
+    }
+    func windowDidFailToExitFullScreen(_ window:NSWindow) {
+        nativeFullscreenTransition = nil
         layout()
     }
     func windowDidResignKey(_ notification: Notification) {
@@ -1236,6 +1337,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         if spaceCreation != nil { sidebarHost.isHidden = true; content.isHidden = true; pageShadow.isHidden = true }
         layoutSplitContent()
         updateLoadIndicator()
+        layoutFullscreenPage()
     }
     private var sidebarFrame: NSRect {
         let side = CGFloat(SidebarSizing.clamp(session.sidebarWidth))
@@ -1262,7 +1364,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func layoutWindowButtons() {
         let floating = windowKind != .compact && spaceCreation == nil && library == nil && session.sidebarHidden
-        let hidden = floating && (sidebarAnimating || !sidebarRevealed)
+        let hidden = fullscreenTab != nil || (floating && (sidebarAnimating || !sidebarRevealed))
         let kinds: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
         let buttons = kinds.map { window.standardWindowButton($0) }
         // AppKit owns these controls in the title bar, outside the sliding view.
@@ -1503,7 +1605,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         }
     }
     private var canPreviewFolder: Bool {
-        (window.isKeyWindow || folderPeek?.isKey == true) && !isQuitting && !closingWindow &&
+        (window.isKeyWindow || folderPeek?.isKey == true) && fullscreenTab == nil && !isQuitting && !closingWindow &&
         !sidebarHost.isHidden && (!session.sidebarHidden || sidebarRevealed) &&
         library == nil && commandPalette == nil && sheet == nil && window.attachedSheet == nil &&
         spaceCreation == nil && swipeTarget == nil && addMenu == nil && siteMenu?.isShown != true &&
@@ -2281,6 +2383,11 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         defer { CATransaction.commit(); NSAnimationContext.endGrouping() }
         guard !isQuitting, !closingWindow, spaceCreation == nil else { return }
         guard profileReloads[session.activeSpaceID] == nil, pendingSpaceClosures[session.activeSpaceID] == nil else { return }
+        if let id = fullscreenTab {
+            if activeTab?.id != id { leavePageFullscreen(exitRenderer:true) }
+            else { layoutFullscreenPage() }
+            return
+        }
         session.normalizeSplits()
         let ids = activeSplit?.tabIDs ?? activeTab.map { [$0.id] } ?? []
         let visible = Set(ids)
@@ -3657,13 +3764,21 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             self.session.spaces[i].name = value; self.render(); self.persist()
         }
     }
+    private func setSpaceTheme(_ theme: SpaceTheme, at index: Int) {
+        guard theme.validated(), session.spaces[index].theme != theme || session.spaces[index].color != theme.points[0].color else { return }
+        session.spaces[index].theme = theme
+        session.spaces[index].color = theme.points[0].color
+        if isPrivateWindow, session.spaces[index].id == initialSpaceID {
+            PrivateSpaceTheme.remember(theme)
+        }
+    }
     private func editSpaceAppearance(_ id: String, icon editingIcon: Bool, anchor: NSView? = nil) {
         guard let space = session.spaces.first(where: { $0.id == id }) else { return }
         if !editingIcon {
             commandPalette?.close(); themeEditor?.close(animated:false)
             let editor = ThemeEditor(parent:window,anchor:NSEvent.mouseLocation,theme:space.theme ?? .solid(space.color),appearance:session.themeAppearance ?? .automatic,language:session.language,change: { [weak self] theme, mode in
                 guard let self, let i = self.session.spaces.firstIndex(where: { $0.id == id }), theme.validated() else { return }
-                self.session.spaces[i].theme = theme; self.session.spaces[i].color = theme.points[0].color
+                self.setSpaceTheme(theme,at:i)
                 self.session.themeAppearance = mode; self.applyTheme(); self.persist()
                 // Backdrops update immediately; expensive table/layout work is coalesced while dragging.
                 self.themeRenderTask?.cancel()
@@ -3832,7 +3947,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         alert.beginSheetModal(for: window) { [weak self] result in
             guard let self, result == .alertFirstButtonReturn else { return }
             let value = String(name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)); guard !value.isEmpty else { return }
-            if let existing, let i = self.session.spaces.firstIndex(where: { $0.id == existing.id }) { self.session.spaces[i].name = value; if self.session.spaces[i].color != colors[color.indexOfSelectedItem] { self.session.spaces[i].theme = nil }; self.session.spaces[i].color = colors[color.indexOfSelectedItem]; self.session.spaces[i].icon = chosenIcon }
+            if let existing, let i = self.session.spaces.firstIndex(where: { $0.id == existing.id }) { self.session.spaces[i].name = value; if self.session.spaces[i].color != colors[color.indexOfSelectedItem] { self.setSpaceTheme(.solid(colors[color.indexOfSelectedItem]),at:i) }; self.session.spaces[i].icon = chosenIcon }
             else { _ = self.session.createSpace(name: value, color: colors[color.indexOfSelectedItem], icon: chosenIcon, profileID: self.session.profiles[profile.indexOfSelectedItem].id) }
             self.render(); self.showSelectedTab(); self.persist()
         }; alert.window.makeFirstResponder(name)
@@ -4194,6 +4309,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         } else { session.tabs[i].archivedNavigation = snapshotForArchive(session.tabs[i]) }
     }
     func browserClosed(_ tabID: String) {
+        defer { if fullscreenTab == tabID { leavePageFullscreen(exitRenderer:false) } }
         pendingSilence.removeValue(forKey:tabID)?.cancel()
         if let sound = status[tabID]?.sound, sound != .silent { setSidebarSound(.silent, for:tabID) }
         let wasSleeping = sleepClosing.removeValue(forKey:tabID) != nil
@@ -5038,6 +5154,25 @@ extension BrowserController {
         commandPalette?.close(); siteMenu?.close()
         render()
     }
+    func receiveThemeAppearance(_ mode:ThemeAppearance?) {
+        guard session.themeAppearance != mode else { return }
+        session.themeAppearance = mode
+        preferencesWindow?.refreshAppearance(mode ?? .automatic)
+        render()
+    }
+    func trackSidebarLayout(from opener:BrowserController?) {
+        layoutOpener = opener
+        lastOpenerLayout = opener.map { WindowSidebarLayout($0.windowSession) }
+    }
+    func refreshPrivateSidebarLayout() {
+        guard isPrivateWindow, let opener = layoutOpener, let previous = lastOpenerLayout else { return }
+        let current = WindowSidebarLayout(opener.windowSession)
+        guard current != previous else { return }
+        lastOpenerLayout = current
+        if current.sidebarWidth != previous.sidebarWidth { session.sidebarWidth = current.sidebarWidth }
+        if current.sidebarHidden != previous.sidebarHidden { setSidebarHidden(current.sidebarHidden) }
+        render()
+    }
     func receiveTabPreviews(_ enabled: Bool?) {
         guard session.tabPreviewsEnabled != enabled else { return }
         session.tabPreviewsEnabled = enabled
@@ -5062,6 +5197,7 @@ extension BrowserController {
         }
         guard next != previous else { return }
         session = next
+        if previous.themeAppearance != next.themeAppearance { preferencesWindow?.refreshAppearance(next.themeAppearance ?? .automatic) }
         if previous.tabPreviewsEnabled != next.tabPreviewsEnabled { applyTabPreviewSetting() }
         for profile in next.profiles where previous.profiles.first(where: { $0.id == profile.id })?.engine != profile.engine {
             configureEngine(profile.engine,profileID:profile.id)

@@ -13,7 +13,7 @@ func startNativeHostDiagnostics() {
             if let label = v as? NSTextField, label.accessibilityIdentifier() == "download-protection-warning" {
                 result.append(["class":"DownloadWarning", "hidden":label.isHiddenOrHasHiddenAncestor, "label":label.stringValue])
             }
-            if name.contains("WebContents") || name.contains("RenderWidget") || name.contains("TabCell") || v is NSButton || v is DownloadFlightView {
+            if name.contains("WebContents") || name.contains("RenderWidget") || name.contains("TabCell") || v is NSButton || v is DownloadFlightView || v is WindowChromeBar {
                 result.append(["class": name, "window": v.window?.windowNumber ?? -1,
                                "hidden": v.isHiddenOrHasHiddenAncestor,
                                "label": v.accessibilityLabel() ?? "",
@@ -27,6 +27,7 @@ func startNativeHostDiagnostics() {
              "identifier": w.identifier?.rawValue ?? "", "visible": w.isVisible,
              "key": w.isKeyWindow, "main": w.isMainWindow,
              "firstResponder": w.firstResponder.map { NSStringFromClass(type(of: $0)) } ?? "",
+             "fullscreen": w.styleMask.contains(.fullScreen), "screenFrame": rect(w.screen?.frame ?? .zero),
              "frame": rect(w.frame), "views": w.contentView.map(views) ?? []]
         }
         if let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]) {

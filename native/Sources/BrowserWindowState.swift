@@ -2,6 +2,17 @@ import Foundation
 
 enum BrowserWindowKind: String, Codable { case normal, blank, privateWindow, compact }
 
+/// A Little Window may force the sidebar closed, independently of its full window.
+struct WindowSidebarLayout: Equatable {
+    let sidebarWidth: Double
+    let sidebarHidden: Bool
+
+    init(_ session: BrowserSession) {
+        sidebarWidth = session.sidebarWidth
+        sidebarHidden = session.sidebarHidden
+    }
+}
+
 extension BrowserSession {
     /// Apply only edits made by this window. Background title updates cannot erase
     /// tabs added in another window, or overwrite an unrelated changed field.
@@ -63,15 +74,18 @@ extension BrowserSession {
         return result
     }
 
-    func standaloneWindow(privateProfile:String? = nil, compact:Bool = false, initialAddress:String? = nil) -> Self {
+    func standaloneWindow(privateProfile:String? = nil, compact:Bool = false, initialAddress:String? = nil, layout:WindowSidebarLayout? = nil, privateTheme:SpaceTheme = PrivateSpaceTheme.original) -> Self {
         var next = Self.fresh(language:language); next.onboardingComplete = true
         let source = spaces.first { $0.id == activeSpaceID }
+        let layout = layout ?? WindowSidebarLayout(self)
         if let privateProfile {
             let origin = profile(forSpace:activeSpaceID)
             next.profiles = [.init(id:privateProfile,name:language == "fr" ? "Privé" : "Private",searchEngineID:origin?.searchEngineID,newTabAddress:origin?.homepage,archiveAfterHours:origin?.archiveAfterHours,autoArchiveEnabledSince:origin?.autoArchiveEnabledSince)]
             next.spaces[0].profileID = privateProfile
             next.spaces[0].name = language == "fr" ? "Navigation privée" : "Private Browsing"
-            next.spaces[0].icon = "🔒"; next.spaces[0].color = "#403355"
+            next.spaces[0].icon = "🔒"
+            next.spaces[0].color = privateTheme.points.first?.color ?? "#403355"
+            next.spaces[0].theme = privateTheme
         } else if let profile = profiles.first(where: { $0.id == source?.profileID }) {
             next.profiles = [profile]; next.spaces[0].profileID = profile.id
             next.spaces[0].name = language == "fr" ? "Fenêtre vide" : "Blank Window"
@@ -79,7 +93,7 @@ extension BrowserSession {
         }
         next.interfaceStyle = interfaceStyle
         next.tabPreviewsEnabled = tabPreviewsEnabled
-        next.themeAppearance = themeAppearance; next.sidebarWidth = sidebarWidth; next.sidebarHidden = compact || sidebarHidden
+        next.themeAppearance = themeAppearance; next.sidebarWidth = layout.sidebarWidth; next.sidebarHidden = compact || layout.sidebarHidden
         next.commandShortcuts = commandShortcuts; next.splitShortcuts = splitShortcuts
         next.passwordManagerID = passwordManagerID
         next.savePasswords = privateProfile == nil ? savePasswords : false

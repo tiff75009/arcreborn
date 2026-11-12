@@ -270,6 +270,12 @@ final class BrowserPreferencesWindow: NSWindowController, NSWindowDelegate {
         let rule = NSBox(frame:NSRect(x:26,y:50,width:sheetWidth-52,height:1)); rule.boxType = .separator; nav.addSubview(rule)
     }
     func showInterface() { select(3) }
+    func refreshAppearance(_ mode:ThemeAppearance) {
+        guard mode != appearance else { return }
+        appearance = mode
+        window?.appearance = mode == .automatic ? nil : NSAppearance(named:mode == .dark ? .darkAqua : .aqua)
+        rebuild()
+    }
     func refreshSidebarVisibility(_ hidden:Bool) {
         sidebarHidden = hidden
         visibilityControl?.selectedSegment = hidden ? 1 : 0

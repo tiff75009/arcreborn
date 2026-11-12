@@ -39,6 +39,15 @@ import CoreGraphics
         harmony.addHarmonyColor(); harmony.addHarmonyColor(); harmony.addHarmonyColor()
         check(harmony.points.count == 3 && harmony.validated(), "three linked colors maximum")
         check(try JSONDecoder().decode(SpaceTheme.self,from:JSONEncoder().encode(harmony)) == harmony, "linked wheel survives serialization")
+        let suite = "PrivateSpaceThemeTests." + UUID().uuidString
+        let defaults = UserDefaults(suiteName:suite)!
+        defer { defaults.removePersistentDomain(forName:suite) }
+        check(PrivateSpaceTheme.load(from:defaults) == .solid("#403355"), "first private space uses its own violet")
+        var customPrivate = harmony; customPrivate.grain = 0.65; customPrivate.gradient = 0.8
+        PrivateSpaceTheme.remember(customPrivate,in:defaults)
+        var invalidPrivate = customPrivate; invalidPrivate.points = []
+        PrivateSpaceTheme.remember(invalidPrivate,in:defaults)
+        check(PrivateSpaceTheme.load(from:defaults) == customPrivate, "all private theme controls survive reopening and an invalid edit")
         let moved = harmony.movingColor(0,toX:0.82,y:0.65)
         check(zip(harmony.points,moved.points).allSatisfy { $0.color != $1.color && ($0.x != $1.x || $0.y != $1.y) }, "drag changes every linked color and position")
         func angleBetween(_ theme: SpaceTheme) -> Double {

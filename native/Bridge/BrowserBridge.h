@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)browserRequestedNewTab:(NSString *)url sourceTab:(NSString *)tabID NS_SWIFT_NAME(browserRequestedNewTab(_:sourceTab:));
 - (void)browserClosed:(NSString *)tabID NS_SWIFT_NAME(browserClosed(_:));
 @optional
+- (void)browserFullscreenChanged:(NSString *)tabID fullscreen:(BOOL)fullscreen NS_SWIFT_NAME(browserFullscreenChanged(_:fullscreen:));
 - (void)browserPasswordPrompt:(NSString *)tabID request:(uint64_t)request origin:(NSString *)origin username:(NSString *)username kind:(NSInteger)kind NS_SWIFT_NAME(browserPasswordPrompt(_:request:origin:username:kind:));
 - (void)browserFindResult:(NSString *)tabID position:(NSInteger)position total:(NSInteger)total NS_SWIFT_NAME(browserFindResult(_:position:total:));
 - (void)browserWillClose:(NSString *)tabID NS_SWIFT_NAME(browserWillClose(_:));
@@ -106,6 +107,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSView * _Nullable)captureViewForTab:(NSString *)tabID NS_SWIFT_NAME(captureView(forTab:));
 - (void)captureElementAtPoint:(NSPoint)point forTab:(NSString *)tabID completion:(void (^)(NSDictionary * _Nullable))completion NS_SWIFT_NAME(captureElement(at:forTab:completion:));
 - (void)setPageInputSuppressed:(BOOL)suppressed forTab:(NSString *)tabID;
+- (void)exitPageFullscreen:(NSString *)tabID NS_SWIFT_NAME(exitPageFullscreen(_:));
 - (void)clearCacheForTab:(NSString *)tabID completion:(void (^)(BOOL))completion;
 - (void)clearCookiesForTab:(NSString *)tabID completion:(void (^)(BOOL))completion;
 - (void)identifyLegacyDownload:(uint32_t)identifier source:(NSString *)source partial:(NSString *)partial profile:(NSString *)profile completion:(void (^)(NSString * _Nullable))completion NS_SWIFT_NAME(identifyLegacyDownload(_:source:partial:profile:completion:));
