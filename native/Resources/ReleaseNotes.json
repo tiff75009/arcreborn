@@ -1,47 +1,25 @@
 {
-  "version": "1.5.4",
-  "build": 39,
-  "showOnLaunch": true,
+  "version": "1.5.5",
+  "build": 40,
+  "showOnLaunch": false,
   "title": {
-    "fr": "Du dossier à la page, en un clic",
-    "en": "From folder to page in one click"
+    "fr": "Aperçu des dossiers",
+    "en": "Folder preview"
   },
   "subtitle": {
-    "fr": "Survolez un dossier replié et choisissez votre onglet. Arc Reborn ouvre la page et vous montre aussitôt sa place dans la barre latérale.",
-    "en": "Hover over a collapsed folder and choose a tab. Arc Reborn opens the page and shows you where it lives in the sidebar."
+    "fr": "Ouvrez un onglet depuis l’aperçu d’un dossier.",
+    "en": "Open a tab from a folder preview."
   },
   "highlights": [
     {
       "symbol": "cursorarrow.click",
       "title": {
-        "fr": "Le premier clic ouvre la page",
-        "en": "The first click opens the page"
+        "fr": "Ouverture au premier clic",
+        "en": "Open on the first click"
       },
       "detail": {
-        "fr": "Cliquez directement sur un résultat dans l’aperçu, même si la fenêtre principale a encore le focus.",
-        "en": "Click a result in the folder preview to open it, even while the main window still has focus."
-      }
-    },
-    {
-      "symbol": "folder",
-      "title": {
-        "fr": "Retrouvez le bon sous-dossier",
-        "en": "See the whole folder path"
-      },
-      "detail": {
-        "fr": "Si votre onglet est rangé dans plusieurs sous-dossiers, la barre latérale les déplie jusqu’à lui et le fait défiler à l’écran. Cela fonctionne aussi depuis la recherche de l’aperçu.",
-        "en": "For a tab nested several folders deep, the sidebar expands its folders and scrolls the tab into view. This also works when you pick a search result in the preview."
-      }
-    },
-    {
-      "symbol": "globe",
-      "title": {
-        "fr": "Chromium 156.0.8078.88",
-        "en": "Chromium 156.0.8078.88"
-      },
-      "detail": {
-        "fr": "Le moteur de navigation passe de Chromium 156.0.8078.80 à 156.0.8078.88, avec CEF 156.0.28 sur Mac.",
-        "en": "Arc Reborn moves from Chromium 156.0.8078.80 to 156.0.8078.88, with CEF 156.0.28 on Mac."
+        "fr": "Un clic sur l’onglet dans l’aperçu ouvre sa page.",
+        "en": "Click a tab in the preview to open its page."
       }
     }
   ]

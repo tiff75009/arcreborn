@@ -1,47 +1,47 @@
 {
-  "version": "1.5.3",
-  "build": 38,
+  "version": "1.5.4",
+  "build": 39,
   "showOnLaunch": true,
   "title": {
-    "fr": "Suivez votre mise à jour",
-    "en": "Follow your update"
+    "fr": "Du dossier à la page, en un clic",
+    "en": "From folder to page in one click"
   },
   "subtitle": {
-    "fr": "La barre latérale affiche la progression de la mise à jour, même quand vous éloignez le pointeur.",
-    "en": "The sidebar shows update progress even after you move the pointer away."
+    "fr": "Survolez un dossier replié et choisissez votre onglet. Arc Reborn ouvre la page et vous montre aussitôt sa place dans la barre latérale.",
+    "en": "Hover over a collapsed folder and choose a tab. Arc Reborn opens the page and shows you where it lives in the sidebar."
   },
   "highlights": [
     {
-      "symbol": "arrow.down.circle",
+      "symbol": "cursorarrow.click",
       "title": {
-        "fr": "La progression en un coup d’œil",
-        "en": "Progress at a glance"
+        "fr": "Le premier clic ouvre la page",
+        "en": "The first click opens the page"
       },
       "detail": {
-        "fr": "La pastille se remplit pendant le téléchargement et indique le pourcentage, puis la préparation et le redémarrage.",
-        "en": "The pill fills as the update downloads and shows the percentage, then switches to preparation and restart."
+        "fr": "Cliquez directement sur un résultat dans l’aperçu, même si la fenêtre principale a encore le focus.",
+        "en": "Click a result in the folder preview to open it, even while the main window still has focus."
       }
     },
     {
-      "symbol": "arrow.clockwise",
+      "symbol": "folder",
       "title": {
-        "fr": "Un redémarrage plus fiable",
-        "en": "A more reliable restart"
+        "fr": "Retrouvez le bon sous-dossier",
+        "en": "See the whole folder path"
       },
       "detail": {
-        "fr": "Arc Reborn attend que Chromium ait fermé ses fenêtres avant de quitter. Cela corrige un crash qui pouvait déclencher une alerte macOS pendant la mise à jour.",
-        "en": "Arc Reborn waits for Chromium to close its windows before quitting. This fixes a crash that could trigger a macOS alert during an update."
+        "fr": "Si votre onglet est rangé dans plusieurs sous-dossiers, la barre latérale les déplie jusqu’à lui et le fait défiler à l’écran. Cela fonctionne aussi depuis la recherche de l’aperçu.",
+        "en": "For a tab nested several folders deep, the sidebar expands its folders and scrolls the tab into view. This also works when you pick a search result in the preview."
       }
     },
     {
       "symbol": "globe",
       "title": {
-        "fr": "Gardez votre navigateur actuel",
-        "en": "Keep your current browser"
+        "fr": "Chromium 156.0.8078.88",
+        "en": "Chromium 156.0.8078.88"
       },
       "detail": {
-        "fr": "Si vous choisissez « Conserver » dans la fenêtre de macOS, Arc Reborn vous rappelle discrètement que vous pourrez changer de navigateur par défaut plus tard dans les réglages.",
-        "en": "If you choose Keep in the macOS prompt, Arc Reborn shows a brief reminder that you can change your default browser later in Settings."
+        "fr": "Le moteur de navigation passe de Chromium 156.0.8078.80 à 156.0.8078.88, avec CEF 156.0.28 sur Mac.",
+        "en": "Arc Reborn moves from Chromium 156.0.8078.80 to 156.0.8078.88, with CEF 156.0.28 on Mac."
       }
     }
   ]

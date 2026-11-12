@@ -26,31 +26,34 @@ import AppKit
             return view.subviews.lazy.compactMap { table(in:$0) }.first
         }
         let list = table(in:panel.contentView!)!
-        func event(_ type:NSEvent.EventType, at point:NSPoint) -> NSEvent {
-            NSEvent.mouseEvent(with:type,location:parent.convertPoint(fromScreen:point),modifierFlags:[],
-                               timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:parent.windowNumber,
+        func event(_ type:NSEvent.EventType, at point:NSPoint, in window:NSWindow) -> NSEvent {
+            NSEvent.mouseEvent(with:type,location:window.convertPoint(fromScreen:point),modifierFlags:[],
+                               timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:window.windowNumber,
                                context:nil,eventNumber:0,clickCount:1,pressure:1)!
         }
         func pointOnRow() -> NSPoint {
             let row = list.rect(ofRow:0)
             return panel.convertPoint(toScreen:list.convert(NSPoint(x:row.midX,y:row.midY),to:nil))
         }
-        func clickRow() {
+        func clickRow(from downWindow:NSWindow, to upWindow:NSWindow) {
             let point = pointOnRow()
-            app.sendEvent(event(.leftMouseDown,at:point))
-            app.sendEvent(event(.leftMouseUp,at:point))
+            app.sendEvent(event(.leftMouseDown,at:point,in:downWindow))
+            app.sendEvent(event(.leftMouseUp,at:point,in:upWindow))
         }
         let point = pointOnRow()
         let hit = panel.contentView!.hitTest(panel.convertPoint(fromScreen:point))
         precondition(hit === list && list.acceptsFirstMouse(for:nil),"The first click on row content must reach the table")
-        clickRow() // Enter the nested folder without selecting a browser tab.
+        clickRow(from:panel,to:panel) // The first click enters the nested folder.
         let nestedPoint = pointOnRow()
-        app.sendEvent(event(.leftMouseDown,at:nestedPoint))
-        app.sendEvent(event(.leftMouseUp,at:NSPoint(x:parent.frame.minX,y:parent.frame.minY)))
+        app.sendEvent(event(.leftMouseDown,at:nestedPoint,in:panel))
+        app.sendEvent(event(.leftMouseUp,at:NSPoint(x:parent.frame.minX,y:parent.frame.minY),in:parent))
         precondition(opened.isEmpty,"Releasing outside the row must cancel the click")
-        clickRow()
-        precondition(opened.count == 1 && opened[0].0 == tab && opened[0].1 == child.id,
-                     "A click addressed to the parent must open the hit once, with its actual folder")
+        for (down,up) in [(panel,panel),(parent,parent),(parent,panel),(panel,parent)] {
+            opened.removeAll()
+            clickRow(from:down,to:up)
+            precondition(opened.count == 1 && opened[0].0 == tab && opened[0].1 == child.id,
+                         "One press and release must open the hit once, with its actual folder")
+        }
         collapse.expandPath(to:opened[0].1,spaceID:space,in:&session)
         precondition(session.folders.filter { !$0.collapsed }.map(\.id) == [folder.id,child.id])
         precondition(collapse.retainedTabs.isEmpty && session.sidebarTree(spaceID:space).contains { $0.item == .tab(tab) && $0.depth == 2 })

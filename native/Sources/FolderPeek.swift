@@ -114,7 +114,7 @@ private final class PeekCell: NSTableCellView {
 }
 
 final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
-    private let panel = PeekWindow(contentRect:.zero,styleMask:[.borderless],backing:.buffered,defer:false)
+    private let panel = PeekWindow(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
     // The child window owns input throughout the animation. Only its card moves.
     private let stage = NSView()
     private var attachment = NSRect.zero
@@ -129,7 +129,7 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     private let artwork: (String) -> NSImage?
     private let openTab: (String, String) -> Void
     private var monitor: Any?
-    private var pressedFromParent: SidebarItem?
+    private var pressedItem: SidebarItem?
     private var closing = false
     weak var parent: NSWindow?
     var pointerChanged: (() -> Void)?
@@ -152,6 +152,7 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         super.init()
         panel.isReleasedWhenClosed = false; panel.hasShadow = true; panel.backgroundColor = .clear; panel.isOpaque = false
         panel.isMovable = false; panel.hidesOnDeactivate = false; panel.animationBehavior = .none
+        panel.becomesKeyOnlyIfNeeded = true
         panel.appearance = NSAppearance(named:.darkAqua); panel.acceptsMouseMovedEvents = true
         panel.title = folder.name; panel.contentView = stage
         stage.wantsLayer = true; stage.addSubview(surface)
@@ -285,25 +286,29 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         monitor = NSEvent.addLocalMonitorForEvents(matching:[.mouseMoved,.mouseEntered,.mouseExited,.leftMouseDragged,.leftMouseDown,.leftMouseUp,.rightMouseDown,.otherMouseDown,.scrollWheel,.keyDown]) { [weak self] event in
             guard let self, !self.closing else { return event }
             if event.type == .keyDown { return self.handleKey(event) ? nil : event }
-            if event.type == .leftMouseDown { self.pressedFromParent = nil }
-            if event.type == .leftMouseUp, let pressed = self.pressedFromParent {
-                self.pressedFromParent = nil
-                if let window = event.window, window === parent || window === self.panel,
-                   let row = self.row(atScreenPoint:window.convertPoint(toScreen:event.locationInWindow)),
-                   self.items[row].id == pressed { self.activate(row) }
+            let window = event.window
+            let point = window?.convertPoint(toScreen:event.locationInWindow) ?? event.locationInWindow
+            let inPreview = (window === self.panel || window === parent) && self.panel.frame.contains(point)
+            // Take both halves of a row click before AppKit can use the press
+            // to focus the panel or start the table's own mouse tracking loop.
+            if event.type == .leftMouseDown {
+                self.pressedItem = nil
+                if inPreview, let row = self.row(atScreenPoint:point) {
+                    self.pressedItem = self.items[row].id
+                    self.list.selectRowIndexes(IndexSet(integer:row),byExtendingSelection:false)
+                    return nil
+                }
+            }
+            if event.type == .leftMouseUp, let pressed = self.pressedItem {
+                self.pressedItem = nil
+                if inPreview, let row = self.row(atScreenPoint:point), self.items[row].id == pressed {
+                    self.activate(row)
+                }
                 return nil
             }
             if event.window === self.panel { self.pointerChanged?(); return event }
-            if [.leftMouseDown,.rightMouseDown,.otherMouseDown,.scrollWheel].contains(event.type), let window = event.window {
-                let point = window.convertPoint(toScreen:event.locationInWindow)
-                if window === parent && self.panel.frame.contains(point) {
-                    // AppKit can still address the parent just after the hover panel appears.
-                    if event.type == .leftMouseDown, let row = self.row(atScreenPoint:point) {
-                        self.pressedFromParent = self.items[row].id
-                        self.list.selectRowIndexes(IndexSet(integer:row),byExtendingSelection:false)
-                    }
-                    return nil
-                }
+            if [.leftMouseDown,.rightMouseDown,.otherMouseDown,.scrollWheel].contains(event.type), window != nil {
+                if inPreview { return nil }
                 if event.type != .scrollWheel { self.dismiss?() }
             }
             return event
