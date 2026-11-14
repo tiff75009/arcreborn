@@ -34,8 +34,8 @@ final class AddMenuButton: NSButton {
     func setExpanded(_ value: Bool) {
         guard expanded != value else { return }
         expanded = value
-        if !value, let window {
-            hovered = bounds.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))
+        if !value {
+            hovered = containsCurrentPointer
         }
         let angle = value ? Double.pi/4 : 0
         let previous = (mark.presentation()?.value(forKeyPath:"transform.rotation.z") as? NSNumber)?.doubleValue ?? (value ? 0 : Double.pi/4)
@@ -71,7 +71,7 @@ final class AddMenuButton: NSButton {
     override func mouseEntered(with event: NSEvent) { trackPointer(event) }
     override func mouseExited(with event: NSEvent) { setHovered(false) }
     func trackPointer(_ event: NSEvent) {
-        setHovered(event.window === window && event.type != .mouseExited && !isHiddenOrHasHiddenAncestor && bounds.contains(convert(event.locationInWindow,from:nil)))
+        setHovered(event.window === window && event.type != .mouseExited && containsExposedPointer(at:event.locationInWindow))
     }
     private func setHovered(_ value: Bool) { guard hovered != value else { return }; hovered = value; refresh() }
 }

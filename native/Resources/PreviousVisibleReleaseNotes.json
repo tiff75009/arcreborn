@@ -1,47 +1,47 @@
 {
-  "version": "1.5.4",
-  "build": 39,
+  "version": "1.5.6",
+  "build": 41,
   "showOnLaunch": true,
   "title": {
-    "fr": "Du dossier à la page, en un clic",
-    "en": "From folder to page in one click"
+    "fr": "Navigation privée et plein écran vidéo",
+    "en": "Private browsing and fullscreen video"
   },
   "subtitle": {
-    "fr": "Survolez un dossier replié et choisissez votre onglet. Arc Reborn ouvre la page et vous montre aussitôt sa place dans la barre latérale.",
-    "en": "Hover over a collapsed folder and choose a tab. Arc Reborn opens the page and shows you where it lives in the sidebar."
+    "fr": "Retrouvez votre disposition habituelle en privé et profitez des vidéos en plein écran sur Mac.",
+    "en": "Use your usual layout in private windows and watch videos in fullscreen on your Mac."
   },
   "highlights": [
     {
-      "symbol": "cursorarrow.click",
+      "symbol": "sidebar.left",
       "title": {
-        "fr": "Le premier clic ouvre la page",
-        "en": "The first click opens the page"
+        "fr": "Une seule barre d’adresse en privé",
+        "en": "One address bar in private windows"
       },
       "detail": {
-        "fr": "Cliquez directement sur un résultat dans l’aperçu, même si la fenêtre principale a encore le focus.",
-        "en": "Click a result in the folder preview to open it, even while the main window still has focus."
+        "fr": "La barre d’adresse en double a disparu. La fenêtre privée reprend le mode classique ou compact de votre fenêtre normale, ainsi que la largeur et la visibilité de la barre latérale.",
+        "en": "The duplicate address bar is gone. Private windows follow your regular window’s Classic or Compact layout, including the sidebar’s width and whether it is shown or hidden."
       }
     },
     {
-      "symbol": "folder",
+      "symbol": "paintpalette",
       "title": {
-        "fr": "Retrouvez le bon sous-dossier",
-        "en": "See the whole folder path"
+        "fr": "Une couleur à vous pour la navigation privée",
+        "en": "A colour of your own for private browsing"
       },
       "detail": {
-        "fr": "Si votre onglet est rangé dans plusieurs sous-dossiers, la barre latérale les déplie jusqu’à lui et le fait défiler à l’écran. Cela fonctionne aussi depuis la recherche de l’aperçu.",
-        "en": "For a tab nested several folders deep, the sidebar expands its folders and scrolls the tab into view. This also works when you pick a search result in the preview."
+        "fr": "Le violet reste la couleur par défaut. Pour la changer, faites un clic droit sur « Navigation privée », puis choisissez « Modifier la couleur du thème… ». Les prochaines fenêtres privées reprendront ce choix, même après un redémarrage.",
+        "en": "Purple is still the default. To change it, right-click Private Browsing and choose Edit Theme Color. New private windows remember your choice, even after you restart Arc Reborn."
       }
     },
     {
-      "symbol": "globe",
+      "symbol": "arrow.up.left.and.arrow.down.right",
       "title": {
-        "fr": "Chromium 156.0.8078.88",
-        "en": "Chromium 156.0.8078.88"
+        "fr": "Les vidéos passent en plein écran macOS",
+        "en": "Videos now enter macOS fullscreen"
       },
       "detail": {
-        "fr": "Le moteur de navigation passe de Chromium 156.0.8078.80 à 156.0.8078.88, avec CEF 156.0.28 sur Mac.",
-        "en": "Arc Reborn moves from Chromium 156.0.8078.80 to 156.0.8078.88, with CEF 156.0.28 on Mac."
+        "fr": "Sur YouTube et les autres lecteurs compatibles, le bouton plein écran utilise tout l’écran du Mac, même en vue partagée. Appuyez sur Échap pour retrouver votre disposition.",
+        "en": "On YouTube and other supported players, the fullscreen button uses your entire Mac display, even in split view. Press Esc to return to your layout."
       }
     }
   ]

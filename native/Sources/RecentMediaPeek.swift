@@ -218,7 +218,7 @@ final class RecentFileRow: NSView {
         refreshHover()
     }
     func refreshHover() {
-        if let window { hover(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) }
+        hover(containsCurrentPointer)
     }
     private func hover(_ value:Bool) {
         guard hovered != value else { return }; hovered = value
@@ -243,7 +243,7 @@ final class RecentFileRow: NSView {
         }
         seenTask = task; DispatchQueue.main.asyncAfter(deadline:.now()+0.85,execute:task)
     }
-    override func mouseEntered(with event:NSEvent) { hover(true) }
+    override func mouseEntered(with event:NSEvent) { refreshHover() }
     override func mouseExited(with event:NSEvent) { hover(false) }
     deinit { seenTask?.cancel(); if let request { QLThumbnailGenerator.shared.cancel(request) } }
 }

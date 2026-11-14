@@ -256,10 +256,10 @@ private final class FavoriteTile: NSButton, NSDraggingSource {
         tracking = NSTrackingArea(rect:.zero,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self); addTrackingArea(tracking!)
     }
     func trackPointer(_ event: NSEvent) {
-        let inside = event.window === window && !isHiddenOrHasHiddenAncestor && alphaValue > 0 && bounds.contains(convert(event.locationInWindow,from:nil))
+        let inside = event.window === window && event.type != .mouseExited && alphaValue > 0 && containsExposedPointer(at:event.locationInWindow)
         if inside != hovered { hovered = inside; updateAppearance() }
     }
-    override func mouseEntered(with event: NSEvent) { hovered = true; updateAppearance() }
+    override func mouseEntered(with event: NSEvent) { trackPointer(event) }
     override func mouseExited(with event: NSEvent) { hovered = false; updateAppearance() }
     override func mouseDown(with event: NSEvent) {
         let start = convert(event.locationInWindow,from:nil)

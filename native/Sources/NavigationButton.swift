@@ -22,12 +22,12 @@ class NavigationButton: ActionButton {
         if let tracking { removeTrackingArea(tracking) }
         tracking = NSTrackingArea(rect:.zero,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self)
         addTrackingArea(tracking!)
-        if let window { setHovered(!isHiddenOrHasHiddenAncestor && bounds.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) }
+        setHovered(containsCurrentPointer)
     }
     override func mouseEntered(with event:NSEvent) { trackPointer(event) }
     override func mouseExited(with event:NSEvent) { setHovered(false) }
     func trackPointer(_ event:NSEvent) {
-        setHovered(event.window === window && event.type != .mouseExited && !isHiddenOrHasHiddenAncestor && bounds.contains(convert(event.locationInWindow,from:nil)))
+        setHovered(event.window === window && event.type != .mouseExited && containsExposedPointer(at:event.locationInWindow))
     }
     private func setHovered(_ value:Bool) {
         guard hovered != value else { return }

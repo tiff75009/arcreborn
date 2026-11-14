@@ -185,9 +185,9 @@ final class DownloadCard: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
         tracking = NSTrackingArea(rect:.zero,options:[.activeAlways,.inVisibleRect,.mouseEnteredAndExited],owner:self); addTrackingArea(tracking!)
-        if let window { setHovered(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) }
+        setHovered(containsCurrentPointer)
     }
-    func refreshHover() { if let window { setHovered(!isHiddenOrHasHiddenAncestor && visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) } }
+    func refreshHover() { setHovered(containsCurrentPointer) }
     private var rowColor:NSColor {
         compact ? ink.withAlphaComponent(hovered ? 0.08 : 0) : NSColor.white.withAlphaComponent(hovered ? 0.09 : 0.035)
     }
@@ -200,8 +200,8 @@ final class DownloadCard: NSView {
         layer?.backgroundColor = rowColor.cgColor
         if compact { needsLayout = true }
     }
-    override func mouseEntered(with event:NSEvent) { setHovered(true); scheduleSeen() }
-    override func mouseExited(with event:NSEvent) { setHovered(window.map { visibleRect.contains(convert($0.mouseLocationOutsideOfEventStream,from:nil)) } ?? false) }
+    override func mouseEntered(with event:NSEvent) { refreshHover(); scheduleSeen() }
+    override func mouseExited(with event:NSEvent) { refreshHover() }
     deinit { seenTask?.cancel() }
 }
 

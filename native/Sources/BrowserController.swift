@@ -134,12 +134,12 @@ private final class LibraryFooterButton: ActionButton {
         if let tracking { removeTrackingArea(tracking) }
         tracking = NSTrackingArea(rect:.zero,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self)
         addTrackingArea(tracking!)
-        if let window { setHovered(!isHiddenOrHasHiddenAncestor && bounds.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil))) }
+        setHovered(containsCurrentPointer)
     }
     override func mouseEntered(with event: NSEvent) { trackPointer(event) }
     override func mouseExited(with event: NSEvent) { setHovered(false) }
     func trackPointer(_ event: NSEvent) {
-        setHovered(event.window === window && event.type != .mouseExited && !isHiddenOrHasHiddenAncestor && bounds.contains(convert(event.locationInWindow,from:nil)))
+        setHovered(event.window === window && event.type != .mouseExited && containsExposedPointer(at:event.locationInWindow))
     }
     private func setHovered(_ value: Bool) { guard value != hovered else { return }; hovered = value; refreshHover(); hoverChanged?() }
     func animateLibraryPeek(_ open: Bool) {
@@ -223,7 +223,7 @@ private final class SpaceHeaderButton: ActionButton {
     override func mouseEntered(with event: NSEvent) { trackPointer(event) }
     override func mouseExited(with event: NSEvent) { hovered = false; refreshTitle() }
     func trackPointer(_ event: NSEvent) {
-        let inside = !suppressHover && event.type != .mouseExited && event.window === window && !isHiddenOrHasHiddenAncestor && bounds.contains(convert(event.locationInWindow,from:nil))
+        let inside = !suppressHover && event.type != .mouseExited && event.window === window && containsExposedPointer(at:event.locationInWindow)
         guard inside != hovered else { return }
         hovered = inside; refreshTitle()
     }
@@ -927,7 +927,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     func windowDidResignKey(_ notification: Notification) {
         cancelLibraryGesture()
         spaceIndicatorContent.clearHover(); dismissSidebarTip()
-        updateRecentPeekHover(); updateSidebarHover()
+        refreshSidebarPointer()
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.window.isKeyWindow, self.folderPeek?.isKey != true else { return }
             self.dismissFolderPeek(animated:false)
@@ -1019,7 +1019,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         downloadButton = LibraryFooterButton(t("library")) { [weak self] in self?.showLibrary() }; downloadButton.title = ""
         (downloadButton as? LibraryFooterButton)?.hoverChanged = { [weak self] in
             guard let self else { return }
-            self.sidebarPointer = self.root.convert(self.window.mouseLocationOutsideOfEventStream,from:nil)
+            self.sidebarPointer = SidebarRevealState.pointer(at:NSEvent.mouseLocation,in:self.root)
             self.updateRecentPeekHover()
         }
         copyLinkButton = CopyLinkButton(t("copyURL"),symbol:"link") { [weak self] in self?.copyActiveURL() }
@@ -1069,7 +1069,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sidebar")); column.resizingMask = .autoresizingMask; table.addTableColumn(column)
         table.acceptsPointerAt = { [weak self] point in
             guard let self else { return false }
-            return !self.sidebarOverlayContains(point) && self.rowsScroll.bounds.contains(self.rowsScroll.convert(point,from:nil))
+            return !self.sidebarOverlayContains(point) && self.rowsScroll.containsExposedPointer(at:point)
         }
         table.style = .plain; table.headerView = nil; table.rowHeight = 36; table.intercellSpacing = NSSize(width: 0, height: 2); table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.backgroundColor = .clear; table.selectionHighlightStyle = .none; table.focusRingType = .none
@@ -1419,23 +1419,41 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     private func refreshSidebarPointer() {
         sidebarPointer = SidebarRevealState.pointer(at: NSEvent.mouseLocation, in: root)
         if NSEvent.pressedMouseButtons & 1 == 0 { sidebarMousePressed = false }
-        trackSidebarTip(at:window.mouseLocationOutsideOfEventStream)
-        updateCard.trackPointer(sidebarPointer == nil ? nil : window.mouseLocationOutsideOfEventStream)
+        if let point = sidebarPointer {
+            let windowPoint = root.convert(point,to:nil)
+            if let move = NSEvent.mouseEvent(with:.mouseMoved,location:windowPoint,modifierFlags:[],
+                    timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:window.windowNumber,
+                    context:nil,eventNumber:0,clickCount:0,pressure:0) {
+                updateSidebarPointerFeedback(move)
+            }
+            trackSidebarTip(at:windowPoint)
+            updateCard.trackPointer(windowPoint)
+        } else {
+            clearSidebarPointerFeedback()
+            updateCard.trackPointer(nil)
+        }
         updateFolderHover(); updateRecentPeekHover()
         updateSidebarHover()
     }
     private func updateBackgroundSidebarTracking() {
-        // Local tracking events can stop when the pointer moves to another app.
-        // Sample only while a background window has a transient sidebar open.
-        guard session.sidebarHidden, sidebarRevealed, !window.isKeyWindow,
-              window.isVisible, !window.isMiniaturized, !isQuitting else {
+        // A foreign window can cover a hovered row without delivering a mouse exit.
+        // Stop sampling as soon as the pointer no longer owns any sidebar feedback.
+        let overChrome = sidebarPointer.map { point in
+            (!sidebarHost.isHidden && sidebarHost.frame.contains(point)) ||
+                (!classicHeader.isHidden && classicHeader.frame.contains(point))
+        } ?? false
+        let transientSidebar = session.sidebarHidden && sidebarRevealed && !window.isKeyWindow
+        guard overChrome || transientSidebar, window.isVisible, !window.isMiniaturized, !isQuitting else {
             backgroundSidebarTimer?.invalidate()
             backgroundSidebarTimer = nil
             return
         }
         guard backgroundSidebarTimer == nil else { return }
         let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
-            self?.refreshSidebarPointer()
+            guard let self else { return }
+            if self.sidebarMousePressed || self.sidebarPointer != SidebarRevealState.pointer(at:NSEvent.mouseLocation,in:self.root) {
+                self.refreshSidebarPointer()
+            }
         }
         timer.tolerance = 0.015
         backgroundSidebarTimer = timer
@@ -1511,6 +1529,12 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
            content.visibleRect.contains(content.convert(event.locationInWindow,from:nil)) {
             lastPagePress = (tab.id,root.convert(event.locationInWindow,from:nil),ProcessInfo.processInfo.systemUptime)
         }
+        if event.type == .leftMouseUp { sidebarMousePressed = false }
+        guard event.window === window, event.type != .mouseExited,
+              window.receivesPointer(atScreenPoint:window.convertPoint(toScreen:event.locationInWindow)) else {
+            refreshSidebarPointer()
+            return
+        }
         updateSidebarPointerFeedback(event)
         if event.window === window && [.mouseMoved,.mouseEntered,.leftMouseUp].contains(event.type) {
             trackSidebarTip(at:event.locationInWindow)
@@ -1522,9 +1546,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             let point = sidebarHost.convert(event.locationInWindow,from:nil)
             if !recentPeekVisible || !recentPeek.frame.contains(point) { dismissRecentPeek() }
         }
-        if event.type == .leftMouseUp { sidebarMousePressed = false }
         let location = root.convert(event.locationInWindow, from:nil)
-        sidebarPointer = event.type != .mouseExited && event.window === window && root.bounds.contains(location) ? location : nil
+        sidebarPointer = root.bounds.contains(location) ? location : nil
         updateCard.trackPointer(sidebarPointer == nil ? nil : event.locationInWindow)
         if sidebarOverlayContains(event.locationInWindow) {
             updateSidebarRowHover(at:nil)
@@ -1566,6 +1589,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         return nil
     }
     private func trackSidebarTip(at point:NSPoint) {
+        guard window.receivesPointer(atScreenPoint:window.convertPoint(toScreen:point)) else { dismissSidebarTip(); return }
         let sound = soundButton(at:point)
         let target = tipTarget(at:point,sound:sound)
         if case .sound = target { setHoveredSoundButton(sound) } else { setHoveredSoundButton(nil) }
@@ -1573,7 +1597,8 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let self, let target else { return nil }
             let p = self.window.mouseLocationOutsideOfEventStream
             let currentSound = self.soundButton(at:p)
-            guard self.tipTarget(at:p,sound:currentSound) == target else { return nil }
+            guard self.window.receivesPointer(atScreenPoint:self.window.convertPoint(toScreen:p)),
+                  self.tipTarget(at:p,sound:currentSound) == target else { return nil }
             switch target {
             case .sound:
                 guard let label = currentSound?.accessibilityLabel() else { return nil }
@@ -1637,7 +1662,7 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
     }
     private func hoveredFolder(at screen:NSPoint) -> (folder:NativeFolder,anchor:NSRect)? {
         let windowPoint = window.convertPoint(fromScreen:screen)
-        guard !sidebarOverlayContains(windowPoint) else { return nil }
+        guard !sidebarOverlayContains(windowPoint), window.receivesPointer(atScreenPoint:screen) else { return nil }
         let point = table.convert(windowPoint,from:nil)
         guard table.visibleRect.contains(point) else { return nil }
         let row = table.row(at:point)
@@ -1678,7 +1703,6 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
             guard let target else { self.dismissFolderPeek(animated:true); return }
             let point = NSEvent.mouseLocation
             guard self.canPreviewFolder, NSEvent.pressedMouseButtons == 0,
-                  NSWindow.windowNumber(at:point,belowWindowWithWindowNumber:0) == self.window.windowNumber,
                   let hit = self.hoveredFolder(at:point), hit.folder.id == target else { return }
             let folder = hit.folder
             let available = self.window.convertToScreen(self.root.convert(self.root.bounds,to:nil))
@@ -2107,7 +2131,9 @@ final class BrowserController: NSObject, NSWindowDelegate, BrowserEngineDelegate
         let task = DispatchWorkItem { [weak self] in
             guard let self else { return }; self.recentPeekTask = nil; self.recentPeekPending = nil
             if inside {
-                guard NSEvent.pressedMouseButtons == 0 else { return }
+                let point = self.sidebarHost.convert(self.window.mouseLocationOutsideOfEventStream,from:nil)
+                guard NSEvent.pressedMouseButtons == 0, self.window.receivesPointer(atScreenPoint:NSEvent.mouseLocation),
+                      self.downloadButton.frame.insetBy(dx:-3,dy:-4).contains(point) else { return }
                 self.recentPeekVisible = true
                 self.updateActiveTabReturn()
                 self.updateCard.setSuppressed(true)

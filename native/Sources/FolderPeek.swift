@@ -77,9 +77,9 @@ private final class PeekRow: NSTableRowView {
         if let tracking { removeTrackingArea(tracking) }
         let area = NSTrackingArea(rect:.zero,options:[.mouseEnteredAndExited,.activeAlways,.inVisibleRect],owner:self)
         addTrackingArea(area); tracking = area
-        if let window { hover = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream,from:nil)) }
+        hover = containsCurrentPointer
     }
-    override func mouseEntered(with event:NSEvent) { hover = true }
+    override func mouseEntered(with event:NSEvent) { hover = containsCurrentPointer }
     override func mouseExited(with event:NSEvent) { hover = false }
     override func drawBackground(in dirtyRect:NSRect) { if hover { fill(0.095) } }
     override func drawSelection(in dirtyRect:NSRect) { fill(0.13) }
@@ -139,7 +139,7 @@ final class FolderPeek: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         // to the card so users can cross slowly without restarting the hover.
         let bridge = NSRect(x:attachment.maxX-15,y:attachment.minY,
                             width:max(15,panel.frame.minX-attachment.maxX+16),height:attachment.height)
-        return panel.frame.contains(point) || bridge.contains(point)
+        return panel.receivesPointer(atScreenPoint:point) || (bridge.contains(point) && parent?.receivesPointer(atScreenPoint:point) == true)
     }
     var isKey: Bool { panel.isKeyWindow }
     private(set) var folderID: String

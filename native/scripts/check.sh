@@ -9,7 +9,7 @@ build/checks/password-manager-tests
 build/checks/command-palette-tests
 xcrun swiftc -O Sources/ThemeState.swift Sources/NativeState.swift Sources/SplitState.swift Sources/SpaceContent.swift Sources/FolderTree.swift Sources/FavoritesState.swift Sources/SpaceNavigation.swift Sources/DeletionUndo.swift Tests/StateTests.swift -o build/checks/state-tests
 build/checks/state-tests
-xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,FolderPeek}.swift Tests/FolderPeekTests.swift -o build/checks/folder-peek-tests
+xcrun swiftc Sources/{SidebarRevealState,ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,FolderPeek}.swift Tests/FolderPeekTests.swift -o build/checks/folder-peek-tests
 build/checks/folder-peek-tests
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,ExtensionTabCreation}.swift Tests/ExtensionTabTests.swift -o build/checks/extension-tab-tests
 build/checks/extension-tab-tests
@@ -21,13 +21,13 @@ xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,
 build/checks/document-tests Resources/Info.plist
 xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,BrowserImport,BrowserHistoryImport}.swift Tests/BrowserHistoryImportTests.swift -o build/checks/history-import-tests
 build/checks/history-import-tests
-xcrun swiftc -O Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,FavoriteUnread,FaviconPixels,FaviconCache}.swift Tests/FaviconCacheTests.swift -o build/checks/favicon-cache-tests
+xcrun swiftc -O Sources/{SidebarRevealState,ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,FavoriteUnread,FaviconPixels,FaviconCache}.swift Tests/FaviconCacheTests.swift -o build/checks/favicon-cache-tests
 build/checks/favicon-cache-tests
 xcrun swiftc -O Sources/TabSoundButton.swift Tests/TabSoundButtonTests.swift -o build/checks/tab-sound-tests
 build/checks/tab-sound-tests
-xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,ActionButton,FolderDisclosureIcon,SidebarTabCell}.swift Tests/SidebarTabHoverTests.swift -o build/checks/sidebar-tab-hover-tests
+xcrun swiftc Sources/{SidebarRevealState,ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,ActionButton,FolderDisclosureIcon,SidebarTabCell}.swift Tests/SidebarTabHoverTests.swift -o build/checks/sidebar-tab-hover-tests
 build/checks/sidebar-tab-hover-tests
-xcrun swiftc Sources/{ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,ActionButton,FolderDisclosureIcon,SidebarTabCell,SidebarSplitGroupCell,SpaceIconPicker}.swift Tests/SidebarSplitGroupCellTests.swift -o build/checks/sidebar-split-group-tests
+xcrun swiftc Sources/{SidebarRevealState,ThemeState,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,TabSoundButton,SidebarTabDrag,FavoritesGrid,ActionButton,FolderDisclosureIcon,SidebarTabCell,SidebarSplitGroupCell,SpaceIconPicker}.swift Tests/SidebarSplitGroupCellTests.swift -o build/checks/sidebar-split-group-tests
 build/checks/sidebar-split-group-tests
 xcrun swiftc Sources/SidebarRowMotion.swift Tests/SidebarRowMotionTests.swift -o build/checks/sidebar-row-motion-tests
 build/checks/sidebar-row-motion-tests
@@ -47,7 +47,7 @@ xcrun swiftc Sources/SidebarScrollView.swift Tests/SidebarScrollerTests.swift -o
 build/checks/sidebar-scroller-tests
 xcrun swiftc Sources/SidebarTabReturn.swift Tests/SidebarTabReturnTests.swift -o build/checks/sidebar-tab-return-tests
 build/checks/sidebar-tab-return-tests
-xcrun swiftc -O Sources/{LibraryStore,Localization,ActionButton,DownloadCard,RecentMediaPeek,FooterControlArtwork}.swift Tests/DownloadShelfTests.swift -o build/checks/download-shelf-tests
+xcrun swiftc -O Sources/{SidebarRevealState,LibraryStore,Localization,ActionButton,DownloadCard,RecentMediaPeek,FooterControlArtwork}.swift Tests/DownloadShelfTests.swift -o build/checks/download-shelf-tests
 build/checks/download-shelf-tests
 xcrun swiftc -O Sources/LibraryMediaIcon.swift Tests/LibraryMediaIconTests.swift -o build/checks/library-media-icon-tests
 build/checks/library-media-icon-tests
@@ -59,7 +59,7 @@ xcrun swiftc -O Sources/{LibraryMediaIcon,LibraryArchiveIcon}.swift Tests/Librar
 build/checks/library-archive-icon-tests
 xcrun swiftc -O Sources/LibraryStore.swift Tests/LibraryTests.swift -o build/checks/library-tests
 build/checks/library-tests
-xcrun swiftc Sources/{LibraryView,LibraryStore,LibraryMediaIcon,LibraryDownloadIcon,LibrarySpacesIcon,LibraryArchiveIcon,ThemeState,ThemeRendering,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,DeletionUndo,Localization,SpaceIconPicker,DownloadCard,ActionButton}.swift Tests/LibraryViewTests.swift -o build/checks/library-view-tests
+xcrun swiftc Sources/{SidebarRevealState,LibraryView,LibraryStore,LibraryMediaIcon,LibraryDownloadIcon,LibrarySpacesIcon,LibraryArchiveIcon,ThemeState,ThemeRendering,NativeState,SplitState,SpaceContent,FolderTree,FavoritesState,SpaceNavigation,DeletionUndo,Localization,SpaceIconPicker,DownloadCard,ActionButton}.swift Tests/LibraryViewTests.swift -o build/checks/library-view-tests
 build/checks/library-view-tests
 xcrun swiftc Sources/LibraryDrawerMotion.swift Tests/LibraryDrawerMotionTests.swift -o build/checks/library-drawer-motion-tests
 build/checks/library-drawer-motion-tests
@@ -69,7 +69,7 @@ xcrun clang++ -fobjc-arc -framework Foundation Tests/ExternalAppLinkPolicyTests.
 build/checks/external-app-link-policy
 /usr/bin/python3 scripts/release.py check
 /usr/bin/python3 Tests/release-tools-test.py
-xcrun swiftc Sources/{SidebarUpdateSession,SidebarUpdateCard,SidebarListChrome,LibraryStore,Localization,ActionButton,DownloadCard,RecentMediaPeek}.swift Tests/SidebarUpdateTests.swift -o build/checks/sidebar-update-tests
+xcrun swiftc Sources/{SidebarRevealState,SidebarUpdateSession,SidebarUpdateCard,SidebarListChrome,LibraryStore,Localization,ActionButton,DownloadCard,RecentMediaPeek}.swift Tests/SidebarUpdateTests.swift -o build/checks/sidebar-update-tests
 build/checks/sidebar-update-tests
 xcrun swiftc Sources/DefaultBrowser.swift Tests/DefaultBrowserTests.swift -o build/checks/default-browser-tests
 build/checks/default-browser-tests
